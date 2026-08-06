@@ -24,7 +24,7 @@ import { GitHubClient } from './github/client.js';
 import { publishReview } from './github/publish.js';
 import { loadRolling, recordSpend } from './cost/rolling.js';
 import { log, redact, setLogLevel } from './util/log.js';
-import { repoRoot } from './util/workspace.js';
+import { gitStateDir, repoRoot } from './util/workspace.js';
 import { checkoutAt, type EphemeralCheckout } from './util/worktree.js';
 
 export const VERSION = '0.1.0';
@@ -276,7 +276,7 @@ async function main(): Promise<number> {
   }
 
   // ── Output ─────────────────────────────────────────────────────────────────
-  const stateDir = path.join(repoDir, '.git', 'juror');
+  const stateDir = await gitStateDir(repoDir);
   const prKey = `${repo ?? 'local'}#${prNumber ?? 'wt'}@${headSha.slice(0, 12)}`;
   const rolling = safeRecordSpend(stateDir, result.totals.usd, prKey);
 

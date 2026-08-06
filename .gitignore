@@ -17,6 +17,7 @@ node_modules/
 
 # --- runtime scratch ---
 .juror/
+.juror-run/
 scratch/
 tmp/
 *.log

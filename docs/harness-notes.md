@@ -93,7 +93,7 @@ JSONL on stdout: `step_start`, `tool_use`, `text`, `step_finish`.
   "cache":{"write":0,"read":14680}},"cost":0.00043792}`.
 - Provider keys come from the environment via models.dev metadata. `FIREWORKS_API_KEY` alone
   enables every `fireworks-ai/...` model with no login step.
-- Four behaviours that each cost a debugging session:
+- Five behaviours that each cost a debugging session:
   1. **Writes outside `--dir` are auto-rejected** in headless mode
      (`! permission requested: external_directory ...; auto-rejecting`), and the rejection
      appears only on stderr. The findings file must live inside the project dir.
@@ -106,6 +106,11 @@ JSONL on stdout: `step_start`, `tool_use`, `text`, `step_finish`.
   4. **It snapshots the project into its data dir.** Put that dir inside the repo and the run
      dies in about a second and leaves a tree that will not delete. `"snapshot": false` also
      avoids copying a full git object store on every review of a large repo.
+  5. **`OPENCODE_CONFIG` does not isolate ambient configuration by itself.** Run with
+     `--pure`, a private `HOME`/XDG tree, `OPENCODE_DISABLE_PROJECT_CONFIG=true`, and the
+     corresponding external-skills, Claude-prompt/skills, and default-plugin disable flags.
+     Otherwise a developer's global setup changes the review, while a PR-controlled project
+     config can inject tools or instructions before the review prompt is applied.
 - Config that works, written to scratch and passed via `OPENCODE_CONFIG`:
   ```json
   { "$schema": "https://opencode.ai/config.json", "autoupdate": false, "share": "disabled",

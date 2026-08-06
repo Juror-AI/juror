@@ -14,7 +14,7 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve, sep } from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import type {
   CanonicalUsage,
   Harness,
@@ -77,10 +77,15 @@ const OPENCODE_CONFIG = {
  * both sides here so the comparison is between like and like.
  */
 function realOrSelf(p: string): string {
+  const absolute = resolve(p);
   try {
-    return realpathSync(p);
+    return realpathSync(absolute);
   } catch {
-    return resolve(p); // not created yet — the lexical form is the best we have
+    // `findings.json` normally does not exist yet. Resolve its nearest existing ancestor
+    // so a symlink in the repo path is still eliminated before the containment check.
+    const parent = dirname(absolute);
+    if (parent === absolute) return absolute;
+    return join(realOrSelf(parent), basename(absolute));
   }
 }
 
@@ -191,12 +196,19 @@ export const opencodeHarness = {
     rmSync(home, { recursive: true, force: true });
     const dataHome = join(home, 'data');
     const cacheHome = join(home, 'cache');
+    const configHome = join(home, 'config');
+    const stateHome = join(home, 'state');
     mkdirSync(dataHome, { recursive: true });
     mkdirSync(cacheHome, { recursive: true });
+    mkdirSync(configHome, { recursive: true });
+    mkdirSync(stateHome, { recursive: true });
 
     const argv = [
       'opencode',
       'run',
+      // Do not load ambient plugins. A review must behave the same on a clean Actions
+      // runner and on a developer machine with a customised opencode installation.
+      '--pure',
       '--format',
       'json',
       '--dir',
@@ -218,13 +230,26 @@ export const opencodeHarness = {
       argv,
       env: {
         ...ctx.env,
+        // opencode otherwise merges user and project configuration into OPENCODE_CONFIG.
+        // Besides making runs non-reproducible, a PR-controlled opencode.json could enable
+        // tools or instructions before the review prompt is applied. Give the process a
+        // private home and explicitly disable every ambient instruction/config source.
+        HOME: home,
         OPENCODE_CONFIG: configPath,
+        OPENCODE_CONFIG_DIR: configHome,
+        OPENCODE_DISABLE_PROJECT_CONFIG: 'true',
+        OPENCODE_DISABLE_EXTERNAL_SKILLS: 'true',
+        OPENCODE_DISABLE_CLAUDE_CODE_PROMPT: 'true',
+        OPENCODE_DISABLE_CLAUDE_CODE_SKILLS: 'true',
+        OPENCODE_DISABLE_DEFAULT_PLUGINS: 'true',
         XDG_DATA_HOME: dataHome,
         XDG_CACHE_HOME: cacheHome,
+        XDG_CONFIG_HOME: configHome,
+        XDG_STATE_HOME: stateHome,
       },
       // opencode blocks on an open stdin pipe; an unclosed stdin costs a full timeout.
       stdin: '',
-      cwd: ctx.repoDir,
+      cwd: realOrSelf(ctx.repoDir),
     };
   },
 
@@ -293,17 +318,23 @@ export const opencodeHarness = {
     }
     if (events.length === 0) diagnostics.push('opencode emitted no JSON events on stdout');
 
-    // The written file wins; the fenced-block parse of the final message is the fallback
-    // for a model that answered in prose instead of using its write tool.
-    const file = readReportSafely(ctx.findingsPath);
-    let report = file.report;
-    diagnostics.push(...file.problems);
-    if (!report && rawText.trim()) {
-      const fromText = parseTextSafely(rawText);
-      diagnostics.push(...fromText.problems);
-      if (fromText.report) {
-        report = fromText.report;
-        diagnostics.push('findings file missing — recovered the report from the final message');
+    let report: ModelReport | null = null;
+    // Referee and verifier calls deliberately write different JSON contracts. Their callers
+    // parse those files after runHarness returns; treating verdict.json as a ModelReport only
+    // produces alarming-but-false "merge_confidence missing" diagnostics.
+    if (basename(ctx.findingsPath) === 'findings.json') {
+      // The written file wins; the fenced-block parse of the final message is the fallback
+      // for a model that answered in prose instead of using its write tool.
+      const file = readReportSafely(ctx.findingsPath);
+      report = file.report;
+      diagnostics.push(...file.problems);
+      if (!report && rawText.trim()) {
+        const fromText = parseTextSafely(rawText);
+        diagnostics.push(...fromText.problems);
+        if (fromText.report) {
+          report = fromText.report;
+          diagnostics.push('findings file missing — recovered the report from the final message');
+        }
       }
     }
 

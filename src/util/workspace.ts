@@ -12,6 +12,9 @@
  * work, which is a far worse failure than a stray agent edit.
  */
 
+import { realpath } from 'node:fs/promises';
+import path from 'node:path';
+
 import { run, runOrThrow } from './proc.js';
 import { log } from './log.js';
 
@@ -121,4 +124,25 @@ export async function repoRoot(dir: string): Promise<string> {
   } catch {
     return dir;
   }
+}
+
+/**
+ * Store repo-wide state in the common git directory, not `<worktree>/.git`: linked
+ * worktrees use a pointer file there, and attempting to mkdir beneath it fails with
+ * ENOTDIR. The common directory also makes rolling spend shared by every workspace.
+ */
+export async function gitStateDir(repoDir: string): Promise<string> {
+  try {
+    const common = (
+      await runOrThrow(['git', 'rev-parse', '--git-common-dir'], { cwd: repoDir })
+    ).trim();
+    if (common) {
+      const absolute = path.resolve(repoDir, common);
+      const physical = await realpath(absolute).catch(() => absolute);
+      return path.join(physical, 'juror');
+    }
+  } catch {
+    // Non-git callers still get the old best-effort location; ledger I/O never throws.
+  }
+  return path.join(repoDir, '.git', 'juror');
 }

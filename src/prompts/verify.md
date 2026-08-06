@@ -5,6 +5,9 @@ checked out read-only at `{{REPO_DIR}}` — actually supports it. Open the file,
 surrounding function, follow the callers, and check the guards, types, and tests that would
 already prevent the failure the finding claims.
 
+Read only files beneath `{{REPO_DIR}}`. Never inspect user or global tool configuration,
+credentials, home-directory files, or any other path outside this repository.
+
 Refute the finding when any of these hold:
 - The failure it describes cannot happen: a guard, type, framework behavior, or caller
   contract prevents it.

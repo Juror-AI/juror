@@ -7,6 +7,13 @@ The repository is checked out at `{{REPO_DIR}}`. The pull request is `{{BASE_SHA
 
 {{CHANGED_FILES}}
 
+## Filesystem boundary
+
+Read only files beneath `{{REPO_DIR}}`. Never inspect user or global tool configuration,
+credentials, home-directory files, or any other path outside this repository. Those paths
+are intentionally unavailable; attempting to read one can terminate the review before its
+report is written.
+
 ## What to report
 
 Report a finding only if a competent reviewer would block or comment on the PR for it.

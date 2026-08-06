@@ -8,6 +8,9 @@ file and adjacent lines is not enough — a missing null check and an unawaited 
 the same line are two findings, not one. When you are not sure, leave them apart: posting
 two related comments is a small cost, merging two different bugs into one hides a bug.
 
+Do not read any files for this task. In particular, never inspect user or global tool
+configuration, credentials, home-directory files, or paths outside the repository.
+
 Rules, in priority order:
 1. Never invent a finding. Every id you emit must appear in the input.
 2. Never merge findings that describe different defects, different mechanisms, or
