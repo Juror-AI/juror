@@ -1,6 +1,6 @@
 /**
  * Stages 2 and 3 of consensus: block findings by file and line window, then merge within
- * a block by weighted token-set Jaccard. Both stages are free — no model call happens
+ * a block by weighted lexical and identifier similarity. Both stages are free — no model call happens
  * here, which is the whole point: the agreement signal was already paid for during
  * fan-out and every other tool on the market throws it away.
  *
@@ -319,6 +319,27 @@ function text(f: AttributedFinding): string {
   return `${f.title} ${f.body}`;
 }
 
+/**
+ * Score a pair without letting a terse title get drowned by two independently written
+ * explanations.
+ *
+ * Models often use nearly identical titles and then justify the same defect with disjoint
+ * operational details. Comparing title+body alone can push that pair just below the
+ * distinct threshold, which means the referee never sees it and the same bug is printed
+ * twice. The title is therefore a second candidate channel. It may raise a pair into the
+ * ambiguous band, but is capped exactly at the merge threshold: a similar title alone can
+ * ask the referee, never silently merge contradictory reports.
+ */
+function comparisonScore(
+  a: AttributedFinding,
+  b: AttributedFinding,
+  mergeThreshold: number,
+): number {
+  const wholeFinding = similarity(text(a), text(b));
+  const titleOnly = similarity(a.title, b.title);
+  return Math.max(wholeFinding, Math.min(titleOnly, mergeThreshold));
+}
+
 export function clusterFindings(
   findings: AttributedFinding[],
   o: ClusterOptions,
@@ -347,7 +368,7 @@ export function clusterFindings(
         for (let j = i + 1; j < block.length; j++) {
           const b = block[j];
           if (!b) continue;
-          const score = similarity(text(a), text(b));
+          const score = comparisonScore(a, b, o.mergeThreshold);
           if (score > o.mergeThreshold) uf.union(i, j);
           else if (score >= o.distinctThreshold) ambiguousPairs.push({ a, b, jaccard: score });
         }

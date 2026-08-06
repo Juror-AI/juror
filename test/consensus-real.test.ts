@@ -182,6 +182,52 @@ describe('length-asymmetric agreement (textcortex/platform#10333)', () => {
   });
 });
 
+describe('title-preserved agreement (textcortex/platform#10356)', () => {
+  // Verbatim Sonnet and DeepSeek output from the posted two-model E2E. Both describe the
+  // same unconditional `chunks_emitted=True` flag, but one focuses on the observable and
+  // the other on the empty-first-event path. The combined score was 0.291 — just below the
+  // 0.30 referee floor — while the titles scored 0.755, so Juror printed the bug twice.
+  const SONNET = {
+    title: 'chunks_emitted hardcoded True for SSE error events',
+    body:
+      '`_raise_for_sse_error_event` always constructs `ModelStreamInterruptedError(..., chunks_emitted=True)`, ' +
+      'even when the `event: error` block is the very first chunk received (no prior visible/reasoning bytes). ' +
+      'This value is surfaced verbatim in error-webhook/task-error-payload observability ' +
+      '(`core/services/error_webhook.py`, `core/services/conversation/task_error_payload.py`), so on-call ' +
+      "engineers could see a misleading 'Chunks Emitted: true' for a failure that actually happened before any " +
+      'stream content arrived.',
+  };
+
+  const DEEPSEEK = {
+    title: 'chunks_emitted set unconditionally on error event',
+    body:
+      'ModelStreamInterruptedError(chunks_emitted=True) is raised whenever the SSE error-event payload is ' +
+      "unparseable or not recognizable as a provider error, even in the case where the error event arrives " +
+      "before a single streamed byte (e.g. an immediate 'event: error' with empty data). The flag feeds " +
+      "task_error_payload/error_webhook, so ops reports can claim 'Chunks Emitted: true' for a failure that " +
+      'emitted nothing; derive it from whether chunks were actually yielded this attempt.',
+  };
+
+  it('routes the duplicate reports to the referee instead of declaring them distinct', () => {
+    const sonnet = {
+      ...finding('sonnet', 382, SONNET, 'P3'),
+      path: 'backend/core/generation/openai_reasoning.py',
+    };
+    const deepseek = {
+      ...finding('deepseek', 387, DEEPSEEK, 'P3'),
+      path: 'backend/core/generation/openai_reasoning.py',
+    };
+
+    expect(similarity(text(SONNET), text(DEEPSEEK))).toBeLessThan(OPTS.distinctThreshold);
+    expect(similarity(SONNET.title, DEEPSEEK.title)).toBeGreaterThan(OPTS.mergeThreshold);
+
+    const { clusters, ambiguousPairs } = clusterFindings([sonnet, deepseek], OPTS);
+    expect(clusters).toHaveLength(2);
+    expect(ambiguousPairs).toHaveLength(1);
+    expect(ambiguousPairs[0]?.jaccard).toBe(OPTS.mergeThreshold);
+  });
+});
+
 describe('clusterFindings on the real fan-out', () => {
   const findings = [
     finding('opus', 8, CLIPBOARD_OPUS),
