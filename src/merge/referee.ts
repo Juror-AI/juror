@@ -1,0 +1,472 @@
+/**
+ * Stage 4: the only model call in the consensus pipeline, and only for pairs Jaccard
+ * could not decide. Calls are made per *block*, not per pair — a typical PR produces
+ * zero to two of them.
+ *
+ * Every failure path returns the input clusters untouched. A referee that times out,
+ * babbles, or has no key must never cost us a finding.
+ */
+
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
+import type {
+  AttributedFinding,
+  Cluster,
+  CostBreakdown,
+  ModelConfig,
+  PricingTable,
+  RunContext,
+} from '../types.js';
+import { renderTemplate, resolveModelRuntime } from '../config.js';
+import { computeCost } from '../cost/compute.js';
+import { getHarness } from '../harness/registry.js';
+import { runHarness } from '../harness/runner.js';
+import { log } from '../util/log.js';
+import type { AmbiguousPair } from './cluster.js';
+import { buildCluster } from './cluster.js';
+
+export interface RefereeOptions {
+  modelRun: ModelConfig | null;
+  pricing: PricingTable;
+  secrets: Record<string, string | undefined>;
+  repoDir: string;
+  scratchRoot: string;
+  promptTemplate: string;
+  enabled: boolean;
+}
+
+export interface RefereeResult {
+  clusters: Cluster[];
+  cost: CostBreakdown;
+  calls: number;
+}
+
+const ZERO_COST: CostBreakdown = { usd: 0, source: 'estimated', longContext: false };
+
+/** Mirrors the default `consensus.line_window`; ambiguous pairs came out of such a block. */
+const BLOCK_WINDOW = 8;
+
+/** A referee prompt is ~1k tokens. Anything past this is a pathological block. */
+const MAX_CANDIDATES_PER_BLOCK = 8;
+const REFEREE_TIMEOUT_MS = 120_000;
+const REFEREE_MAX_TURNS = 4;
+
+/** Ambient variables a CLI needs to start; deliberately excludes `NODE_OPTIONS`. */
+const ENV_ALLOWLIST = ['PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'LC_ALL', 'TMPDIR', 'TERM'];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Identity + grouping
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Findings have no id of their own; this is the tuple that makes one unique. */
+function keyOf(f: AttributedFinding): string {
+  return `${f.modelId}\u0000${f.path}\u0000${f.line}\u0000${f.title}`;
+}
+
+/** String-keyed union-find, used both to group pairs into blocks and to apply merges. */
+class Groups {
+  private readonly parent = new Map<string, string>();
+
+  find(k: string): string {
+    let node = k;
+    for (;;) {
+      const parent = this.parent.get(node);
+      if (parent === undefined || parent === node) return node;
+      const grand = this.parent.get(parent) ?? parent;
+      this.parent.set(node, grand);
+      node = grand;
+    }
+  }
+
+  union(a: string, b: string): void {
+    const ra = this.find(a);
+    const rb = this.find(b);
+    if (ra !== rb) this.parent.set(rb, ra);
+  }
+}
+
+interface Block {
+  path: string;
+  findings: AttributedFinding[];
+}
+
+/**
+ * One call per block, not per pair. Pairs sharing a finding are obviously the same
+ * block; pairs that merely sit within `BLOCK_WINDOW` lines of each other on the same
+ * file are folded in too, which is the same rule Stage 2 used to build the block.
+ */
+function blocksOf(pairs: AmbiguousPair[]): Block[] {
+  const groups = new Groups();
+  const findings = new Map<string, AttributedFinding>();
+
+  for (const p of pairs) {
+    const ka = keyOf(p.a);
+    const kb = keyOf(p.b);
+    findings.set(ka, p.a);
+    findings.set(kb, p.b);
+    groups.union(ka, kb);
+  }
+
+  const byPath = new Map<string, AttributedFinding[]>();
+  for (const f of findings.values()) {
+    const bucket = byPath.get(f.path);
+    if (bucket) bucket.push(f);
+    else byPath.set(f.path, [f]);
+  }
+  for (const list of byPath.values()) {
+    list.sort((a, b) => a.anchoredLine - b.anchoredLine);
+    for (let i = 1; i < list.length; i++) {
+      const prev = list[i - 1];
+      const cur = list[i];
+      if (prev && cur && cur.anchoredLine - prev.anchoredLine <= BLOCK_WINDOW) {
+        groups.union(keyOf(prev), keyOf(cur));
+      }
+    }
+  }
+
+  const blocks = new Map<string, Block>();
+  for (const path of [...byPath.keys()].sort()) {
+    for (const f of byPath.get(path) ?? []) {
+      const root = groups.find(keyOf(f));
+      const block = blocks.get(root);
+      if (block) block.findings.push(f);
+      else blocks.set(root, { path, findings: [f] });
+    }
+  }
+  return [...blocks.values()].filter((b) => b.findings.length > 1);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tolerant JSON
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Local and intentionally small: the referee's answer is not a `ModelReport`, so
+ * `report.ts` cannot parse it, but it needs the same leniency about fences and prose.
+ */
+function extractJson(text: string): unknown {
+  const candidates: string[] = [];
+  for (const m of text.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)) {
+    const body = m[1];
+    if (body) candidates.push(body);
+  }
+  candidates.push(text);
+  const first = text.indexOf('{');
+  const last = text.lastIndexOf('}');
+  if (first !== -1 && last > first) candidates.push(text.slice(first, last + 1));
+
+  for (const c of candidates) {
+    try {
+      return JSON.parse(c.trim()) as unknown;
+    } catch {
+      // Next candidate.
+    }
+  }
+  return null;
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+interface RefereeVerdict {
+  merges: string[][];
+  canonical: Record<string, { title?: string; body?: string }>;
+}
+
+function readVerdict(raw: unknown): RefereeVerdict | null {
+  if (!isRecord(raw)) return null;
+
+  const merges: string[][] = [];
+  const rawMerges = raw['merges'];
+  if (Array.isArray(rawMerges)) {
+    for (const group of rawMerges) {
+      if (!Array.isArray(group)) continue;
+      const ids = group.filter((v): v is string => typeof v === 'string' && v.length > 0);
+      if (ids.length >= 2) merges.push(ids);
+    }
+  }
+
+  const canonical: Record<string, { title?: string; body?: string }> = {};
+  const rawCanonical = raw['canonical'];
+  if (isRecord(rawCanonical)) {
+    for (const [id, value] of Object.entries(rawCanonical)) {
+      if (!isRecord(value)) continue;
+      const title = typeof value['title'] === 'string' ? value['title'] : undefined;
+      const body = typeof value['body'] === 'string' ? value['body'] : undefined;
+      if (title !== undefined || body !== undefined) canonical[id] = { title, body };
+    }
+  }
+
+  // An empty `merges` with no `canonical` is a valid "they are all distinct" answer.
+  if (merges.length === 0 && Object.keys(canonical).length === 0 && rawMerges === undefined) {
+    return null;
+  }
+  return { merges, canonical };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The call
+// ─────────────────────────────────────────────────────────────────────────────
+
+function hasKey(v: string | undefined): v is string {
+  return typeof v === 'string' && v.trim().length > 0;
+}
+
+function childEnv(m: ModelConfig, secret: string): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const name of ENV_ALLOWLIST) {
+    const v = process.env[name];
+    if (typeof v === 'string') env[name] = v;
+  }
+  // Exactly one provider key, same rule as fan-out.
+  env[m.secret] = secret;
+  return env;
+}
+
+const OUTPUT_CONTRACT = `## Output
+
+Write STRICT JSON to {{FINDINGS_PATH}} and nothing else:
+
+{
+  "merges": [["f1", "f2"]],
+  "canonical": { "f1": { "title": "noun phrase", "body": "1-3 sentences" } }
+}
+
+Each inner array of "merges" lists ids that describe the SAME defect. Omit a finding
+entirely if it stands alone. Never invent a finding that is not listed above.`;
+
+function buildPrompt(template: string, block: Block, ids: Map<string, string>, vars: Record<string, string>): string {
+  const payload = block.findings.map((f) => ({
+    id: ids.get(keyOf(f)) ?? '?',
+    path: f.path,
+    line: f.anchoredLine,
+    severity: f.severity,
+    title: f.title,
+    body: f.body,
+  }));
+
+  const findingsJson = JSON.stringify(payload, null, 2);
+  const rendered = renderTemplate(template, { ...vars, FINDINGS: findingsJson });
+
+  // A template that never mentions the candidates cannot referee anything, so append
+  // them plus the contract rather than making a call that is guaranteed to be useless.
+  if (/\{\{FINDINGS\}\}/.test(template)) return rendered;
+  return `${rendered.trim()}\n\n## Candidate findings\n\n${findingsJson}\n\n${renderTemplate(OUTPUT_CONTRACT, vars)}\n`;
+}
+
+async function refereeBlock(
+  block: Block,
+  index: number,
+  m: ModelConfig,
+  key: string,
+  o: RefereeOptions,
+): Promise<{ verdict: RefereeVerdict; ids: Map<string, string>; cost: CostBreakdown } | null> {
+  const findings = block.findings.slice(0, MAX_CANDIDATES_PER_BLOCK);
+  const ids = new Map<string, string>();
+  findings.forEach((f, i) => ids.set(keyOf(f), `f${i + 1}`));
+
+  const rt = resolveModelRuntime(m);
+  const scratchDir = join(o.scratchRoot, 'referee', String(index));
+  await mkdir(scratchDir, { recursive: true });
+
+  const promptPath = join(scratchDir, 'prompt.md');
+  const findingsPath = join(scratchDir, 'referee.json');
+  const prompt = buildPrompt(o.promptTemplate, { path: block.path, findings }, ids, {
+    SCRATCH: scratchDir,
+    FINDINGS_PATH: findingsPath,
+    REPO_DIR: o.repoDir,
+    PATH: block.path,
+  });
+  await writeFile(promptPath, prompt, 'utf8');
+
+  const ctx: RunContext = {
+    repoDir: o.repoDir,
+    scratchDir,
+    findingsPath,
+    promptPath,
+    prompt,
+    model: rt.harnessModel,
+    args: m.args ?? {},
+    env: childEnv(m, key),
+    timeoutMs: m.timeout_seconds ? m.timeout_seconds * 1000 : REFEREE_TIMEOUT_MS,
+    budgetUsd: null,
+    maxTurns: m.max_turns ?? REFEREE_MAX_TURNS,
+  };
+
+  const result = await runHarness(getHarness(m.harness), ctx);
+  for (const d of result.diagnostics) log.debug(`referee: ${d}`);
+
+  // The file is the contract; stdout is the fallback for a model that answered inline.
+  let written = '';
+  try {
+    written = await readFile(findingsPath, 'utf8');
+  } catch {
+    written = '';
+  }
+  const verdict = readVerdict(extractJson(written)) ?? readVerdict(extractJson(result.rawText));
+  if (!verdict) return null;
+
+  return {
+    verdict,
+    ids,
+    cost: computeCost({
+      pricingKey: rt.pricingKey,
+      usage: result.usage,
+      reportedCostUsd: result.reportedCostUsd,
+      pricing: o.pricing,
+    }),
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Applying the verdict
+// ─────────────────────────────────────────────────────────────────────────────
+
+function sumCosts(parts: CostBreakdown[]): CostBreakdown {
+  if (parts.length === 0) return { ...ZERO_COST };
+  let usd = 0;
+  let known = 0;
+  let longContext = false;
+  for (const p of parts) {
+    if (p.usd !== null) {
+      usd += p.usd;
+      known++;
+    }
+    longContext = longContext || p.longContext;
+  }
+  if (known === 0) return { usd: null, source: 'unknown', longContext };
+  const source = parts.every((p) => p.source === 'reported') ? 'reported' : 'estimated';
+  const cost: CostBreakdown = { usd, source, longContext };
+  if (known < parts.length) cost.note = `${parts.length - known} referee call(s) reported no usage`;
+  return cost;
+}
+
+/** Rebuild the cluster list, unioning any clusters the referee said were the same defect. */
+function applyMerges(
+  clusters: Cluster[],
+  merged: { verdict: RefereeVerdict; ids: Map<string, string> }[],
+): Cluster[] {
+  // finding key → index of the cluster that currently owns it.
+  const owner = new Map<string, number>();
+  clusters.forEach((c, i) => {
+    for (const member of c.members) owner.set(keyOf(member), i);
+  });
+
+  const groups = new Groups();
+  const canonical = new Map<number, { title?: string; body?: string }>();
+  let touched = false;
+
+  for (const { verdict, ids } of merged) {
+    const byId = new Map<string, number>();
+    for (const [key, id] of ids) {
+      const index = owner.get(key);
+      if (index !== undefined) byId.set(id, index);
+    }
+
+    for (const group of verdict.merges) {
+      const indices = group.map((id) => byId.get(id)).filter((i): i is number => i !== undefined);
+      const first = indices[0];
+      if (first === undefined) continue;
+      for (const other of indices.slice(1)) {
+        if (groups.find(String(first)) !== groups.find(String(other))) touched = true;
+        groups.union(String(first), String(other));
+      }
+      for (const id of group) {
+        const override = verdict.canonical[id];
+        if (override) {
+          canonical.set(first, override);
+          break;
+        }
+      }
+    }
+  }
+
+  if (!touched) return clusters;
+
+  const buckets = new Map<string, number[]>();
+  clusters.forEach((_, i) => {
+    const root = groups.find(String(i));
+    const bucket = buckets.get(root);
+    if (bucket) bucket.push(i);
+    else buckets.set(root, [i]);
+  });
+
+  const out: Cluster[] = [];
+  for (const indices of buckets.values()) {
+    const first = indices[0];
+    if (first === undefined) continue;
+    const head = clusters[first];
+    if (!head) continue;
+    if (indices.length === 1) {
+      out.push(head);
+      continue;
+    }
+
+    const members: AttributedFinding[] = [];
+    const tags = new Set<Cluster['mergedBy'][number]>(['referee']);
+    let override: { title?: string; body?: string } | null = null;
+    for (const i of indices) {
+      const c = clusters[i];
+      if (!c) continue;
+      members.push(...c.members);
+      for (const t of c.mergedBy) if (t !== 'singleton') tags.add(t);
+      override = override ?? canonical.get(i) ?? null;
+    }
+    out.push(buildCluster(members, [...tags], override));
+  }
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Entry point
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function refereeClusters(
+  pairs: AmbiguousPair[],
+  clusters: Cluster[],
+  o: RefereeOptions,
+): Promise<RefereeResult> {
+  const m = o.modelRun;
+  if (!o.enabled || !m || pairs.length === 0) {
+    return { clusters, cost: { ...ZERO_COST }, calls: 0 };
+  }
+
+  const key = o.secrets[m.secret];
+  if (!hasKey(key)) {
+    log.info(`referee: skipped (no ${m.secret})`);
+    return { clusters, cost: { ...ZERO_COST }, calls: 0 };
+  }
+
+  const blocks = blocksOf(pairs);
+  if (blocks.length === 0) return { clusters, cost: { ...ZERO_COST }, calls: 0 };
+
+  log.step(`Refereeing ${pairs.length} ambiguous pair(s) in ${blocks.length} block(s)`);
+
+  const verdicts: { verdict: RefereeVerdict; ids: Map<string, string> }[] = [];
+  const costs: CostBreakdown[] = [];
+
+  for (const [index, block] of blocks.entries()) {
+    try {
+      const answer = await refereeBlock(block, index, m, key, o);
+      if (!answer) {
+        log.warn(`referee: unparseable answer for ${block.path}, leaving pairs unmerged`);
+        continue;
+      }
+      verdicts.push({ verdict: answer.verdict, ids: answer.ids });
+      costs.push(answer.cost);
+    } catch (e) {
+      // Degrade, never fail: an unmerged pair is two findings, not zero.
+      log.warn(`referee: ${block.path} failed (${e instanceof Error ? e.message : String(e)})`);
+    }
+  }
+
+  if (verdicts.length === 0) return { clusters, cost: { ...ZERO_COST }, calls: 0 };
+
+  return {
+    clusters: applyMerges(clusters, verdicts),
+    cost: sumCosts(costs),
+    calls: verdicts.length,
+  };
+}

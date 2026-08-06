@@ -1,0 +1,105 @@
+name: Juror
+description: Multi-model PR review that shows you the bill — N frontier models review in parallel, only what they agree on gets posted.
+author: juror-dev
+branding:
+  icon: check-circle
+  color: purple
+
+inputs:
+  github-token:
+    description: Token used to post the review. Needs pull-requests:write. Never reaches a model process.
+    required: true
+    default: ${{ github.token }}
+  config:
+    description: Path to the Juror config file. Defaults to .juror.yml at the repo root.
+    required: false
+  models:
+    description: Comma-separated model ids to run, overriding the config's enabled set.
+    required: false
+  max-cost-usd:
+    description: Per-PR budget ceiling. Overrides budget.max_cost_usd_per_pr.
+    required: false
+  post:
+    description: Post the review to the pull request. Set to "false" for a dry run.
+    required: false
+    default: 'true'
+  pr-number:
+    description: Pull request number. Defaults to the triggering PR.
+    required: false
+  claude-code-version:
+    description: npm version spec for Claude Code. Pinned for reproducible cost accounting.
+    required: false
+    default: '@anthropic-ai/claude-code@latest'
+  codex-version:
+    description: npm version spec for Codex CLI. Must be >= 0.146.0 for cache-write accounting.
+    required: false
+    default: '@openai/codex@latest'
+  opencode-version:
+    description: npm version spec for opencode.
+    required: false
+    default: 'opencode-ai@latest'
+
+outputs:
+  score:
+    description: Merge confidence, 1-5.
+    value: ${{ steps.review.outputs.score }}
+  findings:
+    description: Number of published findings.
+    value: ${{ steps.review.outputs.findings }}
+  cost-usd:
+    description: Total cost of this review, or "unknown" if any harness reported neither cost nor tokens.
+    value: ${{ steps.review.outputs.cost-usd }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+
+    - name: Build Juror
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: |
+        npm ci --no-audit --no-fund
+        npm run build
+
+    # Only the harnesses whose key is present are installed. A repo with one key pays for
+    # one install and still gets a working single-model review.
+    - name: Install harnesses
+      shell: bash
+      run: |
+        set -euo pipefail
+        [ -n "${ANTHROPIC_API_KEY:-}" ] && npm i -g "${{ inputs.claude-code-version }}" || true
+        [ -n "${OPENAI_API_KEY:-}"    ] && npm i -g "${{ inputs.codex-version }}"        || true
+        [ -n "${FIREWORKS_API_KEY:-}" ] && npm i -g "${{ inputs.opencode-version }}"     || true
+        if [ -n "${XAI_API_KEY:-}" ]; then curl -fsSL https://grok.com/install.sh | bash || true; fi
+        echo "$HOME/.grok/bin" >> "$GITHUB_PATH"
+
+    - name: Review
+      id: review
+      shell: bash
+      env:
+        # The model processes below never see this — the CLI only loads it for the publish step,
+        # which runs after every model process has exited. See design §11.
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        JUROR_ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        PR="${{ inputs.pr-number }}"
+        if [ -z "$PR" ]; then PR="${{ github.event.pull_request.number }}"; fi
+        ARGS=(review --pr "$PR" --repo "${{ github.repository }}" --repo-dir "$GITHUB_WORKSPACE" --json "$RUNNER_TEMP/juror.json")
+        if [ "${{ inputs.post }}" = "true" ]; then ARGS+=(--post); else ARGS+=(--dry-run --post); fi
+        if [ -n "${{ inputs.config }}" ]; then ARGS+=(--config "${{ inputs.config }}"); fi
+        if [ -n "${{ inputs.models }}" ]; then ARGS+=(--models "${{ inputs.models }}"); fi
+        if [ -n "${{ inputs.max-cost-usd }}" ]; then ARGS+=(--max-cost "${{ inputs.max-cost-usd }}"); fi
+        node "${{ github.action_path }}/dist/cli.js" "${ARGS[@]}"
+
+        node -e '
+          const r = JSON.parse(require("fs").readFileSync(process.env.RUNNER_TEMP + "/juror.json", "utf8"));
+          const out = require("fs");
+          out.appendFileSync(process.env.GITHUB_OUTPUT, `score=${r.verdict.score}\n`);
+          out.appendFileSync(process.env.GITHUB_OUTPUT, `findings=${r.published.length}\n`);
+          out.appendFileSync(process.env.GITHUB_OUTPUT, `cost-usd=${r.totals.usd ?? "unknown"}\n`);
+        '

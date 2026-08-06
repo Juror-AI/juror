@@ -1,0 +1,47 @@
+{
+  "name": "@juror/cli",
+  "version": "0.1.0",
+  "description": "Multi-model PR review that shows you the bill. N frontier models review your PR in parallel through their native agent harnesses; only what they agree on gets posted.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "juror": "./dist/cli.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist",
+    "assets",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/copy-assets.mjs",
+    "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "juror": "node --experimental-strip-types src/cli.ts"
+  },
+  "dependencies": {
+    "yaml": "^2.6.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "keywords": [
+    "code-review",
+    "pull-request",
+    "github-action",
+    "llm",
+    "ai-review",
+    "consensus"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/juror-dev/juror.git"
+  }
+}

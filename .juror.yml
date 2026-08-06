@@ -1,0 +1,105 @@
+# Juror — multi-model PR review. Every knob below is shown at its default value.
+# Delete anything you do not want to change; an empty file is a valid config.
+#
+# This file is committed to the repo, so it holds NO keys — only the NAMES of the
+# environment variables the runner will read. A model whose secret is missing or empty at
+# run time is skipped with a note in the cost receipt, never failed: one key still gets you
+# a working single-model review.
+version: 1
+
+# The jury. A `models:` list here REPLACES this default list entirely — Juror does not
+# merge entry-by-entry, because "I listed one model, why did four run?" is a worse surprise
+# than restating the ones you want. Within an entry, only `id` and `harness` are required;
+# `enabled` and `secret` fall back to that harness's defaults.
+models:
+  # Anthropic via Claude Code (`claude -p`). Reports token usage AND provider-computed cost.
+  - id: claude-opus-5
+    harness: claude-code
+    enabled: true
+    secret: ANTHROPIC_API_KEY # env var name, not a key
+    label: Opus 5 # shown in the receipt and the agreement line
+
+  # OpenAI via Codex CLI (`codex exec --json`). No cost field — Juror estimates from tokens.
+  - id: gpt-5.6-sol
+    harness: codex
+    enabled: true
+    secret: OPENAI_API_KEY
+    label: GPT-5.6 Sol
+    args:
+      reasoning_effort: high # passed through to the harness as -c model_reasoning_effort
+
+  # Fireworks via opencode. `harness_model` is the string the CLI wants; `pricing_key` is
+  # how the provider names the model in pricing.json. Cheap enough to also do the referee
+  # and verification passes below.
+  - id: deepseek-v4-flash-0731
+    harness: opencode
+    enabled: true
+    secret: FIREWORKS_API_KEY
+    label: DeepSeek V4 Flash
+    harness_model: fireworks-ai/accounts/fireworks/models/deepseek-v4-flash-0731
+    pricing_key: accounts/fireworks/models/deepseek-v4-flash-0731
+    args:
+      variant: high # reasoning effort: low | high | max
+
+  # xAI via Grok Build (`grok -p`). Kernel-enforced sandbox on Linux runners.
+  - id: grok-4.5
+    harness: grok-build
+    enabled: true
+    secret: XAI_API_KEY
+    label: Grok 4.5
+
+# How independent findings become one published finding.
+consensus:
+  # How many models must raise a finding for it to publish on its own merits.
+  # majority | all | a number. P0/P1 findings have their own, looser rules (see the docs).
+  min_agreement: majority
+
+  # Run the adversarial refutation pass on findings only one model raised. This is the
+  # precision dial: solo findings are where the false positives live.
+  verify_solo_findings: true
+
+  # Which model runs the refutation pass, and which one breaks deduplication ties.
+  # Both are cheap, rare calls. Set to null to disable that pass entirely.
+  verify_model: deepseek-v4-flash-0731
+  referee_model: deepseek-v4-flash-0731
+
+  # Token-set Jaccard over title+body decides whether two findings are the same defect.
+  # Above merge → same. Below distinct → different. In between → ask the referee model.
+  jaccard_merge_threshold: 0.55
+  jaccard_distinct_threshold: 0.30
+
+  # Findings on the same file within this many lines of each other are compared at all.
+  line_window: 8
+
+review:
+  severity_floor: P2 # do not post anything below this inline
+  max_inline_comments: 15 # the rest stay in the summary table
+  incremental: true # on a re-review, only look at commits pushed since the last one
+
+  # Files Juror will not read or comment on. Generated and vendored code is noise.
+  paths_ignore:
+    - "**/*.lock"
+    - "**/package-lock.json"
+    - "**/uv.lock"
+    - "dist/**"
+    - "build/**"
+    - "**/*.generated.*"
+    - "**/*.min.js"
+    - "**/__snapshots__/**"
+
+  # A finding must land on a line the diff adds or modifies. Within this many lines, snap
+  # it to the nearest one; beyond it, the finding is reported but not posted inline.
+  anchor_tolerance: 3
+
+  max_diff_bytes: 400000 # larger diffs are truncated, and the summary says so
+  per_model_timeout_seconds: 900 # hard wall-clock kill per model
+  max_turns: 40 # agent turns per model
+
+budget:
+  max_cost_usd_per_pr: 2.00
+  on_exceed: partial # partial = post what we have and say so | skip = post nothing
+
+output:
+  sequence_diagram: true # mermaid diagram of the changed flow, when there is one
+  cost_receipt: true # the per-model cost table — the whole point, keep it on
+  suppressed_findings: collapsed # collapsed | hidden | inline

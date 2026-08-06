@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+
+  # This repo is public and is handed four provider keys at runtime. One committed key is
+  # the worst thing that can happen to it, so the check is a build gate rather than a habit.
+  secrets-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assert no provider keys are committed
+        run: |
+          set -euo pipefail
+          # Lengths are set to what a real key actually looks like. A looser pattern matches
+          # the redaction regexes in src/util/log.ts and this very file, and a scanner that
+          # cries wolf on its own definitions gets muted within a week.
+          PATTERN='sk-ant-api[0-9]{2}-[A-Za-z0-9_-]{40,}'
+          PATTERN="$PATTERN|sk-proj-[A-Za-z0-9_-]{40,}"
+          PATTERN="$PATTERN|xai-[A-Za-z0-9]{40,}"
+          PATTERN="$PATTERN|fw_[A-Za-z0-9]{20,}"
+          PATTERN="$PATTERN|gh[pousr]_[A-Za-z0-9]{36}"
+          PATTERN="$PATTERN|github_pat_[A-Za-z0-9_]{60,}"
+          if git grep -nEI "$PATTERN" -- .; then
+            echo "::error::A provider key shape was found in the tree."
+            exit 1
+          fi
+          echo "clean"
+
+      - name: Assert .env can never be committed
+        run: |
+          set -euo pipefail
+          git check-ignore -q .env || { echo "::error::.env is not gitignored"; exit 1; }
+          if git ls-files --error-unmatch .env 2>/dev/null; then
+            echo "::error::.env is tracked by git"
+            exit 1
+          fi
+          echo "clean"
