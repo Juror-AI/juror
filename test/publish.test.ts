@@ -16,13 +16,16 @@ const state = vi.hoisted(() => ({
 vi.mock('../src/render/summary.js', () => ({
   STICKY_MARKER: '<!-- juror:summary:v1 -->',
   renderSummaryComment: () => state.summary,
+  mdCell: (value: string) => value,
+  mdText: (value: string) => value.trim(),
 }));
 
 vi.mock('../src/render/inline.js', () => ({
   selectInlineComments: () => ({ comments: state.comments, overflow: state.overflow }),
 }));
 
-const { publishReview } = await import('../src/github/publish.js');
+const { publishFailureComment, publishReview, publishWorkingComment } =
+  await import('../src/github/publish.js');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Fixtures
@@ -160,6 +163,61 @@ beforeEach(() => {
   state.summary = `${MARKER}\n### Juror Review\n\nNothing alarming.`;
   state.comments = [];
   state.overflow = [];
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('live sticky status', () => {
+  const statusOptions = (client: GitHubApi, dryRun = false) => ({
+    client,
+    prNumber: 7,
+    headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
+    version: '0.1.0',
+    modelLabels: ['DeepSeek V4 Flash', 'Sonnet 5'],
+    jobUrl: 'https://github.com/juror-dev/juror/actions/runs/123',
+    dryRun,
+  });
+
+  it('creates one animated working comment and replaces it with the final summary', async () => {
+    const fake = makeFake();
+
+    const workingId = await publishWorkingComment(statusOptions(fake.client));
+    expect(workingId).toBe(100);
+    expect(fake.store[0]?.body).toContain('Juror is reviewing');
+    expect(fake.store[0]?.body).toContain('<img src="https://github.com/user-attachments/');
+    expect(fake.store[0]?.body).toContain('DeepSeek V4 Flash');
+
+    const final = await publishReview(makeResult(), options(fake.client));
+    expect(final.summaryCommentId).toBe(100);
+    expect(fake.createIssueComment).toHaveBeenCalledTimes(1);
+    expect(fake.updateIssueComment).toHaveBeenCalledTimes(1);
+    expect(fake.store.filter((comment) => comment.body.includes(MARKER))).toHaveLength(1);
+    expect(fake.store[0]?.body).toContain('### Juror Review');
+    expect(fake.store[0]?.body).not.toContain('Juror is reviewing');
+  });
+
+  it('replaces a working comment with a terminal failure state', async () => {
+    const fake = makeFake();
+    await publishWorkingComment(statusOptions(fake.client));
+
+    const failedId = await publishFailureComment({
+      ...statusOptions(fake.client),
+      reason: 'reviewer process exited unexpectedly',
+    });
+
+    expect(failedId).toBe(100);
+    expect(fake.store[0]?.body).toContain('### Juror review stopped');
+    expect(fake.store[0]?.body).toContain('reviewer process exited unexpectedly');
+    expect(fake.store[0]?.body).not.toContain('<img');
+  });
+
+  it('does not read or write comments in dry-run mode', async () => {
+    const fake = makeFake();
+    expect(await publishWorkingComment(statusOptions(fake.client, true))).toBeNull();
+    expect(fake.listIssueComments).not.toHaveBeenCalled();
+    expect(fake.createIssueComment).not.toHaveBeenCalled();
+    expect(fake.updateIssueComment).not.toHaveBeenCalled();
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

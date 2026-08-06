@@ -15,6 +15,11 @@ import {
   synthesizeSummary,
 } from '../src/render/summary.js';
 import { renderInlineComment, selectInlineComments } from '../src/render/inline.js';
+import {
+  renderFailedComment,
+  renderWorkingComment,
+  WORKING_SPINNER_HTML,
+} from '../src/render/status.js';
 import { renderTerminalReport } from '../src/render/terminal.js';
 import type {
   Cluster,
@@ -212,6 +217,54 @@ function result(over: Partial<ReviewResult> = {}): ReviewResult {
 }
 
 const opts = { version: '0.4.1', headSha: 'a1b2c3d4e5f6', config: config() };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Live status comment
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('live status comment', () => {
+  const status = {
+    repo: 'textcortex/platform',
+    prNumber: 10356,
+    headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
+    version: '0.4.1',
+  };
+
+  it('renders the animated working state with models and full target links', () => {
+    const md = renderWorkingComment({
+      ...status,
+      modelLabels: ['DeepSeek V4 Flash', 'Sonnet `5`'],
+      jobUrl: 'https://github.com/textcortex/platform/actions/runs/42',
+    });
+
+    expect(md.split(STICKY_MARKER)).toHaveLength(2);
+    expect(md).toContain(`### Juror is reviewing… ${WORKING_SPINNER_HTML}`);
+    expect(md).toContain('2 independent jurors are reading');
+    expect(md).toContain('`DeepSeek V4 Flash` · `Sonnet \\`5\\``');
+    expect(md).toContain('[PR #10356](https://github.com/textcortex/platform/pull/10356)');
+    expect(md).toContain('[`a1b2c3d`](https://github.com/textcortex/platform/commit/a1b2c3d4e5f60718293a4b5c6d7e8f9012345678)');
+    expect(md).toContain('[view run](https://github.com/textcortex/platform/actions/runs/42)');
+  });
+
+  it('omits unsafe run links and redacts failure details', () => {
+    const working = renderWorkingComment({
+      ...status,
+      modelLabels: [],
+      jobUrl: 'javascript:alert(1)',
+    });
+    expect(working).not.toContain('javascript:');
+
+    const failed = renderFailedComment({
+      ...status,
+      reason: `provider echoed ${FAKE_KEY}`,
+      jobUrl: null,
+    });
+    expect(failed).toContain('### Juror review stopped');
+    expect(failed).not.toContain(WORKING_SPINNER_HTML);
+    expect(failed).not.toContain(FAKE_KEY);
+    expect(failed).toContain('[redacted]');
+  });
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Summary comment

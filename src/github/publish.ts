@@ -10,6 +10,12 @@
 import type { DiffContext, JurorConfig, ReviewResult } from '../types.js';
 import type { RollingSpend } from '../cost/rolling.js';
 import { renderSummaryComment, STICKY_MARKER } from '../render/summary.js';
+import {
+  renderFailedComment,
+  renderWorkingComment,
+  type FailedStatusOptions,
+  type WorkingStatusOptions,
+} from '../render/status.js';
 import { selectInlineComments, type InlineComment } from '../render/inline.js';
 import { log, redact } from '../util/log.js';
 import { isGitHubApiError, type GitHubApi, type ReviewCommentInput } from './client.js';
@@ -32,8 +38,57 @@ export interface PublishOutcome {
   warnings: string[];
 }
 
+export type PublishStatusOptions = Pick<PublishOptions, 'client' | 'prNumber' | 'dryRun'> &
+  Omit<WorkingStatusOptions, 'repo' | 'prNumber'>;
+
+export type PublishFailureOptions = Pick<PublishOptions, 'client' | 'prNumber' | 'dryRun'> &
+  Omit<FailedStatusOptions, 'repo' | 'prNumber'>;
+
 /** GitHub hard-rejects a comment body over 65536 characters; leave room for the note. */
 const MAX_COMMENT_CHARS = 65_000;
+
+/** Create or replace the sticky summary with the live, animated working state. */
+export async function publishWorkingComment(o: PublishStatusOptions): Promise<number | null> {
+  if (o.dryRun) {
+    log.info(`dry run: would upsert the animated working comment on #${o.prNumber}`);
+    return null;
+  }
+  const warnings: string[] = [];
+  const id = await upsertSticky(
+    o,
+    renderWorkingComment({
+      repo: o.client.repo,
+      prNumber: o.prNumber,
+      headSha: o.headSha,
+      modelLabels: o.modelLabels,
+      version: o.version,
+      jobUrl: o.jobUrl ?? null,
+    }),
+    warnings,
+  );
+  for (const warning of warnings) log.warn(warning);
+  return id;
+}
+
+/** Replace a working comment with a terminal failure state without masking the error. */
+export async function publishFailureComment(o: PublishFailureOptions): Promise<number | null> {
+  if (o.dryRun) return null;
+  const warnings: string[] = [];
+  const id = await upsertSticky(
+    o,
+    renderFailedComment({
+      repo: o.client.repo,
+      prNumber: o.prNumber,
+      headSha: o.headSha,
+      version: o.version,
+      reason: o.reason,
+      jobUrl: o.jobUrl ?? null,
+    }),
+    warnings,
+  );
+  for (const warning of warnings) log.warn(warning);
+  return id;
+}
 
 export async function publishReview(r: ReviewResult, o: PublishOptions): Promise<PublishOutcome> {
   const warnings: string[] = [];
@@ -93,7 +148,7 @@ function buildSummaryBody(r: ReviewResult, o: PublishOptions): string {
 }
 
 async function upsertSticky(
-  o: PublishOptions,
+  o: Pick<PublishOptions, 'client' | 'prNumber'>,
   body: string,
   warnings: string[],
 ): Promise<number | null> {
@@ -109,7 +164,7 @@ async function upsertSticky(
   if (sticky) {
     try {
       await o.client.updateIssueComment(sticky.id, safe);
-      log.info(`updated the juror summary comment (#${sticky.id})`);
+      log.info(`updated the juror sticky comment (#${sticky.id})`);
       return sticky.id;
     } catch (e) {
       // Someone deleted the sticky between the list and the update — create a fresh one
@@ -120,7 +175,7 @@ async function upsertSticky(
   }
 
   const created = await o.client.createIssueComment(o.prNumber, safe);
-  log.info(`posted the juror summary comment (#${created.id})`);
+  log.info(`posted the juror sticky comment (#${created.id})`);
   return created.id;
 }
 

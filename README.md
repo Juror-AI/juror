@@ -52,6 +52,11 @@ severity, anchoring, or consensus rules, and a cost receipt:
 
 Plus inline comments, posted as **one batched review** — one notification, not twelve.
 
+With `--post`, Juror immediately creates one sticky **Juror is reviewing…** comment with an
+animated working indicator and a short progress checklist. The finished summary replaces
+that same comment in place; failed runs replace it with a terminal error state instead of
+leaving a spinner behind forever.
+
 ---
 
 ## Install

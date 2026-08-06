@@ -15,13 +15,13 @@ import process from 'node:process';
 import { runOrThrow } from './util/proc.js';
 
 import type { DiffContext, JurorConfig } from './types.js';
-import { loadConfig } from './config.js';
+import { loadConfig, resolveModelRuntime } from './config.js';
 import { collectFromPatch, collectLocalDiff } from './diff/collect.js';
 import { runReview } from './review.js';
 import { renderTerminalReport } from './render/terminal.js';
 import { renderSummaryComment } from './render/summary.js';
 import { GitHubClient } from './github/client.js';
-import { publishReview } from './github/publish.js';
+import { publishFailureComment, publishReview, publishWorkingComment } from './github/publish.js';
 import { loadRolling, recordSpend } from './cost/rolling.js';
 import { log, redact, setLogLevel } from './util/log.js';
 import { gitStateDir, repoRoot } from './util/workspace.js';
@@ -206,16 +206,17 @@ async function main(): Promise<number> {
   let diff: DiffContext;
   let headSha: string;
   const prNumber: number | null = args.pr;
+  let githubClient: GitHubClient | null = null;
   let checkout: EphemeralCheckout = { dir: repoDir, ephemeral: false, cleanup: async () => {} };
 
   if (args.pr !== null) {
     if (!repo) throw new Error('--pr needs a repository: pass --repo owner/name');
     const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
     if (!token) throw new Error('--pr needs GITHUB_TOKEN (read access is enough without --post)');
-    const client = new GitHubClient({ token, repo, version: VERSION });
-    const meta = await client.getPull(args.pr);
+    githubClient = new GitHubClient({ token, repo, version: VERSION });
+    const meta = await githubClient.getPull(args.pr);
     log.step(`PR #${meta.number} — ${meta.title}`);
-    const patch = await client.getPullDiff(args.pr);
+    const patch = await githubClient.getPullDiff(args.pr);
     diff = collectFromPatch(patch, {
       baseSha: meta.baseSha,
       headSha: meta.headSha,
@@ -248,18 +249,51 @@ async function main(): Promise<number> {
   );
 
   // ── Review ─────────────────────────────────────────────────────────────────
+  const progress = args.post && prNumber !== null && repo && githubClient
+    ? {
+        client: githubClient,
+        prNumber,
+        headSha,
+        version: VERSION,
+        modelLabels: runnableModelLabels(config, args.models, process.env),
+        jobUrl: actionRunUrl(repo),
+        dryRun: args.dryRun,
+      }
+    : null;
+
+  let workingCommentPosted = false;
+  let failureCommentPosted = false;
+  const markFailed = async (reason: string): Promise<void> => {
+    if (!progress || !workingCommentPosted || failureCommentPosted) return;
+    failureCommentPosted = true;
+    try {
+      await publishFailureComment({ ...progress, reason });
+    } catch (statusError) {
+      log.warn(`could not update the failed working comment: ${errorMessage(statusError)}`);
+    }
+  };
+
   // A review is minutes of model time, so Ctrl-C during one is normal rather than
   // exceptional. `finally` does not run when the process is signalled, and a leaked
   // worktree is not self-healing — it stays registered in the parent repo until someone
-  // runs `git worktree prune`. Hook the signals so the common case cleans up after itself.
+  // runs `git worktree prune`. Best-effort the terminal comment state before cleaning up.
   const onSignal = (sig: NodeJS.Signals) => {
-    void checkout.cleanup().finally(() => process.exit(sig === 'SIGINT' ? 130 : 143));
+    void markFailed(`Review cancelled by ${sig}.`)
+      .finally(() => checkout.cleanup())
+      .finally(() => process.exit(sig === 'SIGINT' ? 130 : 143));
   };
   process.once('SIGINT', onSignal);
   process.once('SIGTERM', onSignal);
 
-  let result;
+  let result: Awaited<ReturnType<typeof runReview>>;
   try {
+    if (progress) {
+      try {
+        workingCommentPosted = (await publishWorkingComment(progress)) !== null;
+      } catch (e) {
+        log.warn(`could not post the working comment: ${errorMessage(e)}`);
+      }
+    }
     result = await runReview({
       repoDir: checkout.dir,
       config,
@@ -268,6 +302,9 @@ async function main(): Promise<number> {
       ...(args.models.length ? { onlyModels: args.models } : {}),
       keepScratch: args.keepScratch,
     });
+  } catch (e) {
+    await markFailed(errorMessage(e));
+    throw e;
   } finally {
     process.off('SIGINT', onSignal);
     process.off('SIGTERM', onSignal);
@@ -281,6 +318,34 @@ async function main(): Promise<number> {
   const rolling = safeRecordSpend(stateDir, result.totals.usd, prKey);
 
   process.stdout.write(renderTerminalReport(result, { version: VERSION }));
+
+  if (args.post) {
+    if (prNumber === null || !repo || !githubClient) {
+      log.error('--post requires --pr and a resolvable repository');
+      return 2;
+    }
+    let outcome;
+    try {
+      outcome = await publishReview(result, {
+        client: githubClient,
+        prNumber,
+        headSha,
+        config,
+        version: VERSION,
+        rolling,
+        dryRun: args.dryRun,
+      });
+    } catch (e) {
+      await markFailed(`Publishing the completed review failed: ${errorMessage(e)}`);
+      throw e;
+    }
+    for (const w of outcome.warnings) log.warn(w);
+    log.info(
+      args.dryRun
+        ? 'dry run: nothing was posted'
+        : `posted — summary comment ${outcome.summaryCommentId}, ${outcome.inlinePosted} inline`,
+    );
+  }
 
   if (args.markdown) {
     const md = renderSummaryComment(result, {
@@ -301,34 +366,6 @@ async function main(): Promise<number> {
     else process.stdout.write(`${payload}\n`);
   }
 
-  if (args.post) {
-    if (prNumber === null || !repo) {
-      log.error('--post requires --pr and a resolvable repository');
-      return 2;
-    }
-    const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
-    if (!token) {
-      log.error('--post requires GITHUB_TOKEN');
-      return 2;
-    }
-    const client = new GitHubClient({ token, repo, version: VERSION });
-    const outcome = await publishReview(result, {
-      client,
-      prNumber,
-      headSha,
-      config,
-      version: VERSION,
-      rolling,
-      dryRun: args.dryRun,
-    });
-    for (const w of outcome.warnings) log.warn(w);
-    log.info(
-      args.dryRun
-        ? 'dry run: nothing was posted'
-        : `posted — summary comment ${outcome.summaryCommentId}, ${outcome.inlinePosted} inline`,
-    );
-  }
-
   // A review that found blockers is still a successful review. Exit non-zero only when the
   // tool itself failed, so a PR check can decide policy separately from tool health.
   return 0;
@@ -344,6 +381,29 @@ function safeRecordSpend(stateDir: string, usd: number | null, prKey: string) {
       return null;
     }
   }
+}
+
+function runnableModelLabels(
+  config: JurorConfig,
+  onlyModels: string[],
+  secrets: NodeJS.ProcessEnv,
+): string[] {
+  const wanted = new Set(onlyModels.map((id) => id.trim()).filter(Boolean));
+  return config.models
+    .filter((model) => model.enabled && (wanted.size === 0 || wanted.has(model.id)))
+    .filter((model) => Boolean(secrets[model.secret]?.trim()))
+    .map((model) => resolveModelRuntime(model).label);
+}
+
+function actionRunUrl(repo: string): string | null {
+  const runId = process.env.GITHUB_RUN_ID?.trim();
+  if (!runId) return null;
+  const server = (process.env.GITHUB_SERVER_URL ?? 'https://github.com').replace(/\/+$/, '');
+  return `${server}/${repo}/actions/runs/${encodeURIComponent(runId)}`;
+}
+
+function errorMessage(e: unknown): string {
+  return redact(e instanceof Error ? e.message : String(e));
 }
 
 /** `DiffFile.positionByLine` is a Map, which `JSON.stringify` would silently flatten to `{}`. */
