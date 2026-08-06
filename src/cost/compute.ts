@@ -213,15 +213,17 @@ function crossesLongContext(
   }
 
   if (totalInput >= lc.threshold_input_tokens) {
-    // The aggregate crossed and the per-request estimate did not. Priced at the standard
-    // tier, because nothing observed says any single request was over the line.
+    // The aggregate crossed but nothing observed says a single request did. Priced at the
+    // standard tier, and the note has to explain which of the two reasons applies —
+    // "4.4M tokens stayed under 272k" is technically what happened and reads like nonsense.
+    const why = impossible
+      ? `${totalInput} input tokens exceed this model's ${window}-token context window, so ` +
+        'they are necessarily spread over several requests of unknown size'
+      : `${totalInput} input tokens over ${rounds} turns is ~${Math.round(perRequest)} per ` +
+        `request, under the ${lc.threshold_input_tokens} threshold`;
     return {
       crosses: false,
-      note:
-        `${totalInput} input tokens across ${rounds} turn${rounds === 1 ? '' : 's'} ` +
-        `(~${Math.round(perRequest)} per request) stayed under the ${lc.threshold_input_tokens} ` +
-        'long-context threshold; priced at the standard tier' +
-        (impossible ? ', and the total exceeds this model’s context window' : ''),
+      note: `${why}; priced at the standard tier rather than assuming the long-context rate`,
     };
   }
 

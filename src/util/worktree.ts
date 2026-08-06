@@ -12,7 +12,7 @@
  * alone, and is removed afterwards.
  */
 
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -85,7 +85,11 @@ export async function checkoutAt(
   // drops registrations whose directory is already gone, which is exactly the leaked case.
   await run(['git', 'worktree', 'prune'], { cwd: repoDir, timeoutMs: 60_000 });
 
-  const dir = await mkdtemp(path.join(tmpdir(), 'juror-'));
+  // realpath, because on macOS `os.tmpdir()` is `/var/folders/...`, a symlink to
+  // `/private/var/folders/...`. Handing the symlinked form to a harness makes it compare a
+  // resolved file path against an unresolved root and conclude that files inside the repo
+  // are outside it — opencode auto-rejects those reads and the review comes back empty.
+  const dir = await realpath(await mkdtemp(path.join(tmpdir(), 'juror-')));
   const target = path.join(dir, 'repo');
   await runOrThrow(['git', 'worktree', 'add', '--detach', '--quiet', target, sha], {
     cwd: repoDir,

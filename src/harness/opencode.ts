@@ -12,7 +12,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import type {
@@ -69,9 +69,24 @@ const OPENCODE_CONFIG = {
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * `path.resolve` normalises `..` but does not follow symlinks, and opencode compares the
+ * paths it resolved itself against the `--dir` it was given. On macOS that difference is
+ * routine rather than exotic — `/var/folders/...` is a symlink to `/private/var/folders/...`,
+ * so a worktree under `os.tmpdir()` makes every file in the repo look external. Resolve
+ * both sides here so the comparison is between like and like.
+ */
+function realOrSelf(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return resolve(p); // not created yet — the lexical form is the best we have
+  }
+}
+
 function isInside(child: string, parent: string): boolean {
-  const c = resolve(child);
-  const p = resolve(parent);
+  const c = realOrSelf(child);
+  const p = realOrSelf(parent);
   return c === p || c.startsWith(p.endsWith(sep) ? p : p + sep);
 }
 
@@ -185,7 +200,9 @@ export const opencodeHarness = {
       '--format',
       'json',
       '--dir',
-      ctx.repoDir,
+      // Symlink-resolved: opencode resolves the files it reads, so an unresolved --dir
+      // makes it treat the repo's own files as an external directory and refuse them.
+      realOrSelf(ctx.repoDir),
       '-m',
       ctx.model,
       ctx.prompt,
