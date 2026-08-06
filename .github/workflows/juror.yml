@@ -24,7 +24,7 @@ jobs:
 
       # Never execute action code from the pull request while provider secrets are present.
       # Dependabot can deliberately update this immutable revision after the reviewed code lands.
-      - uses: cderinbogaz/juror@8e01b7c35e0ea82a0ef6dd31487ea5c0f5909366
+      - uses: cderinbogaz/juror@e9e72e6470f117654f54a80c31e2456e8722232a
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
         env:
