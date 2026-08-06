@@ -29,6 +29,11 @@ export interface IssueComment {
   user: { login: string };
 }
 
+export interface ReviewComment extends IssueComment {
+  path: string;
+  line: number | null;
+}
+
 export interface ReviewCommentInput {
   path: string;
   line: number;
@@ -63,6 +68,7 @@ export interface GitHubApi {
   getPull(n: number): Promise<PullMeta>;
   getPullDiff(n: number): Promise<string>;
   listIssueComments(n: number): Promise<IssueComment[]>;
+  listReviewComments(n: number): Promise<ReviewComment[]>;
   createIssueComment(n: number, body: string): Promise<{ id: number }>;
   updateIssueComment(id: number, body: string): Promise<void>;
   createReview(n: number, o: CreateReviewOptions): Promise<void>;
@@ -215,6 +221,31 @@ export class GitHubClient implements GitHubApi {
           id,
           body: asString(rec.body),
           user: { login: asString(asRecord(rec.user)?.login) },
+        });
+      }
+      if (batch.length < PER_PAGE) break;
+    }
+    return out;
+  }
+
+  async listReviewComments(n: number): Promise<ReviewComment[]> {
+    const out: ReviewComment[] = [];
+    for (let page = 1; page <= MAX_COMMENT_PAGES; page++) {
+      const path = `/repos/${this.#repoPath()}/pulls/${n}/comments?per_page=${PER_PAGE}&page=${page}`;
+      const batch = await this.request<unknown>('GET', path);
+      if (!Array.isArray(batch)) break;
+      for (const item of batch) {
+        const rec = asRecord(item);
+        if (!rec) continue;
+        const id = asNumber(rec.id, -1);
+        if (id < 0) continue;
+        const rawLine = rec.line ?? rec.original_line;
+        out.push({
+          id,
+          body: asString(rec.body),
+          user: { login: asString(asRecord(rec.user)?.login) },
+          path: asString(rec.path),
+          line: typeof rawLine === 'number' && Number.isFinite(rawLine) ? rawLine : null,
         });
       }
       if (batch.length < PER_PAGE) break;

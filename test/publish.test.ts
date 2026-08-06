@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GitHubApiError } from '../src/github/client.js';
 import type { GitHubApi, IssueComment } from '../src/github/client.js';
+import { findingMarker } from '../src/github/fingerprint.js';
 import type { Cluster, DiffContext, JurorConfig, ReviewResult } from '../src/types.js';
 
 const MARKER = '<!-- juror:summary:v1 -->';
@@ -101,7 +102,7 @@ function inline(path: string, line: number) {
     line,
     side: 'RIGHT' as const,
     body: `finding in ${path}`,
-    cluster: { path, line } as unknown as Cluster,
+    cluster: { path, line, severity: 'P1', title: `finding in ${path}` } as unknown as Cluster,
   };
 }
 
@@ -109,6 +110,7 @@ interface Fake {
   client: GitHubApi;
   store: IssueComment[];
   listIssueComments: ReturnType<typeof vi.fn>;
+  listReviewComments: ReturnType<typeof vi.fn>;
   createIssueComment: ReturnType<typeof vi.fn>;
   updateIssueComment: ReturnType<typeof vi.fn>;
   createReview: ReturnType<typeof vi.fn>;
@@ -120,6 +122,7 @@ function makeFake(createReviewImpl?: () => Promise<void>): Fake {
   let nextId = 100;
 
   const listIssueComments = vi.fn(async () => store.map((c) => ({ ...c })));
+  const listReviewComments = vi.fn(async () => []);
   const createIssueComment = vi.fn(async (_n: number, body: string) => {
     const created = { id: nextId++, body, user: { login: 'juror[bot]' } };
     store.push(created);
@@ -144,12 +147,21 @@ function makeFake(createReviewImpl?: () => Promise<void>): Fake {
       throw new Error('unused');
     }),
     listIssueComments,
+    listReviewComments,
     createIssueComment,
     updateIssueComment,
     createReview,
   } as unknown as GitHubApi;
 
-  return { client, store, listIssueComments, createIssueComment, updateIssueComment, createReview };
+  return {
+    client,
+    store,
+    listIssueComments,
+    listReviewComments,
+    createIssueComment,
+    updateIssueComment,
+    createReview,
+  };
 }
 
 function options(client: GitHubApi, dryRun = false) {
@@ -223,6 +235,7 @@ describe('live sticky status', () => {
     const fake = makeFake();
     expect(await publishWorkingComment(statusOptions(fake.client, true))).toBeNull();
     expect(fake.listIssueComments).not.toHaveBeenCalled();
+    expect(fake.listReviewComments).not.toHaveBeenCalled();
     expect(fake.createIssueComment).not.toHaveBeenCalled();
     expect(fake.updateIssueComment).not.toHaveBeenCalled();
   });
@@ -303,6 +316,47 @@ describe('publishReview — batched inline review', () => {
     });
     expect(out.inlinePosted).toBe(2);
     expect(out.degradedToSummary).toBe(false);
+  });
+
+  it('does not repost an unchanged finding that an earlier run put inline', async () => {
+    const fake = makeFake();
+    const comment = inline('src/a.ts', 10);
+    state.comments = [comment];
+    fake.listReviewComments.mockResolvedValue([
+      {
+        id: 55,
+        body: `${findingMarker(comment.cluster)}\nold rendering`,
+        user: { login: 'github-actions[bot]' },
+        path: 'src/a.ts',
+        line: 9,
+      },
+    ]);
+
+    const out = await publishReview(makeResult(), options(fake.client));
+
+    expect(fake.createReview).not.toHaveBeenCalled();
+    expect(out.inlinePosted).toBe(0);
+    expect(out.warnings.join(' ')).toContain('already had an inline comment');
+  });
+
+  it('keeps a same-titled finding at a distant location to protect recall', async () => {
+    const fake = makeFake();
+    const comment = inline('src/a.ts', 100);
+    state.comments = [comment];
+    fake.listReviewComments.mockResolvedValue([
+      {
+        id: 55,
+        body: `${findingMarker(comment.cluster)}\nold rendering`,
+        user: { login: 'github-actions[bot]' },
+        path: 'src/a.ts',
+        line: 10,
+      },
+    ]);
+
+    const out = await publishReview(makeResult(), options(fake.client));
+
+    expect(fake.createReview).toHaveBeenCalledTimes(1);
+    expect(out.inlinePosted).toBe(1);
   });
 
   it('drops the comment GitHub named and retries once', async () => {

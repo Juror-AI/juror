@@ -344,7 +344,13 @@ const GLOB_CACHE = new Map<string, RegExp>();
  */
 export function matchesGlob(path: string, pattern: string): boolean {
   if (pattern.startsWith('!')) return !matchesGlob(path, pattern.slice(1));
-  return globRegExp(pattern).test(normalizeGlobPath(path));
+  try {
+    return globRegExp(pattern).test(normalizeGlobPath(path));
+  } catch {
+    // A malformed character range such as `[z-a]` is operator input, not a reason to stop
+    // the review. Treat it as a non-matching ignore rule; the file remains visible.
+    return false;
+  }
 }
 
 function normalizeGlobPath(path: string): string {

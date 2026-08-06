@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fingerprint } from '../src/github/fingerprint.js';
+import { findingMarker, fingerprint, fingerprintsIn } from '../src/github/fingerprint.js';
 import type { Cluster } from '../src/types.js';
 
 function cluster(over: Partial<Cluster> = {}): Cluster {
@@ -74,5 +74,13 @@ describe('fingerprint', () => {
     expect(fingerprint(cluster({ path: 'a', severity: 'P1', title: 'b' }))).not.toBe(
       fingerprint(cluster({ path: 'a\nP1', severity: 'P1', title: 'b' })),
     );
+  });
+
+  it('round-trips hidden inline markers and ignores malformed ones', () => {
+    const marker = findingMarker(cluster());
+    expect(marker).toBe(`<!-- juror:finding:${fingerprint(cluster())} -->`);
+    expect(fingerprintsIn(`${marker}\ntext\n<!-- juror:finding:not-a-hash -->`)).toEqual([
+      fingerprint(cluster()),
+    ]);
   });
 });

@@ -34,6 +34,7 @@ export interface RefereeOptions {
   scratchRoot: string;
   promptTemplate: string;
   enabled: boolean;
+  signal?: AbortSignal;
 }
 
 export interface RefereeResult {
@@ -344,7 +345,7 @@ async function refereeBlock(
     maxTurns: m.max_turns ?? REFEREE_MAX_TURNS,
   };
 
-  const result = await runHarness(getHarness(m.harness), ctx);
+  const result = await runHarness(getHarness(m.harness), ctx, o.signal);
   for (const d of result.diagnostics) log.debug(`referee: ${d}`);
 
   // The file is the contract; stdout is the fallback for a model that answered inline.
@@ -366,6 +367,7 @@ async function refereeBlock(
       usage: result.usage,
       reportedCostUsd: result.reportedCostUsd,
       pricing: o.pricing,
+      turns: result.turns,
     }),
   };
 }
@@ -496,6 +498,7 @@ export async function refereeClusters(
   let calls = 0;
 
   for (const [index, block] of blocks.entries()) {
+    if (o.signal?.aborted) break;
     try {
       const answer = await refereeBlock(block, index, m, key, o);
       calls++;

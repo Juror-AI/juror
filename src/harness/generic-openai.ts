@@ -395,15 +395,18 @@ async function chat(
   body: unknown,
   timeoutMs: number,
   diagnostics: string[],
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> {
   let lastError = 'no response';
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
+    const timeout = AbortSignal.timeout(Math.max(1_000, timeoutMs));
+    const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(Math.max(1_000, timeoutMs)),
+      signal: requestSignal,
     });
     const text = await res.text();
 
@@ -412,6 +415,7 @@ async function chat(
       if (attempt === 0) {
         diagnostics.push(`generic-openai got HTTP ${res.status}, retrying once`);
         await sleep(RETRY_BACKOFF_MS);
+        if (signal?.aborted) throw new Error('generic-openai aborted');
         continue;
       }
       throw new Error(`generic-openai request failed — ${lastError}`);
@@ -453,7 +457,7 @@ function readToolCalls(message: Record<string, unknown>): ToolCall[] {
 // The loop
 // ─────────────────────────────────────────────────────────────────────────────
 
-export async function runGenericOpenAI(ctx: RunContext): Promise<HarnessResult> {
+export async function runGenericOpenAI(ctx: RunContext, signal?: AbortSignal): Promise<HarnessResult> {
   const baseUrl = readString(ctx.baseUrl) ?? readString(ctx.args['base_url']);
   if (!baseUrl) throw new Error('generic-openai requires `base_url` in the model config');
   const apiKey = resolveApiKey(ctx);
@@ -488,6 +492,11 @@ export async function runGenericOpenAI(ctx: RunContext): Promise<HarnessResult> 
   let turns = 0;
 
   while (ctx.maxTurns <= 0 || turns < ctx.maxTurns) {
+    if (signal?.aborted) {
+      truncated = true;
+      diagnostics.push('generic-openai aborted');
+      break;
+    }
     const remaining = deadline - Date.now();
     if (remaining <= 0) {
       truncated = true;
@@ -501,6 +510,7 @@ export async function runGenericOpenAI(ctx: RunContext): Promise<HarnessResult> 
       { model: ctx.model, messages, tools: TOOLS, tool_choice: 'auto' },
       remaining,
       diagnostics,
+      signal,
     );
     turns += 1;
 

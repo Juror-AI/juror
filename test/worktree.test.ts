@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -35,11 +35,36 @@ describe('checkoutAt', () => {
       expect(git(checkout.dir, ['rev-parse', 'HEAD'])).toBe(first);
       expect(await gitStateDir(checkout.dir)).toBe(await gitStateDir(repo));
 
+      await checkout.seal();
+      expect(existsSync(join(checkout.dir, '.git'))).toBe(false);
+
       const checkoutDir = checkout.dir;
       await checkout.cleanup();
       checkout = null;
       expect(existsSync(checkoutDir)).toBe(false);
       expect(git(repo, ['worktree', 'list', '--porcelain'])).not.toContain(checkoutDir);
+    } finally {
+      if (checkout) await checkout.cleanup();
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('isolates a matching head, copies tracked edits, and excludes untracked secrets', async () => {
+    const repo = mkdtempSync(join(tmpdir(), 'juror-worktree-dirty-'));
+    git(repo, ['init', '-q', '-b', 'main']);
+    git(repo, ['config', 'user.email', 'juror@example.com']);
+    git(repo, ['config', 'user.name', 'Juror Test']);
+    const head = commit(repo, 'base', 'committed\n');
+    writeFileSync(join(repo, 'file.txt'), 'working change\n', 'utf8');
+    writeFileSync(join(repo, '.env'), 'PROVIDER_KEY=do-not-copy\n', 'utf8');
+
+    let checkout: Awaited<ReturnType<typeof checkoutAt>> | null = null;
+    try {
+      checkout = await checkoutAt(repo, head, { includeWorkingTree: true });
+      expect(checkout.ephemeral).toBe(true);
+      expect(checkout.dir).not.toBe(repo);
+      expect(readFileSync(join(checkout.dir, 'file.txt'), 'utf8')).toBe('working change\n');
+      expect(existsSync(join(checkout.dir, '.env'))).toBe(false);
     } finally {
       if (checkout) await checkout.cleanup();
       rmSync(repo, { recursive: true, force: true });

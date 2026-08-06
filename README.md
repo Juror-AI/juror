@@ -57,8 +57,8 @@ interface. It reviews a diff and posts findings.
 </picture>
 </div>
 
-Each model gets the diff and its own sandboxed checkout, and answers in its vendor's native
-agent loop. Their findings then go through five lossless merge stages — cheapest first,
+Each model gets the diff, its own private scratch directory, and read-only access to a clean
+detached checkout. Their findings then go through five lossless merge stages — cheapest first,
 with a model call only for possible semantic duplicates:
 
 1. **Anchor** *(free)* — snap every finding to a line the diff actually adds or modifies.
@@ -170,7 +170,9 @@ juror review --pr 1234 --repo owner/name         # review a PR, print to the ter
 juror review --pr 1234 --repo owner/name --post  # ...and post it
 ```
 
-Put your keys in a `.env` beside the repo (it is loaded automatically and never committed):
+Put your keys in a `.env` beside the repo (it is loaded automatically and never committed).
+Juror copies only committed/staged/tracked working changes into a detached model checkout,
+so this untracked file is not inside any reviewer read root:
 
 ```
 ANTHROPIC_API_KEY=…
@@ -328,7 +330,9 @@ The differentiator, and the thing that must never be wrong.
   is marked as a lower bound. We do not guess.
 - **Long-context tiers are cliffs, not slopes.** GPT-5.6 Sol reprices the *entire request* at
   2× input above 272k tokens; Grok 4.5 does the same above 200k. A flat per-token config
-  silently underbills exactly the large-diff reviews that cost the most.
+  silently underbills exactly the large-diff reviews that cost the most. When a harness only
+  exposes aggregate multi-turn usage, Juror reports the standard-tier subtotal as a lower
+  bound instead of guessing which individual requests crossed the cliff.
 - **Cache writes are not free.** On GPT-5.6 and later they bill at 1.25× the uncached input
   rate. Anthropic bills them too. Juror models a review as write-once, read-many: the first
   model to see a diff pays the write premium, and re-reviews on later pushes get cheap.
@@ -363,7 +367,10 @@ It is designed for that.
    Claude, Grok Build, opencode, and Kimi receive read/search tools only. Generic OpenAI
    resolves symlinks and may write only one exact report path outside the repository. Claude,
    Codex, and Kimi start from private temporary directories so PR-controlled hooks, MCP,
-   settings, and `AGENTS.md` are not auto-loaded. A workspace guard remains as defense in depth.
+   settings, and `AGENTS.md` are not auto-loaded. Every run reads a detached checkout that
+   excludes untracked operator files such as `.env`; after trusted base policy is loaded,
+   Juror also removes the worktree's pointer back to credential-bearing git metadata. A
+   workspace guard remains as defense in depth for direct library callers.
 4. **Keys are passed per harness**, never to all of them. Each model process gets an
    environment containing only its own provider key.
 5. **Injection is a finding.** Each model is told the diff is untrusted data and to report
@@ -395,6 +402,8 @@ It is designed for that.
   because GitHub can't attach them.
 - The spend target is estimate-based for providers without native budget enforcement. Actual
   spend is always shown and can be slightly higher than the target.
+- The 30-day rolling receipt is shown only when Juror has persistent local/self-hosted state;
+  GitHub-hosted runners omit it instead of presenting a one-run ledger as a monthly total.
 
 ---
 

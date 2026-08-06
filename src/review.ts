@@ -33,6 +33,7 @@ import { fanOut } from './harness/runner.js';
 import { synthesizeSummary } from './render/summary.js';
 import { loadPromptTemplate, renderTemplate, resolveModelRuntime } from './config.js';
 import { loadAgentInstructions } from './instructions.js';
+import type { LoadedAgentInstructions } from './instructions.js';
 import { log } from './util/log.js';
 import { restoreWorkspace, snapshotWorkspace } from './util/workspace.js';
 
@@ -46,11 +47,24 @@ export interface ReviewOptions {
   /** Keep the scratch directory around for debugging. */
   keepScratch?: boolean;
   signal?: AbortSignal;
+  /** Preloaded before an ephemeral model checkout has its `.git` pointer removed. */
+  instructions?: LoadedAgentInstructions;
 }
 
 export async function runReview(o: ReviewOptions): Promise<ReviewResult> {
   const started = Date.now();
   const warnings: string[] = [];
+  if (!o.diff.files.some((file) => !file.ignored)) {
+    return emptyResult(
+      o.diff,
+      started,
+      ['Nothing to review: the diff is empty after path filters.'],
+      {
+        summary: 'No reviewable changes were present after path filters.',
+        confidenceReason: 'No model run was needed for an empty reviewable diff.',
+      },
+    );
+  }
   const pricing = loadPricing();
 
   const requestedConfig = o.onlyModels?.length
@@ -65,11 +79,13 @@ export async function runReview(o: ReviewOptions): Promise<ReviewResult> {
   try {
     // ── 1. Prompt ────────────────────────────────────────────────────────────
     const promptTemplate = loadPromptTemplate('review');
-    const instructions = await loadAgentInstructions(
-      o.repoDir,
-      o.diff.baseSha,
-      o.diff.files.filter((f) => !f.ignored).map((f) => f.path),
-    );
+    const instructions =
+      o.instructions ??
+      (await loadAgentInstructions(
+        o.repoDir,
+        o.diff.baseSha,
+        o.diff.files.filter((f) => !f.ignored).map((f) => f.path),
+      ));
     for (const problem of instructions.problems) warnings.push(`instructions: ${problem}`);
     if (instructions.paths.length) {
       log.debug(`repository instructions: ${instructions.paths.join(', ')}`);
@@ -151,6 +167,7 @@ export async function runReview(o: ReviewOptions): Promise<ReviewResult> {
       scratchRoot,
       promptTemplate: loadPromptTemplate('referee'),
       enabled: ambiguousPairs.length > 0 && refereeModel !== null,
+      ...(o.signal ? { signal: o.signal } : {}),
     });
 
     // ── 7. Lossless coverage audit ───────────────────────────────────────────
@@ -182,6 +199,7 @@ export async function runReview(o: ReviewOptions): Promise<ReviewResult> {
       diff: o.diff,
       verifySolo: config.consensus.verify_solo_findings,
       minimumAgreement: config.consensus.min_agreement === 'all' ? produced.length : 1,
+      repoInstructions: instructions.rendered,
       ...(o.signal ? { signal: o.signal } : {}),
     });
     if (consensusMode) {
@@ -397,7 +415,12 @@ function harnessLabelOf(m: ModelConfig): string {
   return m.harness;
 }
 
-function emptyResult(diff: DiffContext, started: number, warnings: string[]): ReviewResult {
+function emptyResult(
+  diff: DiffContext,
+  started: number,
+  warnings: string[],
+  copy: { summary?: string; confidenceReason?: string } = {},
+): ReviewResult {
   return {
     diff,
     runs: [],
@@ -414,11 +437,12 @@ function emptyResult(diff: DiffContext, started: number, warnings: string[]): Re
     },
     verdict: { base: 3, penalty: 0, score: 3, votes: [], confirmed: { P0: 0, P1: 0, P2: 0, P3: 0 } },
     summary: {
-      summary: 'No model produced a review for this diff.',
+      summary: copy.summary ?? 'No model produced a review for this diff.',
       highlights: [],
       fileOverviews: [],
       sequenceDiagram: null,
-      confidenceReason: 'No model reports were available, so no confidence can be asserted.',
+      confidenceReason:
+        copy.confidenceReason ?? 'No model reports were available, so no confidence can be asserted.',
     },
     totals: { rows: [], usage: { ...ZERO_USAGE }, usd: 0, partial: false, modelsRun: 0 },
     durationMs: Date.now() - started,

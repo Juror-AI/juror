@@ -8,6 +8,7 @@
  */
 
 import type { Cluster, DiffContext, DiffFile, JurorConfig } from '../types.js';
+import { findingMarker } from '../github/fingerprint.js';
 import { pinnedTag, REPO_SLUG } from './receipt.js';
 import { dots, mdBlock, mdCell, mdText, severityRank } from './summary.js';
 
@@ -31,7 +32,10 @@ export interface InlineOptions {
 
 export function renderInlineComment(c: Cluster, o: InlineOptions): string {
   const models = Math.max(o.modelsRun ?? c.agreement, c.agreement, 1);
-  const blocks: string[] = [`${badge(c.severity, o.version)} **${mdText(c.title)}**`];
+  const blocks: string[] = [
+    findingMarker(c),
+    `${badge(c.severity, o.version)} **${mdText(c.title)}**`,
+  ];
 
   const body = mdBlock(c.body);
   if (body) blocks.push(body);

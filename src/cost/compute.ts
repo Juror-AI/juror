@@ -142,13 +142,28 @@ export function computeCost(o: {
   }
 
   // Rule 3 — the long-context tier is a cliff, not a slope: once a request's input crosses
-  // the threshold, that ENTIRE request reprices, every component included.
+  // the threshold, that ENTIRE request reprices, every component included. Most agent
+  // harnesses expose only session-wide totals, though. If several requests could straddle
+  // the threshold, the standard-tier arithmetic is a useful lower bound but not an exact
+  // estimate; never manufacture a per-request distribution from an average.
   const totalInput = inTok + readTok + writeTok;
   const lc = entry.long_context;
-  const verdict = crossesLongContext(totalInput, o.turns, entry);
-  const tier: PricingTier = lc && verdict.crosses ? lc : entry;
-  const longContext = tier !== entry;
-  if (verdict.note) notes.push(verdict.note);
+  const verdict = longContextVerdict(totalInput, o.turns, entry);
+  const tier: PricingTier = lc && verdict === 'crosses' ? lc : entry;
+  const longContext = verdict === 'crosses';
+  if (verdict === 'uncertain') {
+    const rounds = normalizedTurns(o.turns);
+    notes.push(
+      `lower bound: ${totalInput} aggregate input tokens across ${rounds ?? 'an unknown number of'} ` +
+        `requests cannot identify which requests crossed the ${lc?.threshold_input_tokens ?? '?'} ` +
+        'long-context threshold; priced at the standard tier',
+    );
+  } else if (verdict === 'crosses' && lc) {
+    notes.push(
+      `long-context tier: ${totalInput} input tokens in one request crossed ` +
+        `${lc.threshold_input_tokens}, repricing the entire request`,
+    );
+  }
 
   // Rule 4 — cache writes bill; they are not a discount. Where a provider publishes no
   // separate rate the input rate is the documented fallback, and the receipt says so.
@@ -169,7 +184,12 @@ export function computeCost(o: {
       1_000_000,
   );
 
-  const cost: CostBreakdown = { usd, source: 'estimated', longContext };
+  const cost: CostBreakdown = {
+    usd,
+    source: 'estimated',
+    longContext,
+    ...(verdict === 'uncertain' ? { partial: true } : {}),
+  };
   if (notes.length) cost.note = notes.join('; ');
   return cost;
 }
@@ -185,49 +205,35 @@ export function computeCost(o: {
  * the cliff — yet the naive comparison priced all 3.28M at the long-context rate and turned
  * $2.76 into $5.32.
  *
- * So divide by the turn count and test the average request. Two extra guards:
- * a total that exceeds the model's context window is *definitionally* cumulative no matter
- * what the turn count claims, and when the aggregate crosses but the average does not, the
- * note says so — a surprising line in the receipt should always be explainable.
+ * An average cannot answer this question: requests of 100k and 300k average 200k while the
+ * second request still reprices. We can decide exactly only when the aggregate is below the
+ * threshold (no constituent request can cross it), or when usage is known to be one request.
+ * Every other aggregate is priced at the standard tier and marked as a lower bound.
  */
-function crossesLongContext(
+function longContextVerdict(
   totalInput: number,
   turns: number | undefined,
   entry: PricingEntry,
-): { crosses: boolean; note: string | null } {
+): 'standard' | 'crosses' | 'uncertain' {
   const lc = entry.long_context;
-  if (!lc) return { crosses: false, note: null };
+  if (!lc || totalInput < lc.threshold_input_tokens) return 'standard';
 
-  const rounds = turns && Number.isFinite(turns) && turns > 0 ? Math.floor(turns) : 1;
-  const perRequest = totalInput / rounds;
-  const window = entry.context_window;
-  const impossible = typeof window === 'number' && window > 0 && perRequest > window;
-
-  if (perRequest >= lc.threshold_input_tokens && !impossible) {
-    return {
-      crosses: true,
-      note:
-        `long-context tier: ~${Math.round(perRequest)} input tokens per request crossed ` +
-        `${lc.threshold_input_tokens}, repricing the entire request`,
-    };
+  const rounds = normalizedTurns(turns);
+  if (rounds === 1) {
+    const window = entry.context_window;
+    // More input than the model can accept proves that the "one turn" metadata is not a
+    // per-request count. Treat it as an aggregate instead of pricing an impossible request.
+    if (typeof window === 'number' && window > 0 && totalInput > window) return 'uncertain';
+    return 'crosses';
   }
+  return 'uncertain';
+}
 
-  if (totalInput >= lc.threshold_input_tokens) {
-    // The aggregate crossed but nothing observed says a single request did. Priced at the
-    // standard tier, and the note has to explain which of the two reasons applies —
-    // "4.4M tokens stayed under 272k" is technically what happened and reads like nonsense.
-    const why = impossible
-      ? `${totalInput} input tokens exceed this model's ${window}-token context window, so ` +
-        'they are necessarily spread over several requests of unknown size'
-      : `${totalInput} input tokens over ${rounds} turns is ~${Math.round(perRequest)} per ` +
-        `request, under the ${lc.threshold_input_tokens} threshold`;
-    return {
-      crosses: false,
-      note: `${why}; priced at the standard tier rather than assuming the long-context rate`,
-    };
-  }
-
-  return { crosses: false, note: null };
+function normalizedTurns(turns: number | undefined): number | null {
+  // Omission is the documented single-request form. An explicit zero comes from a harness
+  // that could not establish a completed turn and therefore does not prove distribution.
+  if (turns === undefined) return 1;
+  return Number.isFinite(turns) && turns > 0 ? Math.floor(turns) : null;
 }
 
 function unknownCost(reason: string, notes: string[]): CostBreakdown {

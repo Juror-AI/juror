@@ -129,7 +129,7 @@ describe('computeCost rule 3b — the cliff is per request, not per session', ()
   };
   const STANDARD_TIER_USD = 2.755_4; // 165228*5 + 3113728*0.50 + 12412*30, per Mtok
 
-  it('does not apply the long-context tier to tokens accumulated across turns', () => {
+  it('reports aggregate multi-turn pricing as a standard-tier lower bound', () => {
     const cost = computeCost({
       pricingKey: 'gpt-5.6-sol',
       usage: REAL_SESSION,
@@ -139,7 +139,8 @@ describe('computeCost rule 3b — the cliff is per request, not per session', ()
     });
     expect(cost.longContext).toBe(false);
     expect(cost.usd).toBeCloseTo(STANDARD_TIER_USD, 3);
-    expect(cost.note).toContain('per request');
+    expect(cost.partial).toBe(true);
+    expect(cost.note).toContain('lower bound');
   });
 
   it('refuses the cliff when the total alone exceeds the context window', () => {
@@ -153,10 +154,11 @@ describe('computeCost rule 3b — the cliff is per request, not per session', ()
     });
     expect(cost.longContext).toBe(false);
     expect(cost.usd).toBeCloseTo(STANDARD_TIER_USD, 3);
+    expect(cost.partial).toBe(true);
   });
 
-  it('still applies the cliff when the average request genuinely crosses it', () => {
-    // 4 turns x 300k each: every request is over the line, so the tier is real.
+  it('does not infer every request from an above-threshold average', () => {
+    // An average of 300k is compatible with many different per-request distributions.
     const cost = computeCost({
       pricingKey: 'gpt-5.6-sol',
       usage: { uncachedIn: 1_200_000, cacheRead: 0, cacheWrite: 0, out: 4_000 },
@@ -164,9 +166,23 @@ describe('computeCost rule 3b — the cliff is per request, not per session', ()
       pricing,
       turns: 4,
     });
+    expect(cost.longContext).toBe(false);
+    expect(cost.partial).toBe(true);
+    // Known standard-tier lower bound: 1_200_000 * $5/Mtok + 4_000 * $30/Mtok.
+    expect(cost.usd).toBeCloseTo(6.12, 4);
+  });
+
+  it('applies the cliff exactly when usage belongs to one request', () => {
+    const cost = computeCost({
+      pricingKey: 'gpt-5.6-sol',
+      usage: { uncachedIn: 300_000, cacheRead: 0, cacheWrite: 0, out: 1_000 },
+      reportedCostUsd: null,
+      pricing,
+      turns: 1,
+    });
     expect(cost.longContext).toBe(true);
-    // 1_200_000 * $10/Mtok + 4_000 * $45/Mtok
-    expect(cost.usd).toBeCloseTo(12.18, 4);
+    expect(cost.partial).not.toBe(true);
+    expect(cost.usd).toBeCloseTo(3.045, 4);
   });
 
   it('never turns a session estimate into a credit or a zero', () => {

@@ -23,3 +23,19 @@ export function fingerprint(c: Cluster): string {
   const material = `${c.path}\n${c.severity}\n${normalizeTitle(c.title)}`;
   return createHash('sha256').update(material, 'utf8').digest('hex').slice(0, 12);
 }
+
+const MARKER_RE = /<!--\s*juror:finding:([0-9a-f]{12})\s*-->/gi;
+
+/** Hidden identity embedded in inline comments so a later push does not repost the bug. */
+export function findingMarker(c: Cluster): string {
+  return `<!-- juror:finding:${fingerprint(c)} -->`;
+}
+
+export function fingerprintsIn(body: string): string[] {
+  const out = new Set<string>();
+  for (const match of body.matchAll(MARKER_RE)) {
+    const value = match[1]?.toLowerCase();
+    if (value) out.add(value);
+  }
+  return [...out];
+}

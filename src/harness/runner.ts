@@ -6,6 +6,7 @@
  */
 
 import { mkdir, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 
 import type {
@@ -63,8 +64,12 @@ export function slug(s: string): string {
   return out || 'model';
 }
 
-export function harnessScratch(scratchRoot: string, modelId: string): string {
-  return join(scratchRoot, slug(modelId));
+export function harnessScratch(scratchRoot: string, modelId: string, ordinal = 0): string {
+  const suffix = createHash('sha256')
+    .update(`${modelId}\u0000${ordinal}`, 'utf8')
+    .digest('hex')
+    .slice(0, 8);
+  return join(scratchRoot, `${slug(modelId)}-${suffix}`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -108,7 +113,7 @@ export async function runHarness(
     // The escape-hatch adapter drives an OpenAI-compatible endpoint from inside this
     // process — it has no CLI to spawn, so `command()` deliberately throws for it.
     if (h.id === 'generic-openai') {
-      const result = await runGenericOpenAI(ctx);
+      const result = await runGenericOpenAI(ctx, signal);
       result.diagnostics.unshift(...location.warnings);
       return result;
     }
@@ -202,11 +207,12 @@ export async function fanOut(o: FanOutOptions): Promise<ModelRun[]> {
   );
 
   // Promise.all is safe because the wrapper below cannot reject.
-  return Promise.all(enabled.map((m) => runOne(m, o, ambient, budgetUsd)));
+  return Promise.all(enabled.map((m, index) => runOne(m, index, o, ambient, budgetUsd)));
 }
 
 async function runOne(
   m: ModelConfig,
+  ordinal: number,
   o: FanOutOptions,
   ambient: Record<string, string | undefined>,
   budgetUsd: number | null,
@@ -245,7 +251,7 @@ async function runOne(
 
     const modelEnv = childEnv(ambient, m.secret, key, envPassthrough(m));
 
-    const scratchDir = harnessScratch(o.scratchRoot, m.id);
+    const scratchDir = harnessScratch(o.scratchRoot, m.id, ordinal);
     await mkdir(scratchDir, { recursive: true });
     const findingsPath = join(scratchDir, 'findings.json');
 

@@ -36,6 +36,7 @@ import { log, redact, setLogLevel } from './util/log.js';
 import { gitStateDir, repoRoot } from './util/workspace.js';
 import { checkoutAt, type EphemeralCheckout } from './util/worktree.js';
 import { evaluateBenchmark, parseBenchmarkCorpus, renderBenchmark } from './benchmark.js';
+import { loadAgentInstructions } from './instructions.js';
 
 export const VERSION = '0.1.0';
 
@@ -258,7 +259,12 @@ async function main(): Promise<number> {
   // ── Collect the diff ───────────────────────────────────────────────────────
   let diff: DiffContext;
   let headSha: string;
-  let checkout: EphemeralCheckout = { dir: repoDir, ephemeral: false, cleanup: async () => {} };
+  let checkout: EphemeralCheckout = {
+    dir: repoDir,
+    ephemeral: false,
+    seal: async () => {},
+    cleanup: async () => {},
+  };
 
   if (pull && githubClient && prNumber !== null) {
     const patch = await githubClient.getPullDiff(prNumber);
@@ -269,8 +275,8 @@ async function main(): Promise<number> {
       maxDiffBytes: config.review.max_diff_bytes,
     });
     headSha = pull.headSha;
-    // Reviewing a PR means grepping the PR's code, not whatever branch happens to be
-    // checked out. Falls back to the current tree with a warning when the SHA is unreachable.
+    // Reviewing a PR means grepping an isolated PR-head worktree, never whatever branch or
+    // untracked secret files happen to be present in the operator checkout.
     checkout = await checkoutAt(repoDir, pull.headSha, { prNumber });
   } else {
     diff = await collectLocalDiff({
@@ -281,18 +287,31 @@ async function main(): Promise<number> {
       maxDiffBytes: config.review.max_diff_bytes,
     });
     headSha = diff.headSha;
+    // A commit-to-commit review needs only the detached head. Without --head, reproduce
+    // staged and unstaged tracked changes inside that clean view; untracked files (including
+    // `.env`) are neither part of the collected diff nor copied into the model read root.
+    checkout = await checkoutAt(repoDir, headSha, { includeWorkingTree: !args.head });
   }
+
+  // Load policy while the detached worktree still has repository metadata, then sever its
+  // `.git` pointer before any model can read the checkout. That pointer can lead back to an
+  // Actions credential-bearing git config even though the source tree itself is clean.
+  const instructions = await loadAgentInstructions(
+    checkout.dir,
+    diff.baseSha,
+    diff.files.filter((file) => !file.ignored).map((file) => file.path),
+  );
+  await checkout.seal();
 
   const reviewable = diff.files.filter((f) => !f.ignored);
   if (reviewable.length === 0) {
     log.warn('Nothing to review: the diff is empty after path filters.');
-    await checkout.cleanup();
-    return 0;
+  } else {
+    log.step(
+      `${reviewable.length} file${reviewable.length === 1 ? '' : 's'} · ` +
+        `+${diff.totalAdditions}/-${diff.totalDeletions} · base ${diff.baseSha.slice(0, 7)}`,
+    );
   }
-  log.step(
-    `${reviewable.length} file${reviewable.length === 1 ? '' : 's'} · ` +
-      `+${diff.totalAdditions}/-${diff.totalDeletions} · base ${diff.baseSha.slice(0, 7)}`,
-  );
 
   // ── Review ─────────────────────────────────────────────────────────────────
   const progress = args.post && prNumber !== null && repo && githubClient
@@ -319,14 +338,17 @@ async function main(): Promise<number> {
     }
   };
 
-  // A review is minutes of model time, so Ctrl-C during one is normal rather than
-  // exceptional. `finally` does not run when the process is signalled, and a leaked
-  // worktree is not self-healing — it stays registered in the parent repo until someone
-  // runs `git worktree prune`. Best-effort the terminal comment state before cleaning up.
+  // A review is minutes of model time, so Ctrl-C during one is normal. Abort the active
+  // harnesses first, let runReview settle, and only then leave through the ordinary cleanup
+  // path; exiting directly from the signal handler would orphan provider processes.
+  const controller = new AbortController();
+  let receivedSignal: NodeJS.Signals | null = null;
+  let signalNotice: Promise<void> | null = null;
   const onSignal = (sig: NodeJS.Signals) => {
-    void markFailed(`Review cancelled by ${sig}.`)
-      .finally(() => checkout.cleanup())
-      .finally(() => process.exit(sig === 'SIGINT' ? 130 : 143));
+    if (receivedSignal) return;
+    receivedSignal = sig;
+    controller.abort();
+    signalNotice = markFailed(`Review cancelled by ${sig}.`);
   };
   process.once('SIGINT', onSignal);
   process.once('SIGTERM', onSignal);
@@ -347,6 +369,8 @@ async function main(): Promise<number> {
       secrets: process.env as Record<string, string | undefined>,
       ...(args.models.length ? { onlyModels: args.models } : {}),
       keepScratch: args.keepScratch,
+      signal: controller.signal,
+      instructions,
     });
   } catch (e) {
     await markFailed(errorMessage(e));
@@ -358,10 +382,19 @@ async function main(): Promise<number> {
     else if (checkout.ephemeral) log.info(`worktree kept at ${checkout.dir}`);
   }
 
+  if (receivedSignal) {
+    await signalNotice;
+    return receivedSignal === 'SIGINT' ? 130 : 143;
+  }
+
   // ── Output ─────────────────────────────────────────────────────────────────
   const stateDir = await gitStateDir(repoDir);
   const prKey = `${repo ?? 'local'}#${prNumber ?? 'wt'}@${headSha.slice(0, 12)}`;
-  const rolling = safeRecordSpend(stateDir, result.totals.usd, prKey);
+  const rolling = safeRecordSpend(
+    stateDir,
+    result.totals.partial ? null : result.totals.usd,
+    prKey,
+  );
 
   if (args.json !== true) process.stdout.write(renderTerminalReport(result, { version: VERSION }));
 
@@ -481,6 +514,13 @@ async function loadConfigFromBase(
 }
 
 function safeRecordSpend(stateDir: string, usd: number | null, prKey: string) {
+  // GitHub-hosted runners discard their checkout after every job. A ledger stored there
+  // would reset on every invocation and make a "30-day" total look authoritative while it
+  // contains only the current run. Keep rolling spend for persistent local/self-hosted
+  // checkouts and omit it when persistence is not available.
+  if (process.env.GITHUB_ACTIONS === 'true' && process.env.RUNNER_ENVIRONMENT === 'github-hosted') {
+    return null;
+  }
   try {
     return recordSpend(stateDir, usd, prKey);
   } catch {

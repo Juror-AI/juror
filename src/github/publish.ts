@@ -19,6 +19,7 @@ import {
 import { selectInlineComments, type InlineComment } from '../render/inline.js';
 import { log, redact } from '../util/log.js';
 import { isGitHubApiError, type GitHubApi, type ReviewCommentInput } from './client.js';
+import { fingerprint, fingerprintsIn } from './fingerprint.js';
 
 export interface PublishOptions {
   /** `GitHubClient` in production; the interface keeps this unit-testable without a network. */
@@ -119,7 +120,8 @@ export async function publishReview(r: ReviewResult, o: PublishOptions): Promise
   }
 
   const summaryCommentId = await upsertSticky(o, body, warnings);
-  const inline = comments.length > 0 ? await postInline(o, comments, r.diff, warnings) : null;
+  const fresh = await withoutPreviouslyPosted(o, comments, warnings);
+  const inline = fresh.length > 0 ? await postInline(o, fresh, r.diff, warnings) : null;
 
   return {
     summaryCommentId,
@@ -127,6 +129,48 @@ export async function publishReview(r: ReviewResult, o: PublishOptions): Promise
     degradedToSummary: inline?.degraded ?? false,
     warnings,
   };
+}
+
+async function withoutPreviouslyPosted(
+  o: PublishOptions,
+  comments: InlineComment[],
+  warnings: string[],
+): Promise<InlineComment[]> {
+  if (comments.length === 0) return comments;
+  try {
+    const previous = await o.client.listReviewComments(o.prNumber);
+    const seen = new Map<string, { path: string; line: number }[]>();
+    for (const comment of previous) {
+      if (!comment.user.login.endsWith('[bot]')) continue;
+      if (comment.line === null || !comment.path) continue;
+      for (const value of fingerprintsIn(comment.body)) {
+        const locations = seen.get(value) ?? [];
+        locations.push({ path: comment.path, line: comment.line });
+        seen.set(value, locations);
+      }
+    }
+    const fresh = comments.filter((comment) => {
+      const previousLocations = seen.get(fingerprint(comment.cluster)) ?? [];
+      // Title identity alone is deliberately insufficient: two defects in one file can both
+      // be called "missing validation". Require the old anchor to remain nearby as well.
+      return !previousLocations.some(
+        (old) => old.path === comment.path && Math.abs(old.line - comment.line) <= 8,
+      );
+    });
+    const duplicates = comments.length - fresh.length;
+    if (duplicates > 0) {
+      warnings.push(
+        `${duplicates} unchanged finding${duplicates === 1 ? '' : 's'} already had an inline ` +
+          'comment and were not posted again.',
+      );
+    }
+    return fresh;
+  } catch (error) {
+    // Missing dedupe history should never hide a new review. Posting all findings is the
+    // high-recall fallback, with an explicit warning that a rerun may duplicate a comment.
+    warnings.push(`could not inspect earlier inline findings: ${messageOf(error)}`);
+    return comments;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

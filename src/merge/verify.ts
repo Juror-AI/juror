@@ -38,6 +38,8 @@ export interface VerifyOptions {
   verifySolo: boolean;
   /** Skip clusters that cannot reach the active publication threshold. */
   minimumAgreement: number;
+  /** Trusted base-revision instructions preloaded before model checkout sealing. */
+  repoInstructions?: string;
   signal?: AbortSignal;
 }
 
@@ -312,6 +314,7 @@ async function verifyOne(
     usage: result.usage,
     reportedCostUsd: result.reportedCostUsd,
     pricing: o.pricing,
+    turns: result.turns,
   });
 
   let written = '';
@@ -422,11 +425,13 @@ export async function verifyClusters(clusters: Cluster[], o: VerifyOptions): Pro
 
   log.step(`Verifying ${selected.length} finding(s) adversarially`);
 
-  const instructions = await loadAgentInstructions(
-    o.repoDir,
-    o.diff.baseSha,
-    o.diff.files.filter((f) => !f.ignored).map((f) => f.path),
-  );
+  const instructions = o.repoInstructions !== undefined
+    ? { rendered: o.repoInstructions, paths: [], problems: [] }
+    : await loadAgentInstructions(
+        o.repoDir,
+        o.diff.baseSha,
+        o.diff.files.filter((f) => !f.ignored).map((f) => f.path),
+      );
   for (const problem of instructions.problems) log.debug(`verify instructions: ${problem}`);
 
   const attempts = await pool<Cluster, Attempt>(selected, CONCURRENCY, async (c, index) => {

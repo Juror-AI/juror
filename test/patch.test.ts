@@ -342,6 +342,11 @@ describe('matchesGlob', () => {
   it('ignores a leading ./ on either side', () => {
     expect(matchesGlob('./src/a.ts', 'src/*.ts')).toBe(true);
   });
+
+  it('degrades a malformed character range to a non-match', () => {
+    expect(() => matchesGlob('src/a.ts', '[z-a]')).not.toThrow();
+    expect(matchesGlob('src/a.ts', '[z-a]')).toBe(false);
+  });
 });
 
 describe('filterPatch', () => {

@@ -7,9 +7,10 @@
  * from a branch you happen to be on would have every model reading the wrong code and
  * confidently reporting on functions the PR already changed.
  *
- * So when the checkout isn't at the head SHA, we add a detached `git worktree` and review
- * that instead. It shares the object store, leaves the operator's working tree completely
- * alone, and is removed afterwards.
+ * Every review uses a detached `git worktree`, even when the source checkout already points
+ * at the requested SHA. Besides making the bytes deterministic, this keeps untracked local
+ * files such as `.env` outside every model's read root. Local working-tree reviews can copy
+ * their tracked/staged patch into that clean view without copying unrelated untracked files.
  */
 
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
@@ -23,14 +24,9 @@ export interface EphemeralCheckout {
   dir: string;
   /** True when we created a worktree that must be torn down. */
   ephemeral: boolean;
+  /** Remove the worktree's pointer back to credential-bearing repository metadata. */
+  seal(): Promise<void>;
   cleanup(): Promise<void>;
-}
-
-const NOOP = async (): Promise<void> => {};
-
-async function headSha(repoDir: string): Promise<string | null> {
-  const io = await run(['git', 'rev-parse', 'HEAD'], { cwd: repoDir, timeoutMs: 30_000 });
-  return io.exitCode === 0 ? io.stdout.trim() : null;
 }
 
 async function hasCommit(repoDir: string, sha: string): Promise<boolean> {
@@ -65,20 +61,13 @@ async function ensureCommit(repoDir: string, sha: string, prNumber: number | nul
 export async function checkoutAt(
   repoDir: string,
   sha: string,
-  o: { prNumber?: number | null } = {},
+  o: { prNumber?: number | null; includeWorkingTree?: boolean } = {},
 ): Promise<EphemeralCheckout> {
-  const current = await headSha(repoDir);
-  if (current && current === sha) {
-    log.debug('checkout is already at the head commit');
-    return { dir: repoDir, ephemeral: false, cleanup: NOOP };
-  }
-
   if (!(await ensureCommit(repoDir, sha, o.prNumber ?? null))) {
-    log.warn(
-      `Could not fetch ${sha.slice(0, 12)} — reviewing the checkout as-is at ` +
-        `${current?.slice(0, 12) ?? 'unknown'}. Findings may reference stale code.`,
+    throw new Error(
+      `Could not fetch review head ${sha.slice(0, 12)}; refusing to expose or review the ` +
+        'operator checkout as a fallback.',
     );
-    return { dir: repoDir, ephemeral: false, cleanup: NOOP };
   }
 
   // Nothing can clean up after SIGKILL, so reap earlier leaks here instead. `prune` only
@@ -96,9 +85,30 @@ export async function checkoutAt(
       cwd: repoDir,
       timeoutMs: 600_000,
     });
+
+    if (o.includeWorkingTree) {
+      // `git diff <sha>` contains staged and unstaged tracked changes plus staged additions.
+      // Untracked files are intentionally absent: collectLocalDiff does not review them, and
+      // copying them would reintroduce the `.env` exposure this checkout exists to prevent.
+      const patch = await runOrThrow(
+        ['git', 'diff', '--binary', '--full-index', '--no-color', sha],
+        { cwd: repoDir, timeoutMs: 120_000 },
+      );
+      if (patch.trim()) {
+        await runOrThrow(['git', 'apply', '--binary', '--whitespace=nowarn', '-'], {
+          cwd: target,
+          stdin: patch,
+          timeoutMs: 300_000,
+        });
+      }
+    }
   } catch (error) {
-    // `add` may fail (disk full, target already registered) before the cleanup closure below
-    // exists to reap it, so remove the mkdtemp dir here rather than leak it into os.tmpdir().
+    // `add` or local-patch application may fail before the cleanup closure below exists to
+    // reap it. Remove both the registration and the temp directory here.
+    await run(['git', 'worktree', 'remove', '--force', target], {
+      cwd: repoDir,
+      timeoutMs: 120_000,
+    });
     await rm(dir, { recursive: true, force: true });
     throw error;
   }
@@ -107,12 +117,22 @@ export async function checkoutAt(
   return {
     dir: target,
     ephemeral: true,
+    seal: async () => {
+      // Linked worktrees contain a `.git` text file pointing at the source checkout's common
+      // git directory. Models do not need repository plumbing, and following that pointer
+      // could expose checkout credentials stored by Actions. Remove it only after Juror has
+      // loaded trusted base-revision config and AGENTS.md files.
+      await rm(path.join(target, '.git'), { force: true });
+    },
     cleanup: async () => {
-      await run(['git', 'worktree', 'remove', '--force', target], {
+      const removed = await run(['git', 'worktree', 'remove', '--force', target], {
         cwd: repoDir,
         timeoutMs: 120_000,
       });
       await rm(dir, { recursive: true, force: true });
+      if (removed.exitCode !== 0) {
+        await run(['git', 'worktree', 'prune'], { cwd: repoDir, timeoutMs: 60_000 });
+      }
     },
   };
 }
