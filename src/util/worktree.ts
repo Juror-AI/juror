@@ -91,10 +91,17 @@ export async function checkoutAt(
   // are outside it — opencode auto-rejects those reads and the review comes back empty.
   const dir = await realpath(await mkdtemp(path.join(tmpdir(), 'juror-')));
   const target = path.join(dir, 'repo');
-  await runOrThrow(['git', 'worktree', 'add', '--detach', '--quiet', target, sha], {
-    cwd: repoDir,
-    timeoutMs: 600_000,
-  });
+  try {
+    await runOrThrow(['git', 'worktree', 'add', '--detach', '--quiet', target, sha], {
+      cwd: repoDir,
+      timeoutMs: 600_000,
+    });
+  } catch (error) {
+    // `add` may fail (disk full, target already registered) before the cleanup closure below
+    // exists to reap it, so remove the mkdtemp dir here rather than leak it into os.tmpdir().
+    await rm(dir, { recursive: true, force: true });
+    throw error;
+  }
   log.debug(`reviewing detached worktree at ${sha.slice(0, 12)}`);
 
   return {

@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Juror">
+  <title>Juror</title>
+  <defs>
+    <linearGradient id="ji-tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#141A26"/><stop offset="1" stop-color="#0A0D14"/>
+    </linearGradient>
+    <radialGradient id="ji-glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#F2B33D" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#F2B33D" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ji-a" gradientUnits="userSpaceOnUse" x1="22" y1="20" x2="54.3" y2="34.2">
+      <stop offset="0" stop-color="#38BDF8"/><stop offset="1" stop-color="#F2B33D"/>
+    </linearGradient>
+    <linearGradient id="ji-b" gradientUnits="userSpaceOnUse" x1="22" y1="48" x2="50" y2="48">
+      <stop offset="0" stop-color="#A78BFA"/><stop offset="1" stop-color="#F2B33D"/>
+    </linearGradient>
+    <linearGradient id="ji-c" gradientUnits="userSpaceOnUse" x1="22" y1="76" x2="54.3" y2="61.8">
+      <stop offset="0" stop-color="#F472B6"/><stop offset="1" stop-color="#F2B33D"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#ji-tile)"/>
+  <rect x="1" y="1" width="510" height="510" rx="111" fill="none" stroke="#252E40" stroke-width="2"/>
+  <circle cx="343" cy="256" r="152" fill="url(#ji-glow)"/>
+
+  <g transform="translate(24.9 49.6) scale(4.3)">
+    <g fill="none" stroke-width="5.5" stroke-linecap="round">
+      <path d="M22 20C42 20 46.9 29 54.3 34.2" stroke="url(#ji-a)"/>
+      <path d="M22 48H50" stroke="url(#ji-b)"/>
+      <path d="M22 76C42 76 46.9 67 54.3 61.8" stroke="url(#ji-c)"/>
+    </g>
+    <circle cx="22" cy="20" r="6.5" fill="#38BDF8"/>
+    <circle cx="22" cy="48" r="6.5" fill="#A78BFA"/>
+    <circle cx="22" cy="76" r="6.5" fill="#F472B6"/>
+    <circle cx="74" cy="48" r="15.5" fill="none" stroke="#F2B33D" stroke-width="5"/>
+  </g>
+</svg>

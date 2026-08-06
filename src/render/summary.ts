@@ -105,22 +105,30 @@ export function severityRank(s: Severity): number {
  * rest of the fields are unioned.
  */
 export function synthesizeSummary(runs: ModelRun[], diff: DiffContext): ReviewSummary {
-  const reported: { report: ModelReport; order: number }[] = [];
+  const reported: { report: ModelReport; order: number; complete: boolean }[] = [];
   runs.forEach((run, order) => {
     const report = run.result?.report;
-    if (report) reported.push({ report, order });
+    if (report) reported.push({ report, order, complete: !run.result?.truncated });
   });
   if (reported.length === 0) return degradedSummary(diff);
 
+  // Early report writes are load-bearing for graceful degradation, but their prose can
+  // still be a literal placeholder when a run is cut off. Complete jurors own the sticky
+  // summary whenever at least one exists; partial reports remain available to the finding
+  // pipeline and become the fallback only when every juror was interrupted.
+  const proseSources = reported.some((item) => item.complete)
+    ? reported.filter((item) => item.complete)
+    : reported;
+
   // Ties break on run order so the same inputs always render the same comment.
-  const ranked = [...reported].sort(
+  const ranked = [...proseSources].sort(
     (a, b) => a.report.merge_confidence - b.report.merge_confidence || a.order - b.order,
   );
   const median = ranked[Math.floor((ranked.length - 1) / 2)];
   if (!median) return degradedSummary(diff);
 
   // The median voter's prose anchors the comment; its highlights come first.
-  const ordered = [median, ...reported.filter((r) => r !== median)];
+  const ordered = [median, ...proseSources.filter((r) => r !== median)];
 
   const highlights: string[] = [];
   const seen = new Set<string>();
@@ -137,7 +145,7 @@ export function synthesizeSummary(runs: ModelRun[], diff: DiffContext): ReviewSu
   }
 
   const overviews = new Map<string, FileOverview>();
-  for (const { report } of reported) {
+  for (const { report } of proseSources) {
     for (const fo of report.file_overviews) {
       const path = fo.path?.trim();
       if (!path || !fo.overview?.trim()) continue;
@@ -150,7 +158,7 @@ export function synthesizeSummary(runs: ModelRun[], diff: DiffContext): ReviewSu
   }
 
   let diagram: string | null = null;
-  for (const { report } of reported) {
+  for (const { report } of proseSources) {
     const d = report.sequence_diagram?.trim();
     if (d) {
       diagram = d;
@@ -217,6 +225,7 @@ export function renderSummaryComment(r: ReviewResult, o: RenderOptions): string 
   if (attention) blocks.push(`**Files needing attention:** ${attention}`);
 
   blocks.push(findingsSection(r.published, models));
+  blocks.push(coverageLine(r));
 
   const suppressed = suppressedSection(r.suppressed, o.config);
   if (suppressed) blocks.push(suppressed);
@@ -229,6 +238,7 @@ export function renderSummaryComment(r: ReviewResult, o: RenderOptions): string 
 
   const skipped = skippedNotes(r.runs);
   const failed = failedNotes(r.runs);
+  const partial = partialNotes(r.runs);
   if (o.config.output.cost_receipt) {
     blocks.push(
       renderReceipt(r.totals, {
@@ -236,13 +246,14 @@ export function renderSummaryComment(r: ReviewResult, o: RenderOptions): string 
         rolling: o.rolling ?? null,
         skipped,
         failed,
+        partial,
         version: o.version,
       }),
     );
-  } else if (skipped.length || failed.length) {
+  } else if (skipped.length || failed.length || partial.length) {
     // With the receipt switched off this is the only place a missing key can surface,
     // and a silently single-model review is worse than a noisy one.
-    blocks.push(`<sub>${degradedNote(skipped, failed)}</sub>`);
+    blocks.push(`<sub>${degradedNote(skipped, failed, partial)}</sub>`);
   }
 
   blocks.push(footer(o));
@@ -309,6 +320,15 @@ function findingsSection(published: Cluster[], models: number): string {
     );
   });
   return lines.join('\n');
+}
+
+function coverageLine(r: ReviewResult): string {
+  const coverage = r.coverage;
+  const base =
+    `${coverage.accountedFor}/${coverage.rawFindings} raw model findings accounted for` +
+    ` → ${coverage.uniqueFindings} unique finding${coverage.uniqueFindings === 1 ? '' : 's'}`;
+  if (coverage.complete) return `<sub>Coverage audit: ${base}; none dropped.</sub>`;
+  return `**⚠ Coverage audit incomplete:** ${mdText(base)}.`;
 }
 
 function suppressedSection(suppressed: Cluster[], config: JurorConfig): string {
@@ -413,10 +433,26 @@ function failedNotes(runs: ModelRun[]): ReceiptNote[] {
     .map((run) => ({ label: run.modelLabel, reason: redact(run.error ?? 'failed') }));
 }
 
-function degradedNote(skipped: ReceiptNote[], failed: ReceiptNote[]): string {
+function partialNotes(runs: ModelRun[]): ReceiptNote[] {
+  return runs
+    .filter((run) => !run.skipped && run.ok && run.result?.truncated)
+    .map((run) => ({
+      label: run.modelLabel,
+      reason: redact(
+        run.result?.diagnostics[0] ?? 'run ended before completion; using its last written report',
+      ),
+    }));
+}
+
+function degradedNote(
+  skipped: ReceiptNote[],
+  failed: ReceiptNote[],
+  partial: ReceiptNote[],
+): string {
   const parts: string[] = [];
   if (skipped.length) parts.push(`Skipped: ${skipped.map(noteText).join(' · ')}`);
   if (failed.length) parts.push(`Failed: ${failed.map(noteText).join(' · ')}`);
+  if (partial.length) parts.push(`Partial: ${partial.map(noteText).join(' · ')}`);
   return parts.join(' · ');
 }
 

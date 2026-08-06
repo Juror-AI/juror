@@ -14,8 +14,14 @@ import process from 'node:process';
 
 import { runOrThrow } from './util/proc.js';
 
-import type { DiffContext, JurorConfig } from './types.js';
-import { loadConfig, resolveModelRuntime } from './config.js';
+import type { DiffContext, JurorConfig, ReviewPreset } from './types.js';
+import {
+  applyReviewPreset,
+  loadConfig,
+  parseReviewPreset,
+  resolveModelRuntime,
+  REVIEW_PRESETS,
+} from './config.js';
 import { collectFromPatch, collectLocalDiff } from './diff/collect.js';
 import { runReview } from './review.js';
 import { renderTerminalReport } from './render/terminal.js';
@@ -26,6 +32,7 @@ import { loadRolling, recordSpend } from './cost/rolling.js';
 import { log, redact, setLogLevel } from './util/log.js';
 import { gitStateDir, repoRoot } from './util/workspace.js';
 import { checkoutAt, type EphemeralCheckout } from './util/worktree.js';
+import { evaluateBenchmark, parseBenchmarkCorpus, renderBenchmark } from './benchmark.js';
 
 export const VERSION = '0.1.0';
 
@@ -34,6 +41,7 @@ juror ${VERSION} — multi-model PR review that shows you the bill
 
 Usage
   juror review [options]
+  juror benchmark --file <corpus.json> [--json [path]]
 
 Target (pick one)
   --pr <number>          Review a GitHub pull request
@@ -44,6 +52,8 @@ Options
   --repo-dir <path>      Repository checkout to read (default: cwd)
   --head <ref>           Head ref for local mode (default: HEAD)
   --config <path>        Config file (default: .juror.yml in the repo)
+  --preset <name>        Jury preset: fast, balanced (default), high, or ultra
+  --mode <name>          Alias for --preset
   --models <a,b,c>       Only run these model ids
   --post                 Post the review to the pull request (requires --pr and GITHUB_TOKEN)
   --dry-run              With --post, render everything but perform no writes
@@ -52,12 +62,14 @@ Options
   --max-cost <usd>       Override budget.max_cost_usd_per_pr
   --keep-scratch         Leave .juror-run/ in place for debugging
   --env-file <path>      Load KEY=VALUE pairs before running (default: ./.env if present)
+  --file <path>          Adjudicated corpus for the benchmark command
   -v, --verbose          Debug logging
   -q, --quiet            Errors only
   -h, --help             This message
 
 Environment
-  ANTHROPIC_API_KEY  OPENAI_API_KEY  XAI_API_KEY  FIREWORKS_API_KEY  GITHUB_TOKEN
+  ANTHROPIC_API_KEY  OPENAI_API_KEY  XAI_API_KEY  FIREWORKS_API_KEY
+  GITHUB_TOKEN
   Any model whose key is absent is skipped with a note in the receipt — a repo with one
   key still gets a working review.
 `;
@@ -70,6 +82,7 @@ interface Args {
   base: string | null;
   head: string | null;
   config: string | null;
+  preset: ReviewPreset | null;
   models: string[];
   post: boolean;
   dryRun: boolean;
@@ -78,6 +91,7 @@ interface Args {
   maxCost: number | null;
   keepScratch: boolean;
   envFile: string | null;
+  file: string | null;
   help: boolean;
 }
 
@@ -90,6 +104,7 @@ function parseArgs(argv: string[]): Args {
     base: null,
     head: null,
     config: null,
+    preset: null,
     models: [],
     post: false,
     dryRun: false,
@@ -98,6 +113,7 @@ function parseArgs(argv: string[]): Args {
     maxCost: null,
     keepScratch: false,
     envFile: null,
+    file: null,
     help: false,
   };
 
@@ -119,6 +135,15 @@ function parseArgs(argv: string[]): Args {
       case '--base': a.base = next(i); i++; break;
       case '--head': a.head = next(i); i++; break;
       case '--config': a.config = path.resolve(next(i)); i++; break;
+      case '--preset':
+      case '--mode': {
+        const value = next(i);
+        const preset = parseReviewPreset(value);
+        if (!preset) throw new Error(`Unknown preset "${value}". Expected one of: ${REVIEW_PRESETS.join(', ')}`);
+        a.preset = preset;
+        i++;
+        break;
+      }
       case '--models': a.models = next(i).split(','); i++; break;
       case '--post': a.post = true; break;
       case '--no-post': a.post = false; break;
@@ -127,6 +152,7 @@ function parseArgs(argv: string[]): Args {
       case '--max-cost': a.maxCost = Number(next(i)); i++; break;
       case '--keep-scratch': a.keepScratch = true; break;
       case '--env-file': a.envFile = path.resolve(next(i)); i++; break;
+      case '--file': a.file = path.resolve(next(i)); i++; break;
       case '--json': {
         const v = rest[i + 1];
         if (v && !v.startsWith('-')) { a.json = path.resolve(v); i++; } else a.json = true;
@@ -184,6 +210,7 @@ async function main(): Promise<number> {
     process.stdout.write(USAGE);
     return 0;
   }
+  if (args.command === 'benchmark') return runBenchmarkCommand(args);
   if (args.command !== 'review') {
     process.stderr.write(`Unknown command "${args.command}".\n${USAGE}`);
     return 2;
@@ -197,9 +224,10 @@ async function main(): Promise<number> {
   for (const p of problems) log.warn(`config: ${p}`);
   if (sourcePath) log.debug(`config from ${sourcePath}`);
 
-  const config: JurorConfig = args.maxCost
-    ? { ...baseConfig, budget: { ...baseConfig.budget, max_cost_usd_per_pr: args.maxCost } }
-    : baseConfig;
+  let config: JurorConfig = args.preset ? applyReviewPreset(baseConfig, args.preset) : baseConfig;
+  if (args.maxCost !== null) {
+    config = { ...config, budget: { ...config.budget, max_cost_usd_per_pr: args.maxCost } };
+  }
 
   // ── Collect the diff ───────────────────────────────────────────────────────
   const repo = args.repo ?? (await inferRepo(repoDir));
@@ -368,6 +396,27 @@ async function main(): Promise<number> {
 
   // A review that found blockers is still a successful review. Exit non-zero only when the
   // tool itself failed, so a PR check can decide policy separately from tool health.
+  return 0;
+}
+
+async function runBenchmarkCommand(args: Args): Promise<number> {
+  if (!args.file) throw new Error('benchmark requires --file <corpus.json>');
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(args.file, 'utf8')) as unknown;
+  } catch (error) {
+    throw new Error(
+      `Could not read benchmark corpus ${args.file}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  const result = evaluateBenchmark(parseBenchmarkCorpus(raw));
+  process.stdout.write(renderBenchmark(result));
+  if (args.json) {
+    const payload = `${JSON.stringify(result, null, 2)}\n`;
+    if (typeof args.json === 'string') await writeFile(args.json, payload, 'utf8');
+    else process.stdout.write(payload);
+  }
   return 0;
 }
 

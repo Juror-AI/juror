@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "textcortex/platform#10359",
+      "url": "https://github.com/textcortex/platform/pull/10359",
+      "expected": [
+        {
+          "id": "normalized-autosave-loop",
+          "severity": "P1",
+          "title": "Normalized values re-arm autosave forever"
+        },
+        {
+          "id": "failed-autosave-loop",
+          "severity": "P1",
+          "title": "Failed autosave retries forever"
+        },
+        {
+          "id": "behavior-input-clobber",
+          "severity": "P1",
+          "title": "Autosave clobbers in-flight Behavior edits"
+        },
+        {
+          "id": "behavior-promise-discarded",
+          "severity": "P1",
+          "title": "Behavior save promise is discarded"
+        },
+        {
+          "id": "exit-before-debounce",
+          "severity": "P2",
+          "title": "Page exit drops pending autosave"
+        },
+        {
+          "id": "save-button-inverted",
+          "severity": "P2",
+          "title": "Save button renders only when unsaveable"
+        }
+      ],
+      "runs": [
+        {
+          "reviewer": "Juror Fast (baseline)",
+          "cost_usd": 1.078145,
+          "duration_ms": 502091,
+          "findings": [
+            {
+              "title": "Autosave re-arms in infinite loop after normalization",
+              "severity": "P1",
+              "expected_id": "normalized-autosave-loop"
+            },
+            {
+              "title": "Autosave clobbers Behavior-tab typing during in-flight save",
+              "severity": "P1",
+              "expected_id": "behavior-input-clobber"
+            },
+            {
+              "title": "No flush on page exit or Back",
+              "severity": "P2",
+              "expected_id": "exit-before-debounce"
+            },
+            {
+              "title": "Save button renders only when the step is not saveable",
+              "severity": "P2",
+              "expected_id": "save-button-inverted"
+            }
+          ]
+        },
+        {
+          "reviewer": "Greptile",
+          "cost_usd": null,
+          "duration_ms": null,
+          "findings": [
+            {
+              "title": "Failed autosave has no retry",
+              "severity": "P1",
+              "expected_id": null
+            },
+            {
+              "title": "Behavior save promise is discarded",
+              "severity": "P1",
+              "expected_id": "behavior-promise-discarded"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

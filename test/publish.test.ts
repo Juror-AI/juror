@@ -64,6 +64,14 @@ function makeResult(): ReviewResult {
     clusters: [],
     published: [],
     suppressed: [],
+    coverage: {
+      complete: true,
+      rawFindings: 0,
+      accountedFor: 0,
+      uniqueFindings: 0,
+      dispositions: [],
+      problems: [],
+    },
     verdict: { base: 3, penalty: 0, score: 3, votes: [], confirmed: { P0: 0, P1: 0, P2: 0, P3: 0 } },
     summary: {
       summary: 'A review.',

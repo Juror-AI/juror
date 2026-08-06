@@ -20,6 +20,32 @@ Report a finding only if a competent reviewer would block or comment on the PR f
 For each, you must be able to state a concrete failure: specific input or state → wrong
 output, crash, data loss, security exposure, or a violated repo convention.
 
+Each finding must be **atomic**: one trigger, one faulty mechanism, one observable
+consequence, and one independently actionable fix. If investigating one bug exposes a
+second mechanism that needs a different code change, emit a second finding even when it
+is on the same line or produces a related symptom. Never bury an additional bug in a
+parenthetical or supporting sentence. For example, an autosave retry loop and a callback
+that discards the save promise are separate findings: stopping retries does not make the
+promise awaitable, and returning the promise does not stop retries.
+
+### Mandatory async-contract pass
+
+Before finishing, enumerate every callback that an added or modified line now `await`s,
+`catch`es, or treats as a completion barrier. For each callback:
+
+1. Follow every reachable registered implementation, not just its interface type.
+2. Follow wrappers recursively to the actual async operation.
+3. Prove that the promise is returned. A wrapper shaped like `() => { void submit(); }`,
+   or typed `() => void` behind a `() => void | Promise<void>` interface, completes
+   immediately and cannot propagate rejection.
+4. Check every caller that relies on completion before navigation, lifecycle changes, or
+   success UI. Emit the broken return contract as its own finding even if another autosave
+   defect exists on the same line.
+
+Do not finish the review merely because you found another bug in the async flow. Record
+the callback chain you checked in `async_contracts` so omissions are visible in the raw
+report. An empty list is valid only when the diff adds or modifies no awaited callback.
+
 Severity:
 - P0 — data loss, security vulnerability, or guaranteed production breakage.
 - P1 — incorrect behavior on a reachable path; should be fixed before merge.
@@ -72,6 +98,7 @@ everything already on disk. A partial report beats no report.
   "summary": "one sentence describing what this PR does",
   "highlights": ["3 bullets max, what changed and why it matters"],
   "file_overviews": [{"path": "...", "overview": "one sentence; note concerns"}],
+  "async_contracts": ["caller() -> wrapper() -> operation(): returned promise or discarded void"],
   "sequence_diagram": "mermaid sequenceDiagram, or null if the PR has no meaningful flow",
   "findings": [{
     "path": "repo-relative path",
@@ -80,6 +107,12 @@ everything already on disk. A partial report beats no report.
     "severity": "P0|P1|P2|P3",
     "title": "noun phrase, <= 8 words, no trailing period",
     "body": "1-3 sentences. State the mechanism AND the consequence. Name the fix.",
+    "claim": {
+      "trigger": "specific input, state, or event",
+      "mechanism": "single faulty code path or contract",
+      "consequence": "single observable wrong result",
+      "fix": "single independently actionable code change"
+    },
     "category": "correctness|security|performance|api-contract|concurrency|convention|test-gap",
     "confidence": 0.0-1.0,
     "convention": "path/to/AGENTS.md or null"
@@ -87,6 +120,8 @@ everything already on disk. A partial report beats no report.
 }
 
 Findings anchored to lines the diff does not touch will be discarded. Anchor precisely.
+Every finding must include all four `claim` fields. Before writing the file, split any
+finding whose body or claim contains two mechanisms, consequences, or fixes.
 
 ## The diff
 

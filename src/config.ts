@@ -11,7 +11,7 @@ import { readFileSync, statSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import type { HarnessId, JurorConfig, ModelConfig } from './types.js';
+import type { HarnessId, JurorConfig, ModelConfig, ReviewPreset } from './types.js';
 import { SEVERITIES } from './types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -24,6 +24,7 @@ const HARNESS_IDS: readonly HarnessId[] = [
   'claude-code',
   'codex',
   'grok-build',
+  'kimi-code',
   'opencode',
   'generic-openai',
 ];
@@ -37,6 +38,7 @@ const DEFAULT_SECRET: Record<HarnessId, string> = {
   'claude-code': 'ANTHROPIC_API_KEY',
   codex: 'OPENAI_API_KEY',
   'grok-build': 'XAI_API_KEY',
+  'kimi-code': 'FIREWORKS_API_KEY',
   opencode: 'FIREWORKS_API_KEY',
   'generic-openai': 'OPENAI_API_KEY',
 };
@@ -45,43 +47,158 @@ const SUPPRESSED_MODES = ['collapsed', 'hidden', 'inline'] as const;
 const ON_EXCEED_MODES = ['partial', 'skip'] as const;
 const PUBLISH_MODES = ['all', 'consensus'] as const;
 
+export const REVIEW_PRESETS = ['fast', 'balanced', 'high', 'ultra'] as const satisfies readonly ReviewPreset[];
+
+const BUILTIN_MODELS: Record<string, ModelConfig> = {
+  'claude-opus-5': {
+    id: 'claude-opus-5',
+    harness: 'claude-code',
+    enabled: true,
+    secret: 'ANTHROPIC_API_KEY',
+    label: 'Opus 5',
+  },
+  'gpt-5.6-sol': {
+    id: 'gpt-5.6-sol',
+    harness: 'codex',
+    enabled: true,
+    secret: 'OPENAI_API_KEY',
+    label: 'GPT-5.6 Sol',
+    args: { reasoning_effort: 'high' },
+  },
+  'gpt-5.6-terra': {
+    id: 'gpt-5.6-terra',
+    harness: 'codex',
+    enabled: true,
+    secret: 'OPENAI_API_KEY',
+    label: 'GPT-5.6 Terra',
+    args: { reasoning_effort: 'max' },
+  },
+  'grok-4.5': {
+    id: 'grok-4.5',
+    harness: 'grok-build',
+    enabled: true,
+    secret: 'XAI_API_KEY',
+    label: 'Grok 4.5',
+    args: { reasoning_effort: 'high' },
+  },
+  'kimi-k3': {
+    id: 'kimi-k3',
+    harness: 'kimi-code',
+    enabled: true,
+    secret: 'FIREWORKS_API_KEY',
+    label: 'Kimi K3',
+    base_url: 'https://api.fireworks.ai/inference/v1',
+    harness_model: 'accounts/fireworks/models/kimi-k3',
+    pricing_key: 'accounts/fireworks/models/kimi-k3',
+    args: { reasoning_effort: 'max', context_window: 1_040_000 },
+  },
+  'deepseek-v4-flash-0731': {
+    id: 'deepseek-v4-flash-0731',
+    harness: 'opencode',
+    enabled: true,
+    secret: 'FIREWORKS_API_KEY',
+    label: 'DeepSeek V4 Flash',
+    harness_model: 'fireworks-ai/accounts/fireworks/models/deepseek-v4-flash-0731',
+    pricing_key: 'accounts/fireworks/models/deepseek-v4-flash-0731',
+    args: { variant: 'high' },
+  },
+};
+
+interface PresetDefinition {
+  modelIds: readonly string[];
+  consensusModel: string;
+  args?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+}
+
+const PRESET_DEFINITIONS: Record<ReviewPreset, PresetDefinition> = {
+  fast: {
+    modelIds: ['deepseek-v4-flash-0731', 'kimi-k3'],
+    consensusModel: 'deepseek-v4-flash-0731',
+    args: {
+      'deepseek-v4-flash-0731': { variant: 'low' },
+      'kimi-k3': { reasoning_effort: 'low', context_window: 1_040_000 },
+    },
+  },
+  balanced: {
+    modelIds: ['gpt-5.6-terra', 'grok-4.5', 'kimi-k3'],
+    consensusModel: 'kimi-k3',
+  },
+  high: {
+    modelIds: ['gpt-5.6-sol', 'claude-opus-5', 'grok-4.5'],
+    consensusModel: 'grok-4.5',
+  },
+  ultra: {
+    modelIds: [
+      'gpt-5.6-terra',
+      'gpt-5.6-sol',
+      'claude-opus-5',
+      'grok-4.5',
+      'kimi-k3',
+      'deepseek-v4-flash-0731',
+    ],
+    consensusModel: 'deepseek-v4-flash-0731',
+  },
+};
+
+function cloneModel(model: ModelConfig, args?: Readonly<Record<string, unknown>>): ModelConfig {
+  return {
+    ...model,
+    ...((model.args || args) ? { args: { ...model.args, ...args } } : {}),
+  };
+}
+
+function modelsForPreset(preset: ReviewPreset): ModelConfig[] {
+  const definition = PRESET_DEFINITIONS[preset];
+  return definition.modelIds.map((id) => {
+    const model = BUILTIN_MODELS[id];
+    if (!model) throw new Error(`internal preset error: no built-in model named ${id}`);
+    return cloneModel(model, definition.args?.[id]);
+  });
+}
+
+export function parseReviewPreset(value: string): ReviewPreset | null {
+  const normalized = value.trim().toLowerCase();
+  return REVIEW_PRESETS.find((preset) => preset === normalized) ?? null;
+}
+
+/** Replace only the jury selection; unrelated config overrides remain intact. */
+export function applyReviewPreset(config: JurorConfig, preset: ReviewPreset): JurorConfig {
+  const definition = PRESET_DEFINITIONS[preset];
+  const models = modelsForPreset(preset);
+  const presetRef = (current: string | null): string | null =>
+    current === null ? null : definition.consensusModel;
+
+  return {
+    ...config,
+    preset,
+    models,
+    consensus: {
+      ...config.consensus,
+      verify_model: presetRef(config.consensus.verify_model),
+      referee_model: presetRef(config.consensus.referee_model),
+    },
+  };
+}
+
 export function defaultConfig(): JurorConfig {
+  const preset: ReviewPreset = 'balanced';
+  const consensusModel = PRESET_DEFINITIONS[preset].consensusModel;
   return {
     version: 1,
-    models: [
-      { id: 'claude-opus-5', harness: 'claude-code', enabled: true, secret: 'ANTHROPIC_API_KEY', label: 'Opus 5' },
-      {
-        id: 'gpt-5.6-sol',
-        harness: 'codex',
-        enabled: true,
-        secret: 'OPENAI_API_KEY',
-        label: 'GPT-5.6 Sol',
-        args: { reasoning_effort: 'high' },
-      },
-      {
-        id: 'deepseek-v4-flash-0731',
-        harness: 'opencode',
-        enabled: true,
-        secret: 'FIREWORKS_API_KEY',
-        label: 'DeepSeek V4 Flash',
-        harness_model: 'fireworks-ai/accounts/fireworks/models/deepseek-v4-flash-0731',
-        pricing_key: 'accounts/fireworks/models/deepseek-v4-flash-0731',
-        args: { variant: 'high' },
-      },
-      { id: 'grok-4.5', harness: 'grok-build', enabled: true, secret: 'XAI_API_KEY', label: 'Grok 4.5' },
-    ],
+    preset,
+    models: modelsForPreset(preset),
     consensus: {
       min_agreement: 'all',
       verify_solo_findings: true,
-      verify_model: 'deepseek-v4-flash-0731',
-      referee_model: 'deepseek-v4-flash-0731',
+      verify_model: consensusModel,
+      referee_model: consensusModel,
       jaccard_merge_threshold: 0.55,
       jaccard_distinct_threshold: 0.3,
       line_window: 8,
     },
     review: {
       publish_mode: 'all',
-      severity_floor: 'P2',
+      severity_floor: 'P3',
       max_inline_comments: 15,
       incremental: true,
       paths_ignore: [
@@ -97,7 +214,9 @@ export function defaultConfig(): JurorConfig {
       anchor_tolerance: 3,
       max_diff_bytes: 400_000,
       per_model_timeout_seconds: 900,
-      max_turns: 40,
+      // Zero means unlimited. The wall-clock timeout remains the hard safety boundary;
+      // positive values are still accepted for users who want an explicit agent-step cap.
+      max_turns: 0,
     },
     budget: {
       // The ceiling is split evenly across the models that actually have a key, because an
@@ -180,13 +299,24 @@ function findConfigFile(repoDir: string, overridePath?: string): { path: string 
 // Validation — every branch keeps the default and explains itself
 // ─────────────────────────────────────────────────────────────────────────────
 
-const TOP_KEYS = ['version', 'models', 'consensus', 'review', 'budget', 'output'];
+const TOP_KEYS = ['version', 'preset', 'models', 'consensus', 'review', 'budget', 'output'];
 
 function applyConfig(config: JurorConfig, raw: Record<string, unknown>, problems: string[]): void {
   reportUnknown(raw, TOP_KEYS, '', problems);
 
   if ('version' in raw && raw['version'] !== 1) {
     problems.push(`version: expected 1, got ${fmt(raw['version'])} — treating this file as version 1`);
+  }
+
+  if ('preset' in raw) {
+    const value = asString(raw['preset']);
+    const preset = value ? parseReviewPreset(value) : null;
+    if (preset) Object.assign(config, applyReviewPreset(config, preset));
+    else {
+      problems.push(
+        `preset: expected one of ${REVIEW_PRESETS.join(', ')}, got ${fmt(raw['preset'])} — using ${config.preset}`,
+      );
+    }
   }
 
   if ('models' in raw) applyModels(config, raw['models'], problems);
@@ -203,7 +333,7 @@ function applyConfig(config: JurorConfig, raw: Record<string, unknown>, problems
  */
 function applyModels(config: JurorConfig, raw: unknown, problems: string[]): void {
   if (!Array.isArray(raw)) {
-    problems.push(`models: expected a list, got ${fmt(raw)} — keeping the default models`);
+    problems.push(`models: expected a list, got ${fmt(raw)} — keeping the current models`);
     return;
   }
 
@@ -214,10 +344,22 @@ function applyModels(config: JurorConfig, raw: unknown, problems: string[]): voi
   });
 
   if (models.length === 0) {
-    problems.push('models: no usable entries — keeping the default models');
+    problems.push('models: no usable entries — keeping the current models');
     return;
   }
   config.models = models;
+  config.preset = null;
+
+  // A custom jury should still have working referee defaults. Explicit consensus values
+  // are parsed immediately after this and therefore remain authoritative.
+  const ids = new Set(models.map((model) => model.id));
+  const fallback = models.find((model) => model.enabled)?.id ?? models[0]?.id ?? null;
+  if (config.consensus.verify_model !== null && !ids.has(config.consensus.verify_model)) {
+    config.consensus.verify_model = fallback;
+  }
+  if (config.consensus.referee_model !== null && !ids.has(config.consensus.referee_model)) {
+    config.consensus.referee_model = fallback;
+  }
 }
 
 const MODEL_KEYS = [
@@ -287,7 +429,7 @@ function coerceModel(raw: unknown, index: number, problems: string[]): ModelConf
 
   const timeout = numberIn(raw['timeout_seconds'], `${at} (${id}).timeout_seconds`, 1, 86_400, problems);
   if (timeout !== null) model.timeout_seconds = Math.round(timeout);
-  const maxTurns = numberIn(raw['max_turns'], `${at} (${id}).max_turns`, 1, 1000, problems);
+  const maxTurns = numberIn(raw['max_turns'], `${at} (${id}).max_turns`, 0, 1000, problems);
   if (maxTurns !== null) model.max_turns = Math.round(maxTurns);
 
   return model;
@@ -334,7 +476,7 @@ function applyConsensus(config: JurorConfig, raw: unknown, problems: string[]): 
 
   if (c.jaccard_distinct_threshold > c.jaccard_merge_threshold) {
     problems.push(
-      `consensus: jaccard_distinct_threshold (${c.jaccard_distinct_threshold}) is above jaccard_merge_threshold (${c.jaccard_merge_threshold}) — the ambiguous band is empty, so nothing reaches the referee`,
+      `consensus: jaccard_distinct_threshold (${c.jaccard_distinct_threshold}) is above jaccard_merge_threshold (${c.jaccard_merge_threshold}) — title-only similarity cannot reach the referee routing floor`,
     );
   }
 
@@ -401,7 +543,7 @@ function applyReview(config: JurorConfig, raw: unknown, problems: string[]): voi
   const timeout = numberIn(section['per_model_timeout_seconds'], 'review.per_model_timeout_seconds', 30, 86_400, problems);
   if (timeout !== null) r.per_model_timeout_seconds = Math.round(timeout);
 
-  const maxTurns = numberIn(section['max_turns'], 'review.max_turns', 1, 1000, problems);
+  const maxTurns = numberIn(section['max_turns'], 'review.max_turns', 0, 1000, problems);
   if (maxTurns !== null) r.max_turns = Math.round(maxTurns);
 }
 

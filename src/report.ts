@@ -9,7 +9,14 @@
  */
 
 import { readFileSync } from 'node:fs';
-import type { Category, FileOverview, ModelReport, RawFinding, Severity } from './types.js';
+import type {
+  Category,
+  FileOverview,
+  FindingClaim,
+  ModelReport,
+  RawFinding,
+  Severity,
+} from './types.js';
 import { CATEGORIES, SEVERITIES } from './types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -225,6 +232,7 @@ function coerceReport(value: unknown, problems: string[]): ModelReport | null {
     summary: '',
     highlights: [],
     file_overviews: [],
+    async_contracts: [],
     sequence_diagram: null,
     findings: [],
   };
@@ -263,6 +271,18 @@ function coerceReport(value: unknown, problems: string[]): ModelReport | null {
       });
     } else {
       problems.push(`file_overviews: expected a list, got ${fmt(raw['file_overviews'])} — using []`);
+    }
+  }
+
+  if (raw['async_contracts'] !== undefined && raw['async_contracts'] !== null) {
+    if (Array.isArray(raw['async_contracts'])) {
+      for (const item of raw['async_contracts']) {
+        const contract = asString(item);
+        if (contract) report.async_contracts.push(contract);
+        else problems.push(`async_contracts: dropped a non-string entry (${fmt(item)})`);
+      }
+    } else {
+      problems.push(`async_contracts: expected a list, got ${fmt(raw['async_contracts'])} — using []`);
     }
   }
 
@@ -341,6 +361,7 @@ function coerceFinding(raw: unknown, index: number, problems: string[]): RawFind
 
   const severity = coerceSeverity(raw['severity'], at, path, problems);
   const category = coerceCategory(raw['category'], at, path, problems);
+  const claim = coerceClaim(raw['claim'], at, path, problems);
 
   let confidence = DEFAULT_CONFIDENCE;
   if (raw['confidence'] !== undefined && raw['confidence'] !== null) {
@@ -368,7 +389,44 @@ function coerceFinding(raw: unknown, index: number, problems: string[]): RawFind
     category,
     confidence,
     convention: asString(raw['convention']),
+    ...(claim ? { claim } : {}),
   };
+}
+
+function coerceClaim(
+  raw: unknown,
+  at: string,
+  path: string,
+  problems: string[],
+): FindingClaim | null {
+  // Backward compatibility for custom prompts and partial reports written before the
+  // atomic schema existed. Missing structure makes merging more conservative, never less.
+  if (raw === undefined || raw === null) return null;
+  if (!isRecord(raw)) {
+    problems.push(`${at} (${path}): claim must be an object — ignoring its dedupe metadata`);
+    return null;
+  }
+
+  const trigger = asString(raw['trigger']);
+  const mechanism = asString(raw['mechanism']);
+  const consequence = asString(raw['consequence']);
+  const fix = asString(raw['fix']);
+  const missing = [
+    ['trigger', trigger],
+    ['mechanism', mechanism],
+    ['consequence', consequence],
+    ['fix', fix],
+  ]
+    .filter(([, value]) => !value)
+    .map(([name]) => name);
+
+  if (missing.length > 0 || !trigger || !mechanism || !consequence || !fix) {
+    problems.push(
+      `${at} (${path}): claim is missing ${missing.join(', ')} — ignoring its dedupe metadata`,
+    );
+    return null;
+  }
+  return { trigger, mechanism, consequence, fix };
 }
 
 function coerceSeverity(raw: unknown, at: string, path: string, problems: string[]): Severity {

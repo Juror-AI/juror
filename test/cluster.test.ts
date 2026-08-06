@@ -16,6 +16,7 @@ function finding(over: Partial<AttributedFinding> = {}): AttributedFinding {
     category: 'correctness',
     confidence: 0.8,
     convention: null,
+    sourceId: over.sourceId ?? `${over.modelId ?? 'model-a'}:1`,
     modelId: 'model-a',
     modelLabel: 'Model A',
     anchoredLine: over.anchoredLine ?? line,
@@ -64,7 +65,7 @@ describe('clusterFindings', () => {
     expect(cluster?.agreement).toBe(3);
     expect(cluster?.modelIds).toEqual(['model-a', 'model-b', 'model-c']);
     expect(cluster?.members).toHaveLength(3);
-    expect(cluster?.mergedBy).toEqual(['jaccard']);
+    expect(cluster?.mergedBy).toEqual(['exact']);
     expect(ambiguousPairs).toHaveLength(0);
   });
 
@@ -95,7 +96,7 @@ describe('clusterFindings', () => {
     expect(clusters.every((c) => c.agreement === 1)).toBe(true);
   });
 
-  it('splits the band: merge above, distinct below, ambiguous in between', () => {
+  it('uses similarity only to route possible duplicates to the referee', () => {
     const a = finding({ modelId: 'model-a' });
     const b = finding({
       modelId: 'model-b',
@@ -105,39 +106,44 @@ describe('clusterFindings', () => {
       title: 'Different defect entirely',
       body: 'The tenant_id column has no index, so the dashboard query scans the whole table.',
     });
-    const score = jaccard(`${a.title} ${a.body}`, `${b.title} ${b.body}`);
-
     // Below the distinct threshold: two clusters, nothing for the referee.
     const distinct = clusterFindings([a, b], OPTS);
-    expect(score).toBeLessThan(OPTS.distinctThreshold);
     expect(distinct.clusters).toHaveLength(2);
     expect(distinct.ambiguousPairs).toHaveLength(0);
 
-    // Same pair, thresholds moved so the score lands inside the band.
+    // Lowering the routing floor sends the pair to the referee.
     const banded = clusterFindings([a, b], {
       ...OPTS,
-      distinctThreshold: Math.max(0, score - 0.01),
-      mergeThreshold: score + 0.01,
+      distinctThreshold: 0,
+      mergeThreshold: 1,
     });
     expect(banded.clusters).toHaveLength(2);
     expect(banded.ambiguousPairs).toHaveLength(1);
-    expect(banded.ambiguousPairs[0]?.jaccard).toBeCloseTo(score, 10);
 
-    // Same pair again, now above the merge threshold.
-    const merged = clusterFindings([a, b], { ...OPTS, mergeThreshold: score - 0.01 });
-    expect(merged.clusters).toHaveLength(1);
-    expect(merged.ambiguousPairs).toHaveLength(0);
+    // Even a score above the configured merge threshold is only a candidate. Lexical
+    // similarity never silently combines two non-identical defects.
+    const high = clusterFindings([a, b], {
+      ...OPTS,
+      distinctThreshold: 0,
+      mergeThreshold: 0,
+    });
+    expect(high.clusters).toHaveLength(2);
+    expect(high.ambiguousPairs).toHaveLength(1);
   });
 
-  it('treats a score exactly on a threshold as ambiguous, never as a merge', () => {
+  it('routes a non-identical high-similarity report instead of merging it', () => {
     const a = finding({ modelId: 'model-a' });
-    const b = finding({ modelId: 'model-b', modelLabel: 'Model B', line: 43, anchoredLine: 43 });
-    const score = jaccard(`${a.title} ${a.body}`, `${b.title} ${b.body}`);
+    const b = finding({
+      modelId: 'model-b',
+      modelLabel: 'Model B',
+      line: 43,
+      anchoredLine: 43,
+      body: `${a.body} The caller also logs the failure.`,
+    });
 
     const { clusters, ambiguousPairs } = clusterFindings([a, b], {
       ...OPTS,
-      mergeThreshold: score,
-      distinctThreshold: score,
+      distinctThreshold: 0,
     });
     expect(clusters).toHaveLength(2);
     expect(ambiguousPairs).toHaveLength(1);
@@ -155,12 +161,19 @@ describe('clusterFindings', () => {
   });
 
   it('takes canonical fields from the most severe member and keeps the best anchor', () => {
+    const claim = {
+      trigger: 'shutdown begins with buffered writes',
+      mechanism: 'shutdown() does not await closeConnections()',
+      consequence: 'the process exits before flush() completes',
+      fix: 'await closeConnections() before exiting',
+    };
     const findings = [
       finding({
         modelId: 'model-a',
         severity: 'P2',
         confidence: 0.95,
         title: 'Lower severity wording',
+        claim,
         anchor: 'outside-diff',
       }),
       finding({
@@ -171,6 +184,7 @@ describe('clusterFindings', () => {
         severity: 'P0',
         confidence: 0.6,
         title: 'Unawaited promise in shutdown handler',
+        claim,
         category: 'concurrency',
         convention: 'AGENTS.md',
         anchor: 'snapped',

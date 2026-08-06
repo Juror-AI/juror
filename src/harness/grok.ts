@@ -19,6 +19,7 @@ import type {
   RunContext,
 } from '../types.js';
 import { parseModelReport, readReportFile } from '../report.js';
+import { log } from '../util/log.js';
 import { run, which } from '../util/proc.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -147,24 +148,33 @@ export const grokHarness = {
   },
 
   command(ctx: RunContext): HarnessCommand {
+    const argv = [
+      'grok',
+      '-p',
+      ctx.prompt,
+      '-m',
+      ctx.model,
+      '--output-format',
+      'json',
+      // Kernel-enforced (Landlock on Linux runners), unlike Claude Code's tool removal.
+      '--sandbox',
+      'workspace',
+      '--tools',
+      'read_file,grep,list_dir,write_file',
+      '--disable-web-search',
+    ];
+    // Grok has no documented unlimited sentinel, so omission is the unbounded form.
+    if (ctx.maxTurns > 0) argv.push('--max-turns', String(ctx.maxTurns));
+
+    const rawEffort = ctx.args['reasoning_effort'];
+    if (rawEffort !== undefined && rawEffort !== null && String(rawEffort).trim()) {
+      const effort = String(rawEffort).trim();
+      if (/^[A-Za-z0-9_-]+$/.test(effort)) argv.push('--reasoning-effort', effort);
+      else log.warn(`ignoring unusable Grok reasoning_effort ${JSON.stringify(rawEffort)}`);
+    }
+
     return {
-      argv: [
-        'grok',
-        '-p',
-        ctx.prompt,
-        '-m',
-        ctx.model,
-        '--output-format',
-        'json',
-        // Kernel-enforced (Landlock on Linux runners), unlike Claude Code's tool removal.
-        '--sandbox',
-        'workspace',
-        '--tools',
-        'read_file,grep,list_dir,write_file',
-        '--max-turns',
-        String(ctx.maxTurns),
-        '--disable-web-search',
-      ],
+      argv,
       // An auto-update mid-run silently changes the binary we asserted the version of.
       env: { ...ctx.env, GROK_DISABLE_AUTOUPDATER: '1' },
       stdin: '',

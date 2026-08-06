@@ -13,6 +13,9 @@ inputs:
   config:
     description: Path to the Juror config file. Defaults to .juror.yml at the repo root.
     required: false
+  preset:
+    description: Jury preset (fast, balanced, high, or ultra). Defaults to balanced unless config overrides it.
+    required: false
   models:
     description: Comma-separated model ids to run, overriding the config's enabled set.
     required: false
@@ -38,6 +41,10 @@ inputs:
     description: npm version spec for opencode.
     required: false
     default: 'opencode-ai@latest'
+  kimi-code-version:
+    description: npm version spec for Kimi Code CLI.
+    required: false
+    default: '@moonshot-ai/kimi-code@latest'
 
 outputs:
   score:
@@ -65,8 +72,8 @@ runs:
         npm ci --no-audit --no-fund
         npm run build
 
-    # Only the harnesses whose key is present are installed. A repo with one key pays for
-    # one install and still gets a working single-model review.
+    # Only harnesses backed by an available provider are installed. Fireworks supplies
+    # both the opencode models and Kimi K3 through Kimi Code.
     - name: Install harnesses
       shell: bash
       run: |
@@ -74,6 +81,7 @@ runs:
         [ -n "${ANTHROPIC_API_KEY:-}" ] && npm i -g "${{ inputs.claude-code-version }}" || true
         [ -n "${OPENAI_API_KEY:-}"    ] && npm i -g "${{ inputs.codex-version }}"        || true
         [ -n "${FIREWORKS_API_KEY:-}" ] && npm i -g "${{ inputs.opencode-version }}"     || true
+        [ -n "${FIREWORKS_API_KEY:-}" ] && npm i -g "${{ inputs.kimi-code-version }}"    || true
         if [ -n "${XAI_API_KEY:-}" ]; then curl -fsSL https://grok.com/install.sh | bash || true; fi
         echo "$HOME/.grok/bin" >> "$GITHUB_PATH"
 
@@ -92,6 +100,7 @@ runs:
         ARGS=(review --pr "$PR" --repo "${{ github.repository }}" --repo-dir "$GITHUB_WORKSPACE" --json "$RUNNER_TEMP/juror.json")
         if [ "${{ inputs.post }}" = "true" ]; then ARGS+=(--post); else ARGS+=(--dry-run --post); fi
         if [ -n "${{ inputs.config }}" ]; then ARGS+=(--config "${{ inputs.config }}"); fi
+        if [ -n "${{ inputs.preset }}" ]; then ARGS+=(--preset "${{ inputs.preset }}"); fi
         if [ -n "${{ inputs.models }}" ]; then ARGS+=(--models "${{ inputs.models }}"); fi
         if [ -n "${{ inputs.max-cost-usd }}" ]; then ARGS+=(--max-cost "${{ inputs.max-cost-usd }}"); fi
         node "${{ github.action_path }}/dist/cli.js" "${ARGS[@]}"

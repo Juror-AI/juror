@@ -27,6 +27,9 @@ const FULL = {
   summary: 'Adds tenant-aware invite URLs.',
   highlights: ['Adds a Copy link mutation'],
   file_overviews: [{ path: 'src/a.ts', overview: 'Adds the copy workflow.' }],
+  async_contracts: [
+    'handleCopyLink() -> navigator.clipboard.writeText(): returned promise',
+  ],
   sequence_diagram: 'sequenceDiagram\n  A->>B: x',
   findings: [
     {
@@ -36,6 +39,12 @@ const FULL = {
       severity: 'P1',
       title: 'Clipboard write loses transient activation',
       body: 'Awaits two requests before writeText, so Safari rejects it.',
+      claim: {
+        trigger: 'The user clicks Copy link in Safari.',
+        mechanism: 'The handler awaits requests before calling writeText().',
+        consequence: 'Safari rejects the clipboard write after activation expires.',
+        fix: 'Preserve activation by writing before the awaited requests.',
+      },
       category: 'correctness',
       confidence: 0.8,
       convention: null,
@@ -230,6 +239,45 @@ describe('parseModelReport — coercion', () => {
     expect(problems.join('\n')).toContain('unknown category');
   });
 
+  it('keeps only complete atomic claim metadata', () => {
+    const { report, problems } = parseModelReport(
+      JSON.stringify({
+        findings: [
+          {
+            path: 'a.ts',
+            line: 1,
+            title: 'Complete claim',
+            body: 'A complete claim.',
+            severity: 'P1',
+            claim: {
+              trigger: 'request fails',
+              mechanism: 'wrapper discards the promise',
+              consequence: 'caller navigates before persistence finishes',
+              fix: 'return the promise',
+            },
+          },
+          {
+            path: 'b.ts',
+            line: 2,
+            title: 'Partial claim',
+            body: 'A partial claim.',
+            severity: 'P1',
+            claim: { trigger: 'request fails', mechanism: 'promise is discarded' },
+          },
+        ],
+      }),
+    );
+
+    expect(report?.findings[0]?.claim).toEqual({
+      trigger: 'request fails',
+      mechanism: 'wrapper discards the promise',
+      consequence: 'caller navigates before persistence finishes',
+      fix: 'return the promise',
+    });
+    expect(report?.findings[1]?.claim).toBeUndefined();
+    expect(problems.join('\n')).toContain('claim is missing consequence, fix');
+  });
+
   it('normalizes repo-relative paths and drops a bogus end_line', () => {
     const { report, problems } = parseModelReport(
       JSON.stringify({
@@ -249,6 +297,7 @@ describe('parseModelReport — coercion', () => {
       summary: 'Adds a thing.',
       highlights: [],
       file_overviews: [],
+      async_contracts: [],
       sequence_diagram: null,
       findings: [],
     });

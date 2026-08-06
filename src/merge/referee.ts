@@ -50,7 +50,8 @@ const BLOCK_WINDOW = 8;
 /** A referee prompt is ~1k tokens. Anything past this is a pathological block. */
 const MAX_CANDIDATES_PER_BLOCK = 8;
 const REFEREE_TIMEOUT_MS = 120_000;
-const REFEREE_MAX_TURNS = 4;
+// No step cap by default; the short referee wall-clock timeout is the safety boundary.
+const REFEREE_MAX_TURNS = 0;
 
 /** Ambient variables a CLI needs to start; deliberately excludes `NODE_OPTIONS`. */
 const ENV_ALLOWLIST = ['PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'LC_ALL', 'TMPDIR', 'TERM'];
@@ -59,9 +60,9 @@ const ENV_ALLOWLIST = ['PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'LC_ALL', 'TMPDI
 // Identity + grouping
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Findings have no id of their own; this is the tuple that makes one unique. */
+/** `sourceId` is assigned before clustering and survives every canonical rewrite. */
 function keyOf(f: AttributedFinding): string {
-  return `${f.modelId}\u0000${f.path}\u0000${f.line}\u0000${f.title}`;
+  return f.sourceId;
 }
 
 /** String-keyed union-find, used both to group pairs into blocks and to apply merges. */
@@ -170,40 +171,74 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-interface RefereeVerdict {
-  merges: string[][];
-  canonical: Record<string, { title?: string; body?: string }>;
+export interface RefereeMerge {
+  ids: string[];
+  canonical: { title?: string; body?: string } | null;
 }
 
-function readVerdict(raw: unknown): RefereeVerdict | null {
+export interface RefereeVerdict {
+  merges: RefereeMerge[];
+  distinct: string[];
+}
+
+/**
+ * Parse a complete partition of the candidate ids. A partial answer is rejected rather
+ * than interpreted: leaving the input clusters untouched may show a duplicate, whereas
+ * guessing from an incomplete merge can hide a real bug.
+ */
+export function readRefereeVerdict(
+  raw: unknown,
+  expectedIds: readonly string[],
+): RefereeVerdict | null {
   if (!isRecord(raw)) return null;
 
-  const merges: string[][] = [];
+  const allowed = new Set(expectedIds);
+  const seen = new Set<string>();
+  const merges: RefereeMerge[] = [];
   const rawMerges = raw['merges'];
-  if (Array.isArray(rawMerges)) {
-    for (const group of rawMerges) {
-      if (!Array.isArray(group)) continue;
-      const ids = group.filter((v): v is string => typeof v === 'string' && v.length > 0);
-      if (ids.length >= 2) merges.push(ids);
+  const rawDistinct = raw['distinct'];
+  if (!Array.isArray(rawMerges) || !Array.isArray(rawDistinct)) return null;
+
+  for (const group of rawMerges) {
+    if (!isRecord(group) || !Array.isArray(group['ids'])) return null;
+    const ids = group['ids'].filter(
+      (value): value is string => typeof value === 'string' && value.length > 0,
+    );
+    if (ids.length < 2 || ids.length !== group['ids'].length) return null;
+    if (
+      group['same_trigger'] !== true ||
+      group['same_mechanism'] !== true ||
+      group['same_consequence'] !== true ||
+      group['same_fix'] !== true
+    ) {
+      return null;
     }
+
+    let canonical: { title?: string; body?: string } | null = null;
+    const rawCanonical = group['canonical'];
+    if (rawCanonical !== undefined && rawCanonical !== null) {
+      if (!isRecord(rawCanonical)) return null;
+      const title = typeof rawCanonical['title'] === 'string' ? rawCanonical['title'] : undefined;
+      const body = typeof rawCanonical['body'] === 'string' ? rawCanonical['body'] : undefined;
+      if (title !== undefined || body !== undefined) canonical = { title, body };
+    }
+
+    for (const id of ids) {
+      if (!allowed.has(id) || seen.has(id)) return null;
+      seen.add(id);
+    }
+    merges.push({ ids, canonical });
   }
 
-  const canonical: Record<string, { title?: string; body?: string }> = {};
-  const rawCanonical = raw['canonical'];
-  if (isRecord(rawCanonical)) {
-    for (const [id, value] of Object.entries(rawCanonical)) {
-      if (!isRecord(value)) continue;
-      const title = typeof value['title'] === 'string' ? value['title'] : undefined;
-      const body = typeof value['body'] === 'string' ? value['body'] : undefined;
-      if (title !== undefined || body !== undefined) canonical[id] = { title, body };
-    }
+  const distinct: string[] = [];
+  for (const value of rawDistinct) {
+    if (typeof value !== 'string' || !value || !allowed.has(value) || seen.has(value)) return null;
+    seen.add(value);
+    distinct.push(value);
   }
 
-  // An empty `merges` with no `canonical` is a valid "they are all distinct" answer.
-  if (merges.length === 0 && Object.keys(canonical).length === 0 && rawMerges === undefined) {
-    return null;
-  }
-  return { merges, canonical };
+  if (seen.size !== allowed.size) return null;
+  return { merges, distinct };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -230,12 +265,19 @@ const OUTPUT_CONTRACT = `## Output
 Write STRICT JSON to {{FINDINGS_PATH}} and nothing else:
 
 {
-  "merges": [["f1", "f2"]],
-  "canonical": { "f1": { "title": "noun phrase", "body": "1-3 sentences" } }
+  "merges": [{
+    "ids": ["f1", "f2"],
+    "same_trigger": true,
+    "same_mechanism": true,
+    "same_consequence": true,
+    "same_fix": true,
+    "canonical": { "title": "noun phrase", "body": "1-3 sentences" }
+  }],
+  "distinct": ["f3"]
 }
 
-Each inner array of "merges" lists ids that describe the SAME defect. Omit a finding
-entirely if it stands alone. Never invent a finding that is not listed above.`;
+Every candidate id must occur exactly once, either in one merge or in "distinct".
+Only merge when all four same_* fields are true. Never invent an id.`;
 
 function buildPrompt(template: string, block: Block, ids: Map<string, string>, vars: Record<string, string>): string {
   const payload = block.findings.map((f) => ({
@@ -245,6 +287,7 @@ function buildPrompt(template: string, block: Block, ids: Map<string, string>, v
     severity: f.severity,
     title: f.title,
     body: f.body,
+    claim: f.claim ?? null,
   }));
 
   const findingsJson = JSON.stringify(payload, null, 2);
@@ -262,7 +305,11 @@ async function refereeBlock(
   m: ModelConfig,
   key: string,
   o: RefereeOptions,
-): Promise<{ verdict: RefereeVerdict; ids: Map<string, string>; cost: CostBreakdown } | null> {
+): Promise<{
+  verdict: RefereeVerdict | null;
+  ids: Map<string, string>;
+  cost: CostBreakdown;
+}> {
   const findings = block.findings.slice(0, MAX_CANDIDATES_PER_BLOCK);
   const ids = new Map<string, string>();
   findings.forEach((f, i) => ids.set(keyOf(f), `f${i + 1}`));
@@ -288,8 +335,10 @@ async function refereeBlock(
     promptPath,
     prompt,
     model: rt.harnessModel,
+    ...(m.base_url ? { baseUrl: m.base_url } : {}),
     args: m.args ?? {},
     env: childEnv(m, key),
+    providerKey: key,
     timeoutMs: m.timeout_seconds ? m.timeout_seconds * 1000 : REFEREE_TIMEOUT_MS,
     budgetUsd: null,
     maxTurns: m.max_turns ?? REFEREE_MAX_TURNS,
@@ -305,9 +354,10 @@ async function refereeBlock(
   } catch {
     written = '';
   }
-  const verdict = readVerdict(extractJson(written)) ?? readVerdict(extractJson(result.rawText));
-  if (!verdict) return null;
-
+  const expectedIds = [...ids.values()];
+  const verdict =
+    readRefereeVerdict(extractJson(written), expectedIds) ??
+    readRefereeVerdict(extractJson(result.rawText), expectedIds);
   return {
     verdict,
     ids,
@@ -344,7 +394,7 @@ function sumCosts(parts: CostBreakdown[]): CostBreakdown {
 }
 
 /** Rebuild the cluster list, unioning any clusters the referee said were the same defect. */
-function applyMerges(
+export function applyMerges(
   clusters: Cluster[],
   merged: { verdict: RefereeVerdict; ids: Map<string, string> }[],
 ): Cluster[] {
@@ -365,21 +415,17 @@ function applyMerges(
       if (index !== undefined) byId.set(id, index);
     }
 
-    for (const group of verdict.merges) {
-      const indices = group.map((id) => byId.get(id)).filter((i): i is number => i !== undefined);
+    for (const merge of verdict.merges) {
+      const indices = merge.ids
+        .map((id) => byId.get(id))
+        .filter((i): i is number => i !== undefined);
       const first = indices[0];
       if (first === undefined) continue;
       for (const other of indices.slice(1)) {
         if (groups.find(String(first)) !== groups.find(String(other))) touched = true;
         groups.union(String(first), String(other));
       }
-      for (const id of group) {
-        const override = verdict.canonical[id];
-        if (override) {
-          canonical.set(first, override);
-          break;
-        }
-      }
+      if (merge.canonical) canonical.set(first, merge.canonical);
     }
   }
 
@@ -446,27 +492,29 @@ export async function refereeClusters(
 
   const verdicts: { verdict: RefereeVerdict; ids: Map<string, string> }[] = [];
   const costs: CostBreakdown[] = [];
+  let calls = 0;
 
   for (const [index, block] of blocks.entries()) {
     try {
       const answer = await refereeBlock(block, index, m, key, o);
-      if (!answer) {
+      calls++;
+      costs.push(answer.cost);
+      if (!answer.verdict) {
         log.warn(`referee: unparseable answer for ${block.path}, leaving pairs unmerged`);
         continue;
       }
       verdicts.push({ verdict: answer.verdict, ids: answer.ids });
-      costs.push(answer.cost);
     } catch (e) {
       // Degrade, never fail: an unmerged pair is two findings, not zero.
       log.warn(`referee: ${block.path} failed (${e instanceof Error ? e.message : String(e)})`);
     }
   }
 
-  if (verdicts.length === 0) return { clusters, cost: { ...ZERO_COST }, calls: 0 };
+  if (verdicts.length === 0) return { clusters, cost: sumCosts(costs), calls };
 
   return {
     clusters: applyMerges(clusters, verdicts),
     cost: sumCosts(costs),
-    calls: verdicts.length,
+    calls,
   };
 }

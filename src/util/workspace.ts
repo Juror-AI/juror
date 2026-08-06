@@ -1,10 +1,11 @@
 /**
  * Workspace guard.
  *
- * Two of the four harnesses cannot be pinned to a read-only filesystem: opencode drops its
- * write tool entirely if you deny edits by glob (measured — see docs/harness-notes.md),
- * and Claude Code sandboxes by tool removal rather than by kernel. Since a reviewer must be
- * able to write its findings file, "the agent can write" is a property we have to live with.
+ * Several harnesses cannot be pinned to a read-only filesystem: opencode drops its write
+ * tool entirely if you deny edits by glob (measured — see docs/harness-notes.md), while
+ * Claude Code and Kimi Code sandbox by tool removal rather than by kernel. Since a reviewer
+ * must be able to write its findings file, "the agent can write" is a property we have to
+ * live with.
  *
  * So we make it observable instead: snapshot which tracked files are clean before fan-out,
  * and afterwards restore exactly those that the run dirtied. A file that was ALREADY dirty

@@ -43,6 +43,7 @@ const FAKE_KEY = `sk-${'ant'}-api03-${'AbCd0123_-'.repeat(4)}`;
 function config(over: Partial<JurorConfig['output']> = {}, review: Partial<JurorConfig['review']> = {}): JurorConfig {
   return {
     version: 1,
+    preset: null,
     models: [],
     consensus: {
       min_agreement: 'majority',
@@ -132,6 +133,7 @@ function report(over: Partial<ModelReport> = {}): ModelReport {
     summary: 'Adds tenant-aware invite URLs.',
     highlights: ['Adds a Copy link mutation.'],
     file_overviews: [{ path: 'src/a.ts', overview: 'Adds the copy-link workflow.' }],
+    async_contracts: [],
     sequence_diagram: null,
     findings: [],
     ...over,
@@ -192,6 +194,14 @@ function result(over: Partial<ReviewResult> = {}): ReviewResult {
     clusters: published,
     published,
     suppressed: [],
+    coverage: {
+      complete: true,
+      rawFindings: published.reduce((sum, item) => sum + item.members.length, 0),
+      accountedFor: published.reduce((sum, item) => sum + item.members.length, 0),
+      uniqueFindings: published.length,
+      dispositions: [],
+      problems: [],
+    },
     verdict: {
       base: 3,
       penalty: 1,
@@ -300,6 +310,42 @@ describe('renderSummaryComment', () => {
     expect(renderSummaryComment(r, opts)).toContain('`●●○○` 2/4');
   });
 
+  it('shows the lossless raw-finding coverage audit', () => {
+    const r = result({
+      coverage: {
+        complete: true,
+        rawFindings: 6,
+        accountedFor: 6,
+        uniqueFindings: 5,
+        dispositions: [],
+        problems: [],
+      },
+    });
+    const md = renderSummaryComment(r, opts);
+    const terminal = renderTerminalReport(r, { version: '0.4.1' });
+
+    expect(md).toContain('Coverage audit: 6/6 raw model findings accounted for → 5 unique findings; none dropped.');
+    expect(terminal).toContain('6/6 raw → 5 unique');
+  });
+
+  it('makes an incomplete coverage audit prominent', () => {
+    const md = renderSummaryComment(
+      result({
+        coverage: {
+          complete: false,
+          rawFindings: 6,
+          accountedFor: 5,
+          uniqueFindings: 4,
+          dispositions: [],
+          problems: ['raw finding kimi:2 is missing'],
+        },
+      }),
+      opts,
+    );
+    expect(md).toContain('⚠ Coverage audit incomplete');
+    expect(md).toContain('5/6 raw model findings accounted for');
+  });
+
   it('redacts a provider key a model echoed back into its prose', () => {
     const r = result();
     r.summary.summary = `The fixture hardcodes ${FAKE_KEY} at the top.`;
@@ -376,6 +422,21 @@ describe('renderSummaryComment', () => {
     const withoutReceipt = renderSummaryComment(r, { ...opts, config: config({ cost_receipt: false }) });
     expect(withoutReceipt).toContain('Skipped: `Grok 4.5` (XAI_API_KEY is not set)');
   });
+
+  it('labels an interrupted run whose early report was retained as partial', () => {
+    const partial = run({ modelLabel: 'Kimi K3' });
+    if (partial.result) {
+      partial.result.truncated = true;
+      partial.result.diagnostics = ['loop.max_steps_exceeded'];
+    }
+    const r = result({ runs: [partial] });
+
+    const withReceipt = renderSummaryComment(r, opts);
+    expect(withReceipt).toContain('Partial: `Kimi K3` (loop.max_steps_exceeded)');
+
+    const withoutReceipt = renderSummaryComment(r, { ...opts, config: config({ cost_receipt: false }) });
+    expect(withoutReceipt).toContain('Partial: `Kimi K3` (loop.max_steps_exceeded)');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -416,6 +477,33 @@ describe('synthesizeSummary', () => {
       run({}, report({ highlights: ['c', 'd', 'e'] })),
     ];
     expect(synthesizeSummary(runs, diff()).highlights).toEqual(['a', 'b', 'c']);
+  });
+
+  it('uses complete-juror prose instead of an interrupted early placeholder', () => {
+    const partial = run(
+      { modelLabel: 'Kimi K3' },
+      report({
+        merge_confidence: 3,
+        summary: 'partial summary',
+        confidence_reason: 'Review in progress; initial placeholder.',
+        highlights: ['partial highlight'],
+      }),
+    );
+    if (partial.result) partial.result.truncated = true;
+    const complete = run(
+      { modelLabel: 'DeepSeek V4 Flash' },
+      report({
+        merge_confidence: 4,
+        summary: 'complete summary',
+        confidence_reason: 'One concrete convention violation remains.',
+        highlights: ['complete highlight'],
+      }),
+    );
+
+    const s = synthesizeSummary([partial, complete], diff());
+    expect(s.summary).toBe('complete summary');
+    expect(s.confidenceReason).toBe('One concrete convention violation remains.');
+    expect(s.highlights).toEqual(['complete highlight']);
   });
 
   it('degrades to a stated non-review when no model reported', () => {
@@ -577,6 +665,15 @@ describe('renderReceipt', () => {
       rolling: { totalUsd: 41.2, prCount: 47, windowDays: 30, since: '2026-07-07' },
     });
     expect(md).toContain('Rolling 30d for this repo: **$41.20** across 47 PRs (avg $0.88/PR)');
+  });
+
+  it('surfaces partial model reports separately from failures', () => {
+    const md = renderReceipt(totals(), {
+      durationMs: 1_000,
+      partial: [{ label: 'Kimi K3', reason: 'loop.max_steps_exceeded' }],
+    });
+    expect(md).toContain('Partial: `Kimi K3` (loop.max_steps_exceeded)');
+    expect(md).not.toContain('Failed: `Kimi K3`');
   });
 });
 

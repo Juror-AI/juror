@@ -40,6 +40,24 @@
       "source": "https://openai.com/api/pricing/",
       "updated": "2026-08-06"
     },
+    "gpt-5.6-terra": {
+      "input_per_mtok": 2.5,
+      "output_per_mtok": 15.0,
+      "cache_read_per_mtok": 0.25,
+      "cache_write_per_mtok": 3.125,
+      "cache_min_prefix_tokens": 1024,
+      "context_window": 1050000,
+      "long_context": {
+        "threshold_input_tokens": 272000,
+        "applies_to": "entire_request",
+        "input_per_mtok": 5.0,
+        "output_per_mtok": 22.5,
+        "cache_read_per_mtok": 0.5,
+        "cache_write_per_mtok": 6.25
+      },
+      "source": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+      "updated": "2026-08-06"
+    },
     "grok-4.5": {
       "input_per_mtok": 2.0,
       "output_per_mtok": 6.0,
@@ -75,8 +93,8 @@
       "input_per_mtok": 3.0,
       "output_per_mtok": 15.0,
       "cache_read_per_mtok": 0.3,
-      "context_window": 1048576,
-      "source": "https://fireworks.ai/pricing",
+      "context_window": 1040000,
+      "source": "https://fireworks.ai/models/fireworks/kimi-k3",
       "updated": "2026-08-06"
     }
   }

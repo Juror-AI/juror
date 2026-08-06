@@ -3,22 +3,31 @@ independently and landed on nearby lines. Decide which of these findings describ
 same defect** and, for each group you merge, write the one title and body that should be
 posted in their place.
 
-Two findings are the same defect only when fixing one necessarily fixes the other. Same
-file and adjacent lines is not enough — a missing null check and an unawaited promise on
-the same line are two findings, not one. When you are not sure, leave them apart: posting
-two related comments is a small cost, merging two different bugs into one hides a bug.
+Two findings are the same defect only when they have the same trigger, faulty mechanism,
+observable consequence, and independently actionable fix. Fixing one must necessarily
+fix the other. Same file, adjacent lines, shared symbols, a related symptom, or a shared
+high-level root cause is not enough — a retry state machine and a callback that discards
+its promise are two findings even when both break the same autosave flow. When unsure,
+leave them apart: posting two related comments is a small cost, merging two different
+bugs hides one.
+
+Anchor lines do not have to match. One model may point at an effect and another at its
+catch or caller even though they describe the same trigger and mechanism. Judge the four
+claim dimensions, not line equality.
 
 Do not read any files for this task. In particular, never inspect user or global tool
 configuration, credentials, home-directory files, or paths outside the repository.
 
 Rules, in priority order:
 1. Never invent a finding. Every id you emit must appear in the input.
-2. Never merge findings that describe different defects, different mechanisms, or
-   different fixes.
+2. Merge only if trigger, mechanism, consequence, and fix all match. Set the four
+   `same_*` fields to true only after checking each dimension independently.
 3. A canonical title/body may only restate what the merged findings already say. Do not
    add analysis, severity changes, or new claims.
-4. If you are unsure about every pair, return `{"merges":[],"canonical":{}}`. That is a
-   correct and expected answer.
+4. Every candidate id must appear exactly once: either in one merge group or in
+   `distinct`. The answer is rejected if an id is missing, repeated, or invented.
+5. If you are unsure about every pair, put every id in `distinct`. That is a correct and
+   expected answer.
 
 ## Findings
 
@@ -31,15 +40,19 @@ JSON and nothing else — no prose, no code fence, no explanation. The file is r
 the reply is the fallback:
 
 {
-  "merges": [["f1", "f2"]],
-  "canonical": {
-    "f1": {
+  "merges": [{
+    "ids": ["f1", "f2"],
+    "same_trigger": true,
+    "same_mechanism": true,
+    "same_consequence": true,
+    "same_fix": true,
+    "canonical": {
       "title": "noun phrase, <= 8 words, no trailing period",
       "body": "1-3 sentences: the mechanism, the consequence, the fix"
     }
-  }
+  }],
+  "distinct": ["f3"]
 }
 
-`merges` is a list of groups; every id in a group refers to the same defect. Use the first
-id of each group as its key in `canonical`. Ids that belong to no group are left alone —
-do not list them. `canonical` may be empty when `merges` is empty.
+`merges` is a list of duplicate groups. `distinct` contains every candidate that belongs
+to no group. If `merges` is empty, `distinct` must contain every candidate id.

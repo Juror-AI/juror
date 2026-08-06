@@ -7,46 +7,14 @@
 # a working single-model review.
 version: 1
 
-# The jury. A `models:` list here REPLACES this default list entirely — Juror does not
-# merge entry-by-entry, because "I listed one model, why did four run?" is a worse surprise
-# than restating the ones you want. Within an entry, only `id` and `harness` are required;
-# `enabled` and `secret` fall back to that harness's defaults.
-models:
-  # Anthropic via Claude Code (`claude -p`). Reports token usage AND provider-computed cost.
-  - id: claude-opus-5
-    harness: claude-code
-    enabled: true
-    secret: ANTHROPIC_API_KEY # env var name, not a key
-    label: Opus 5 # shown in the receipt and the agreement line
-
-  # OpenAI via Codex CLI (`codex exec --json`). No cost field — Juror estimates from tokens.
-  - id: gpt-5.6-sol
-    harness: codex
-    enabled: true
-    secret: OPENAI_API_KEY
-    label: GPT-5.6 Sol
-    args:
-      reasoning_effort: high # passed through to the harness as -c model_reasoning_effort
-
-  # Fireworks via opencode. `harness_model` is the string the CLI wants; `pricing_key` is
-  # how the provider names the model in pricing.json. Cheap enough to also do the referee
-  # and verification passes below.
-  - id: deepseek-v4-flash-0731
-    harness: opencode
-    enabled: true
-    secret: FIREWORKS_API_KEY
-    label: DeepSeek V4 Flash
-    harness_model: fireworks-ai/accounts/fireworks/models/deepseek-v4-flash-0731
-    pricing_key: accounts/fireworks/models/deepseek-v4-flash-0731
-    args:
-      variant: high # reasoning effort: low | high | max
-
-  # xAI via Grok Build (`grok -p`). Kernel-enforced sandbox on Linux runners.
-  - id: grok-4.5
-    harness: grok-build
-    enabled: true
-    secret: XAI_API_KEY
-    label: Grok 4.5
+# Built-in jury selection: fast | balanced | high | ultra. Missing provider keys simply
+# skip their models. `models:` can replace the selected preset with a fully custom jury.
+#
+# balanced (default): GPT-5.6 Terra max + Grok 4.5 high + Kimi K3
+# high:               GPT-5.6 Sol + Opus 5 + Grok 4.5
+# fast:               DeepSeek V4 Flash + Kimi K3, both at low reasoning effort
+# ultra:              every model above, using the higher reasoning settings
+preset: balanced
 
 # How independent findings are deduplicated and, optionally, agreement-filtered.
 consensus:
@@ -59,17 +27,19 @@ consensus:
   # all-findings mode.
   verify_solo_findings: true
 
-  # Which model runs the refutation pass, and which one breaks deduplication ties.
-  # Both are cheap, rare calls. Set to null to disable that pass entirely.
-  verify_model: deepseek-v4-flash-0731
-  referee_model: deepseek-v4-flash-0731
+  # The preset selects an included verifier/referee automatically. Override either with a
+  # configured model id, or set it to null to disable that pass entirely.
+  # verify_model: kimi-k3
+  # referee_model: kimi-k3
 
-  # Token-set Jaccard over title+body decides whether two findings are the same defect.
-  # Above merge → same. Below distinct → different. In between → ask the referee model.
+  # Code-aware similarity nominates possible duplicates for the referee; it never merges
+  # semantic reports by itself. Exact structured claims collapse locally. `distinct` is
+  # the referee routing floor; `merge` caps how strongly a matching title can contribute.
   jaccard_merge_threshold: 0.55
   jaccard_distinct_threshold: 0.30
 
-  # Findings on the same file within this many lines of each other are compared at all.
+  # Ordinary comparison window. Strong semantic candidates may be routed to the referee
+  # up to 3x farther away (capped at 80 lines) when models anchor different parts of a flow.
   line_window: 8
 
 review:
@@ -77,7 +47,7 @@ review:
   # consensus = apply consensus.min_agreement and adversarial verification (higher precision)
   publish_mode: all
 
-  severity_floor: P2 # suppress findings below this severity; use P3 to show every severity
+  severity_floor: P3 # show every model-reported severity in the default high-recall mode
   max_inline_comments: 15 # the rest stay in the summary table
   incremental: true # on a re-review, only look at commits pushed since the last one
 
@@ -98,7 +68,7 @@ review:
 
   max_diff_bytes: 400000 # larger diffs are truncated, and the summary says so
   per_model_timeout_seconds: 900 # hard wall-clock kill per model
-  max_turns: 40 # agent turns per model
+  max_turns: 0 # no step cap; per_model_timeout_seconds remains the hard boundary
 
 budget:
   # Split evenly across the models that have a key — the only allocation that can honour a

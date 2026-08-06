@@ -125,9 +125,10 @@ export const claudeHarness: Harness = {
       'Read,Grep,Glob,Write',
       '--add-dir',
       ctx.scratchDir,
-      '--max-turns',
-      String(ctx.maxTurns),
     ];
+    // Omitting the flag is Claude Code's unlimited mode. Keep positive values as an
+    // opt-in cap for custom configurations; zero leaves the wall-clock timeout in charge.
+    if (ctx.maxTurns > 0) argv.push('--max-turns', String(ctx.maxTurns));
     if (ctx.budgetUsd !== null && ctx.budgetUsd > 0) {
       argv.push('--max-budget-usd', String(ctx.budgetUsd));
     }

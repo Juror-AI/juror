@@ -1,13 +1,16 @@
 # Harness ground truth
 
-Every shape in this file was measured by running the CLI, not read off a docs page. The
-adapters in `src/harness/` are written against *this*, and several of the behaviours below
-contradict what the documentation implies. **If an adapter disagrees with this file, the
-adapter is wrong; if your intuition disagrees with this file, re-measure before changing
-anything.**
+Harness behavior here is measured by running the CLI whenever a provider key is available;
+the one source-inspected exception is labeled explicitly. The adapters in `src/harness/`
+are written against *this*, and several behaviours below contradict what documentation
+implies. **If an adapter disagrees with this file, the adapter is wrong; if your intuition
+disagrees with this file, re-measure before changing anything.**
 
 Measured 2026-08-06 against: `claude` 2.1.223 · `codex-cli` 0.146.1 · `grok` 0.2.118 ·
 `opencode` 1.17.20.
+
+Source-inspected (no paid provider run) against: `@moonshot-ai/kimi-code` 0.34.0. Its
+section below names that distinction rather than presenting inferred usage as measured.
 
 `timeout(1)` does not exist on macOS, so every time limit is enforced in Node by
 `run()` in `src/util/proc.ts` rather than by the shell.
@@ -19,7 +22,7 @@ Measured 2026-08-06 against: `claude` 2.1.223 · `codex-cli` 0.146.1 · `grok` 0
 ```
 claude -p "<prompt>" --model claude-opus-5 --output-format json \
   --tools "Read,Grep,Glob,Write" --add-dir "$SCRATCH" \
-  --max-turns 40 --max-budget-usd 1.00
+  --max-budget-usd 1.00
 ```
 
 One JSON object on stdout. Verified keys: `type, subtype, is_error, num_turns, result,
@@ -33,6 +36,8 @@ permission_denials`.
 - `.modelUsage` breaks usage down per model, including the Haiku helper.
 - `--tools` **removes** every tool not listed. `--allowedTools` merely auto-approves — using
   it where you meant `--tools` leaves the agent holding a shell.
+- Juror omits `--max-turns` by default, leaving the per-model wall-clock timeout as the
+  termination boundary. A positive custom `max_turns` restores the CLI flag.
 - It is the only harness that can enforce a spend ceiling. When `--max-budget-usd` trips it
   exits **1** with `subtype: "error_max_budget_usd"`, `terminal_reason: "budget_exhausted"`
   and a null result. Measured: one review of a 240-line diff in a large monorepo cost
@@ -120,11 +125,52 @@ JSONL on stdout: `step_start`, `tool_use`, `text`, `step_finish`.
                     "edit": "allow", "bash": "deny", "webfetch": "deny", "websearch": "deny" } }
   ```
 
+## Kimi Code — `kimi -p --output-format stream-json`
+
+```
+KIMI_MODEL_PROVIDER_TYPE=openai \
+KIMI_MODEL_BASE_URL=https://api.fireworks.ai/inference/v1 \
+KIMI_MODEL_NAME=accounts/fireworks/models/kimi-k3 \
+KIMI_MODEL_API_KEY="$FIREWORKS_API_KEY" \
+KIMI_CODE_EXPERIMENTAL_FLAG=1 \
+  kimi -p "<prompt>" --output-format stream-json \
+  --skills-dir "$EMPTY_SKILLS" --agent-file "$REVIEW_PROFILE" --add-dir "$REPO"
+```
+
+Kimi K3 is always served through Fireworks in Juror's built-in presets. The provider's model
+page is the source of truth for the model id, 1.04M context window, and current
+`$3 / $0.30 / $15` per-million input/cached-input/output prices.
+
+- `KIMI_MODEL_NAME` synthesizes a temporary provider/model and selects it as the default.
+  The model name is the provider model id, not a CLI alias, so passing the same value via
+  `-m` would select a nonexistent alias.
+- `KIMI_LOOP_MAX_STEPS_PER_TURN=0` is passed by default. Kimi Code 0.34.0 defines zero as
+  no cap; a positive custom `max_turns` value opts back into a step limit.
+- Print mode creates/resumes the session with `permission: "auto"` and installs an approval
+  handler that approves every call. Juror therefore supplies an explicit agent file whose
+  complete tool list is `Read, Write, Grep, Glob`; shell, web, MCP, and subagents never enter
+  the model's tool set.
+- Run from a private directory outside the repository and attach the repo with `--add-dir`.
+  Otherwise Kimi discovers project `.mcp.json` before the model starts, which could launch a
+  PR-controlled stdio command while the Fireworks key is present.
+- `stream-json` writes one JSON object per line. Assistant output is
+  `{"role":"assistant","content":"..."}`; tool calls/results occupy their own messages.
+  It does not expose token usage or provider-computed USD cost. Kimi does persist one
+  normalized `usage.record` per provider request in its private session `wire.jsonl`, so the
+  adapter sums those records before deleting the runtime and estimates the charge from the
+  checked-in Fireworks rates. If a future CLI omits those records, the receipt falls back to
+  unknown rather than inventing a number.
+- `--skills-dir` replaces auto-discovered skill directories. `KIMI_CODE_HOME`, telemetry,
+  auto-update, and built-in product skills are also isolated/disabled so a local
+  developer setup cannot change a CI review.
+
 ## Grok Build — `grok -p --output-format json`
 
 Flags confirmed present: `-p/--single`, `--output-format`, `--sandbox <PROFILE>`, `--tools`,
 `--disallowed-tools`, `-m/--model`, `--max-turns`, `--permission-mode`, `--allow`, `--deny`,
-`--disable-web-search`. `GROK_SANDBOX` is honoured.
+`--reasoning-effort`, `--disable-web-search`. `GROK_SANDBOX` is honoured.
+
+Juror omits `--max-turns` by default and adds it only for a positive custom `max_turns`.
 
 **The output shape is unverified** — no xAI key was available when the adapter was written.
 `parse()` therefore probes several shapes and, when none matches, returns `usage: null` so the
@@ -150,4 +196,8 @@ Jaccard over the **identifiers** each finding cites, on the same data:
 
 Independent writers share about a quarter of their vocabulary even when they agree
 completely, but they cite the same code symbols. So `similarity()` weights identifiers at
-0.65 and prose at 0.35. `test/consensus-real.test.ts` pins this against the verbatim findings.
+0.65 and prose at 0.35. Similarity now routes these pairs to the referee; it never merges
+non-identical reports on its own. The referee must confirm the same trigger, mechanism,
+consequence, and fix, and its response must account for every candidate id. A post-merge
+audit then proves every raw atomic finding still has one final disposition.
+`test/consensus-real.test.ts` pins the routing against the verbatim findings.

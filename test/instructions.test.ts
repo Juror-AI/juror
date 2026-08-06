@@ -120,3 +120,21 @@ describe('loadAgentInstructions', () => {
     ]);
   });
 });
+
+describe('review prompt contracts', () => {
+  it('requires atomic async findings and lossless referee partitions', () => {
+    const review = loadPromptTemplate('review');
+    const referee = loadPromptTemplate('referee');
+
+    expect(review).toContain('Each finding must be **atomic**');
+    expect(review).toContain('discards the save promise');
+    expect(review).toContain('### Mandatory async-contract pass');
+    expect(review).toContain('Prove that the promise is returned');
+    expect(review).toContain('"async_contracts"');
+    expect(review).toContain('"trigger": "specific input, state, or event"');
+    expect(referee).toContain('same trigger, faulty mechanism');
+    expect(referee).toContain('Every candidate id must appear exactly once');
+    expect(referee).toContain('"same_fix": true');
+    expect(referee).toContain('"distinct": ["f3"]');
+  });
+});

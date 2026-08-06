@@ -16,6 +16,8 @@ export interface ReceiptOptions {
   skipped?: ReceiptNote[];
   /** Models that started and blew up. Same reason: the blank row needs an explanation. */
   failed?: ReceiptNote[];
+  /** Models whose last on-disk report survived an interrupted agent loop. */
+  partial?: ReceiptNote[];
   /** Pinned tag for the `pricing.json` link in the legend. */
   version?: string;
 }
@@ -64,6 +66,7 @@ const DASH = '—';
 export function renderReceipt(totals: CostTotals, o: ReceiptOptions): string {
   const skipped = o.skipped ?? [];
   const failed = o.failed ?? [];
+  const partial = o.partial ?? [];
   const skippedLabels = new Set(skipped.map((s) => s.label));
 
   const headline = `<b>💸 This review cost ${headlineAmount(totals)}</b>`;
@@ -104,10 +107,11 @@ export function renderReceipt(totals: CostTotals, o: ReceiptOptions): string {
     for (const n of notes) lines.push(n);
   }
 
-  if (skipped.length || failed.length) {
+  if (skipped.length || failed.length || partial.length) {
     lines.push('');
     if (skipped.length) lines.push(`Skipped: ${skipped.map(noteText).join(' · ')}`);
     if (failed.length) lines.push(`Failed: ${failed.map(noteText).join(' · ')}`);
+    if (partial.length) lines.push(`Partial: ${partial.map(noteText).join(' · ')}`);
   }
 
   if (o.rolling) lines.push('', rollingLine(o.rolling));

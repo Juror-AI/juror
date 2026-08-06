@@ -36,6 +36,23 @@ export const CATEGORIES: readonly Category[] = [
   'test-gap',
 ] as const;
 
+/**
+ * One independently actionable defect, split into the four facts deduplication needs.
+ *
+ * Older/custom reviewers may omit this object; Juror then falls back to the human-facing
+ * title/body and sends any possible duplicate to the referee instead of merging it locally.
+ */
+export interface FindingClaim {
+  /** The concrete input, state, or event that reaches the defect. */
+  trigger: string;
+  /** The faulty code path or contract that produces the failure. */
+  mechanism: string;
+  /** The externally observable wrong result. */
+  consequence: string;
+  /** The independently actionable code change that resolves this defect. */
+  fix: string;
+}
+
 /** A finding exactly as a model emitted it, after schema validation but before anchoring. */
 export interface RawFinding {
   path: string;
@@ -47,10 +64,14 @@ export interface RawFinding {
   category: Category;
   confidence: number;
   convention: string | null;
+  /** Structured causal fingerprint used for conservative semantic deduplication. */
+  claim?: FindingClaim;
 }
 
 /** A finding tagged with which model produced it and how anchoring resolved it. */
 export interface AttributedFinding extends RawFinding {
+  /** Stable within one review run; unlike title text, this cannot collide after rewriting. */
+  sourceId: string;
   /** Config `id` of the model that raised this (e.g. `claude-opus-5`). */
   modelId: string;
   /** Display label for the model (e.g. `Opus 5`). */
@@ -89,6 +110,8 @@ export interface ModelReport {
   summary: string;
   highlights: string[];
   file_overviews: FileOverview[];
+  /** Callback chains inspected during the mandatory async-contract pass. */
+  async_contracts: string[];
   sequence_diagram: string | null;
   findings: RawFinding[];
 }
@@ -144,7 +167,13 @@ export type PricingTable = Record<string, PricingEntry>;
 // Harness adapters
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type HarnessId = 'claude-code' | 'codex' | 'grok-build' | 'opencode' | 'generic-openai';
+export type HarnessId =
+  | 'claude-code'
+  | 'codex'
+  | 'grok-build'
+  | 'kimi-code'
+  | 'opencode'
+  | 'generic-openai';
 
 /** Everything an adapter needs to build its command line. */
 export interface RunContext {
@@ -160,15 +189,19 @@ export interface RunContext {
   prompt: string;
   /** Model id as the harness expects it on the command line. */
   model: string;
+  /** Optional OpenAI-compatible endpoint override from the model config. */
+  baseUrl?: string;
   /** Extra per-model knobs from `.juror.yml` (`args:`). */
   args: Record<string, unknown>;
   /** Env for the child process. Contains only this model's provider key. */
   env: Record<string, string>;
+  /** Provider credential value, independent of the configured env-var name. */
+  providerKey?: string;
   /** Hard wall-clock limit for the child process. */
   timeoutMs: number;
   /** Per-model USD ceiling, when the harness can enforce one. */
   budgetUsd: number | null;
-  /** Maximum agent turns. */
+  /** Maximum agent turns. Zero disables the step cap; the wall-clock timeout still applies. */
   maxTurns: number;
 }
 
@@ -308,7 +341,7 @@ export interface Cluster {
   anchor: AnchorStatus;
   maxConfidence: number;
   /** How the merge happened, for `--explain`. */
-  mergedBy: ('jaccard' | 'referee' | 'singleton')[];
+  mergedBy: ('exact' | 'jaccard' | 'referee' | 'singleton')[];
   verification: Verification | null;
   published: boolean;
   /** Why this cluster was suppressed, when it was. */
@@ -321,6 +354,30 @@ export interface Verification {
   /** Model that ran the refutation pass. */
   byModel: string;
   cost: CostBreakdown;
+}
+
+export interface FindingDisposition {
+  sourceId: string;
+  modelId: string;
+  modelLabel: string;
+  path: string;
+  line: number;
+  title: string;
+  clusterId: string;
+  outcome: 'published' | 'suppressed';
+  /** Always present for a suppression; null for a published finding. */
+  reason: string | null;
+}
+
+/** Post-merge proof that every raw model finding reached a visible final outcome. */
+export interface FindingCoverage {
+  complete: boolean;
+  rawFindings: number;
+  accountedFor: number;
+  uniqueFindings: number;
+  dispositions: FindingDisposition[];
+  /** Empty on success; populated when Juror had to fall back to lossless singletons. */
+  problems: string[];
 }
 
 export interface Verdict {
@@ -354,8 +411,12 @@ export interface ModelConfig {
   max_turns?: number;
 }
 
+export type ReviewPreset = 'fast' | 'balanced' | 'high' | 'ultra';
+
 export interface JurorConfig {
   version: 1;
+  /** Built-in jury selection, or null when an explicit `models:` list is active. */
+  preset: ReviewPreset | null;
   models: ModelConfig[];
   consensus: {
     min_agreement: 'majority' | 'all' | number;
@@ -375,6 +436,7 @@ export interface JurorConfig {
     anchor_tolerance: number;
     max_diff_bytes: number;
     per_model_timeout_seconds: number;
+    /** Zero means unlimited; `per_model_timeout_seconds` remains the hard boundary. */
     max_turns: number;
   };
   budget: {
@@ -398,6 +460,7 @@ export interface ReviewResult {
   clusters: Cluster[];
   published: Cluster[];
   suppressed: Cluster[];
+  coverage: FindingCoverage;
   verdict: Verdict;
   summary: ReviewSummary;
   totals: CostTotals;

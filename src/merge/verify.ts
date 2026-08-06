@@ -60,7 +60,8 @@ const MAX_EXCERPT_LINES = 220;
  * timeout here quietly costs recall — the cheapest fix is to stop being impatient.
  */
 const VERIFY_TIMEOUT_MS = 420_000;
-const VERIFY_MAX_TURNS = 12;
+// No step cap by default; the verifier wall-clock timeout is the safety boundary.
+const VERIFY_MAX_TURNS = 0;
 
 const ENV_ALLOWLIST = ['PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'LC_ALL', 'TMPDIR', 'TERM'];
 
@@ -294,8 +295,10 @@ async function verifyOne(
     promptPath,
     prompt,
     model: rt.harnessModel,
+    ...(m.base_url ? { baseUrl: m.base_url } : {}),
     args: m.args ?? {},
     env: childEnv(m, key),
+    providerKey: key,
     timeoutMs: m.timeout_seconds ? m.timeout_seconds * 1000 : VERIFY_TIMEOUT_MS,
     budgetUsd: null,
     maxTurns: m.max_turns ?? VERIFY_MAX_TURNS,

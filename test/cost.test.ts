@@ -50,8 +50,15 @@ describe('pricing.json', () => {
   it('loads from the module directory, not the cwd', () => {
     expect(Object.keys(pricing).length).toBeGreaterThan(0);
     expect(pricing['gpt-5.6-sol']?.input_per_mtok).toBe(5.0);
+    expect(pricing['gpt-5.6-terra']?.input_per_mtok).toBe(2.5);
+    expect(pricing['gpt-5.6-terra']?.long_context?.output_per_mtok).toBe(22.5);
     expect(pricing['claude-opus-5']?.cache_write_per_mtok).toBe(6.25);
     expect(pricing['accounts/fireworks/models/deepseek-v4-flash-0731']?.input_per_mtok).toBe(0.14);
+    expect(pricing['accounts/fireworks/models/kimi-k3']).toMatchObject({
+      input_per_mtok: 3,
+      cache_read_per_mtok: 0.3,
+      output_per_mtok: 15,
+    });
   });
 
   it('drops the $meta block instead of exposing it as a model', () => {
@@ -250,6 +257,17 @@ describe('computeCost rule 3 — the long-context cliff', () => {
 });
 
 describe('computeCost rule 4 — cache writes are not free', () => {
+  it('prices Kimi K3 from the checked-in Fireworks rates', () => {
+    const cost = computeCost({
+      pricingKey: 'accounts/fireworks/models/kimi-k3',
+      usage: usage({ uncachedIn: 100_000, cacheRead: 50_000, out: 10_000 }),
+      reportedCostUsd: null,
+      pricing,
+    });
+    expect(cost.usd).toBe(0.465); // 100k*$3 + 50k*$0.30 + 10k*$15, per Mtok
+    expect(cost.source).toBe('estimated');
+  });
+
   it('bills a write-only run', () => {
     const cost = computeCost({
       pricingKey: 'gpt-5.6-sol',
@@ -395,14 +413,14 @@ describe('totalCost', () => {
   });
 
   it('marks the total partial when any row is unknown', () => {
-    const kimi = run({
-      modelId: 'accounts/fireworks/models/kimi-k3',
-      modelLabel: 'Kimi K3',
-      pricingKey: 'accounts/fireworks/models/kimi-k3',
+    const opaque = run({
+      modelId: 'opaque-model',
+      modelLabel: 'Opaque model',
+      pricingKey: 'opaque-model',
       result: result(null),
       cost: { usd: null, source: 'unknown', longContext: false, note: 'no usage on stdout' },
     });
-    const totals = totalCost([opus, kimi], []);
+    const totals = totalCost([opus, opaque], []);
     expect(totals.partial).toBe(true);
     // Still a documented lower bound, not a fabricated whole.
     expect(totals.usd).toBe(0.6);

@@ -1,9 +1,9 @@
 /**
  * opencode adapter — the harness every third-party model rides on.
  *
- * Kimi K3, DeepSeek V4, GLM, MiniMax and friends have no usable CLI of their own, so
- * `opencode run` is what actually ships them: it resolves provider keys from the
- * environment via models.dev metadata (`FIREWORKS_API_KEY` alone enables every
+ * DeepSeek V4, GLM, MiniMax and other third-party models ride through `opencode run`: it
+ * resolves provider keys from the environment via models.dev metadata
+ * (`FIREWORKS_API_KEY` alone enables every
  * `fireworks-ai/...` model) and it is the only non-Anthropic harness that reports a
  * real USD cost per step.
  *

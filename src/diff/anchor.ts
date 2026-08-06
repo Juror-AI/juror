@@ -18,7 +18,9 @@ export function anchorFindings(
 ): AttributedFinding[] {
   const index = buildIndex(diff.files);
   const tol = Number.isFinite(tolerance) ? Math.max(0, tolerance) : 0;
-  return findings.map((f) => anchorOne(f, index, modelId, modelLabel, tol));
+  return findings.map((f, findingIndex) =>
+    anchorOne(f, index, `${modelId}:${findingIndex + 1}`, modelId, modelLabel, tol),
+  );
 }
 
 interface FileIndex {
@@ -42,6 +44,7 @@ function buildIndex(files: DiffFile[]): FileIndex {
 function anchorOne(
   finding: RawFinding,
   index: FileIndex,
+  sourceId: string,
   modelId: string,
   modelLabel: string,
   tolerance: number,
@@ -49,27 +52,32 @@ function anchorOne(
   const line = Number.isFinite(finding.line) ? Math.trunc(finding.line) : 0;
   const file = findFile(finding.path, index);
 
-  if (!file) return attribute(finding, modelId, modelLabel, line, 'unknown-file', 0);
+  if (!file) return attribute(finding, sourceId, modelId, modelLabel, line, 'unknown-file', 0);
 
   // A binary or pure-deletion file has no post-image line to anchor to at all.
   const nearest = nearestChangedLine(file.changedLines, line);
-  if (nearest === null) return attribute(finding, modelId, modelLabel, line, 'outside-diff', 0);
-  if (nearest === line) return attribute(finding, modelId, modelLabel, line, 'exact', 0);
+  if (nearest === null) {
+    return attribute(finding, sourceId, modelId, modelLabel, line, 'outside-diff', 0);
+  }
+  if (nearest === line) return attribute(finding, sourceId, modelId, modelLabel, line, 'exact', 0);
 
   const drift = Math.abs(nearest - line);
-  if (drift <= tolerance) return attribute(finding, modelId, modelLabel, nearest, 'snapped', drift);
-  return attribute(finding, modelId, modelLabel, line, 'outside-diff', drift);
+  if (drift <= tolerance) {
+    return attribute(finding, sourceId, modelId, modelLabel, nearest, 'snapped', drift);
+  }
+  return attribute(finding, sourceId, modelId, modelLabel, line, 'outside-diff', drift);
 }
 
 function attribute(
   finding: RawFinding,
+  sourceId: string,
   modelId: string,
   modelLabel: string,
   anchoredLine: number,
   anchor: AnchorStatus,
   anchorDrift: number,
 ): AttributedFinding {
-  return { ...finding, modelId, modelLabel, anchoredLine, anchor, anchorDrift };
+  return { ...finding, sourceId, modelId, modelLabel, anchoredLine, anchor, anchorDrift };
 }
 
 /**

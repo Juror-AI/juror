@@ -67,6 +67,7 @@ function finding(
     category: 'correctness',
     confidence: 0.8,
     convention: null,
+    sourceId: `${modelId}:${line}:${f.title}`,
     modelId,
     modelLabel: modelId,
     anchoredLine: line,
@@ -165,8 +166,8 @@ describe('length-asymmetric agreement (textcortex/platform#10333)', () => {
     expect(similarity(text(GPT), text(UNRELATED))).toBeLessThan(OPTS.mergeThreshold);
   });
 
-  it('collapses to a single P1 cluster with both models on it', () => {
-    const { clusters } = clusterFindings(
+  it('routes the semantic duplicate to the referee without weakening severity', () => {
+    const { clusters, ambiguousPairs } = clusterFindings(
       [
         finding('gpt', 1351, GPT, 'P1'),
         finding('deepseek', 1351, DEEPSEEK, 'P2'),
@@ -174,11 +175,10 @@ describe('length-asymmetric agreement (textcortex/platform#10333)', () => {
       ],
       OPTS,
     );
-    const merged = clusters.find((c) => c.line === 1351);
-    expect(merged?.agreement).toBe(2);
-    // The most severe member sets the cluster severity — a P1 must not be softened to P2.
-    expect(merged?.severity).toBe('P1');
-    expect(clusters).toHaveLength(2);
+    const candidates = clusters.filter((c) => c.line === 1351);
+    expect(candidates).toHaveLength(2);
+    expect(candidates.map((c) => c.severity).sort()).toEqual(['P1', 'P2']);
+    expect(ambiguousPairs.some((p) => p.a.line === 1351 && p.b.line === 1351)).toBe(true);
   });
 });
 
@@ -224,7 +224,149 @@ describe('title-preserved agreement (textcortex/platform#10356)', () => {
     const { clusters, ambiguousPairs } = clusterFindings([sonnet, deepseek], OPTS);
     expect(clusters).toHaveLength(2);
     expect(ambiguousPairs).toHaveLength(1);
-    expect(ambiguousPairs[0]?.jaccard).toBe(OPTS.mergeThreshold);
+    expect(ambiguousPairs[0]?.similarity).toBe(OPTS.mergeThreshold);
+  });
+});
+
+describe('atomic async contracts (textcortex/platform#10359)', () => {
+  const promiseClaim = {
+    trigger: 'Behavior autosave or navigation calls pending.run()',
+    mechanism: 'stableSubmit invokes onSubmitRef.current() with void and returns no promise',
+    consequence: 'the caller proceeds and its catch cannot observe a rejected save',
+    fix: 'return the onSubmit promise from stableSubmit and its public submit contract',
+  };
+  const retryClaim = {
+    trigger: 'an Appearance or Access autosave request rejects',
+    mechanism: 'isPending returning false makes canSave true and re-arms the autosave effect',
+    consequence: 'the editor retries forever and emits repeated destructive toasts',
+    fix: 'require a new edit or explicit retry before scheduling another save',
+  };
+  const normalizationClaim = {
+    trigger: 'Appearance input contains whitespace or empty suggestions that are normalized on save',
+    mechanism: 'the server seed changes but the local draft keeps the pre-normalized value',
+    consequence: 'isDirty never clears and autosave sends the same successful PATCH forever',
+    fix: 'reconcile the local draft with the normalized saved value',
+  };
+
+  it('deduplicates promise reports but preserves different retry and normalization triggers', () => {
+    const promiseA = {
+      ...finding(
+        'kimi',
+        287,
+        {
+          title: 'Behavior save promise is discarded',
+          body:
+            'stableSubmit uses void onSubmitRef.current(), so awaiting pending.run() completes immediately and rejected saves bypass the catch; return the promise.',
+        },
+      ),
+      path: 'apps/web/src/features/AgentApp/editor/AgentAppEditorPage.tsx',
+      claim: promiseClaim,
+    };
+    const promiseB = {
+      ...finding(
+        'grok',
+        288,
+        {
+          title: 'Await cannot observe Behavior failure',
+          body:
+            'The embedded submit wrapper returns void instead of the builder request, allowing navigation before persistence and hiding rejections; preserve the promise.',
+        },
+      ),
+      path: promiseA.path,
+      claim: promiseClaim,
+    };
+    const retry = {
+      ...finding(
+        'kimi',
+        292,
+        {
+          title: 'Failed autosave retries forever',
+          body:
+            'When updateApp.isPending falls back to false, canSave becomes true and schedules another timer, producing an unbounded PATCH and toast loop; wait for a new edit.',
+        },
+      ),
+      path: promiseA.path,
+      claim: retryClaim,
+    };
+    const normalization = {
+      ...finding(
+        'deepseek',
+        287,
+        {
+          title: 'Normalized values loop autosave forever',
+          body:
+            'Appearance persists trimmed values but retains the untrimmed local draft, so isDirty remains true after success and repeats the PATCH; reconcile local state.',
+        },
+      ),
+      path: promiseA.path,
+      claim: normalizationClaim,
+    };
+
+    const { clusters } = clusterFindings([promiseA, retry, normalization, promiseB], OPTS);
+    const promise = clusters.find((cluster) => /promise|await/i.test(cluster.title));
+    const retryCluster = clusters.find((cluster) => /retries/i.test(cluster.title));
+
+    const normalizationCluster = clusters.find((cluster) => /normalized/i.test(cluster.title));
+
+    expect(clusters).toHaveLength(3);
+    expect(promise?.agreement).toBe(2);
+    expect(promise?.members).toHaveLength(2);
+    expect(retryCluster?.agreement).toBe(1);
+    expect(retryCluster?.members).toHaveLength(1);
+    expect(normalizationCluster?.agreement).toBe(1);
+    expect(normalizationCluster?.members).toHaveLength(1);
+  });
+
+  it('routes the same failure when models anchor the effect and catch 13 lines apart', () => {
+    const effect = {
+      ...finding(
+        'deepseek',
+        274,
+        {
+          title: 'Failed autosave re-arms itself into an unbounded retry loop',
+          body:
+            "The effect's deps are `[pendingIsDirty, pendingCanSave]`, and the tabs derive `canSave` from `isDirty && !isSaving` (AppearanceTab/AccessTab). When an autosave `run()` is in flight, `updateApp.isPending` makes `canSave` drop to false and then back to true after the promise settles, so the effect re-runs (deps [true,false]→[true,true]) and re-arms the 1200ms timer even though the user made no new edit. On a persistent failure the still-dirty descriptor passes the fire-time re-check again, so each cycle issues a new PATCH and a new destructive 'Could not update published agent' toast (~every 1.2s + RTT) until the user navigates away.",
+        },
+      ),
+      path: 'apps/web/src/features/AgentApp/editor/AgentAppEditorPage.tsx',
+      claim: {
+        trigger:
+          "An autosave PATCH rejects with a persistent error (e.g. 5xx or the mapped 'default_model is required' 4xx) while the user stays on the step.",
+        mechanism:
+          "run() failure makes updateApp.isPending toggle, which flips the tab's canSave false→true and re-runs this effect via its [pendingIsDirty, pendingCanSave] deps, re-arming the debounce; the fire-time re-check sees the still-dirty descriptor and calls run() again.",
+        consequence:
+          'Unbounded automatic retry of the failing PATCH with a destructive toast on every cycle until the user leaves the step.',
+        fix:
+          'Add an explicit last-attempt guard/backoff (e.g. a ref marking the failed attempt plus a retry cap) so a failed autosave does not immediately reschedule itself, mirroring the intended user-initiated retry.',
+      },
+    };
+    const caught = {
+      ...finding(
+        'kimi',
+        287,
+        {
+          title: 'Failed autosave retries forever with unbounded error toasts',
+          body:
+            "When run() rejects, the catch toasts and leaves the step dirty; settling the mutation flips updateApp.isPending (or the builder's isSubmitting) back, so the tab re-registers canSave=true, the effect's [pendingIsDirty, pendingCanSave] deps change, and a fresh 1200ms timer is armed. A persistent failure (offline, 422 validation rejection) therefore re-fires the save every ~1.2s+RTT for as long as the editor stays open, queuing an endless stream of destructive toasts and PATCH requests. The comment says 'leave the edits dirty so the user can retry', but the retry is automatic and unbounded. Fix: after a failed run, do not re-arm the autosave until a new edit arrives (e.g. remember the failed descriptor in a ref and skip scheduling), or add capped/backed-off retries.",
+        },
+      ),
+      path: effect.path,
+      claim: {
+        trigger:
+          'Any persistent save failure while a step is dirty, e.g. the backend 422s the payload or the network is down',
+        mechanism:
+          "catch leaves isDirty true; the mutation's pending-state toggle re-registers the descriptor with canSave true, which re-runs the autosave effect and arms a new timer",
+        consequence:
+          'Unbounded loop of failing PATCH requests and destructive error toasts until the user leaves the editor',
+        fix:
+          'Suppress re-arming after a failed attempt (require a new edit/descriptor before scheduling again) or cap retries with backoff',
+      },
+    };
+
+    const { clusters, ambiguousPairs } = clusterFindings([effect, caught], OPTS);
+    expect(clusters).toHaveLength(2);
+    expect(ambiguousPairs).toHaveLength(1);
+    expect(ambiguousPairs[0]?.similarity).toBeGreaterThan(0.45);
   });
 });
 
@@ -237,10 +379,13 @@ describe('clusterFindings on the real fan-out', () => {
     finding('gpt', 6, GUARD_GPT, 'P2'),
   ];
 
-  it('merges at least two models on the clipboard defect for free', () => {
-    const { clusters } = clusterFindings(findings, OPTS);
+  it('keeps semantic clipboard duplicates separate until the referee decides', () => {
+    const { clusters, ambiguousPairs } = clusterFindings(findings, OPTS);
     const clipboard = clusters.filter((c) => /clipboard/i.test(c.title));
-    expect(Math.max(...clipboard.map((c) => c.agreement))).toBeGreaterThanOrEqual(2);
+    expect(clipboard.every((c) => c.agreement === 1)).toBe(true);
+    expect(
+      ambiguousPairs.some((p) => /clipboard/i.test(p.a.title) && /clipboard/i.test(p.b.title)),
+    ).toBe(true);
   });
 
   it('routes the remaining clipboard pairs to the referee rather than calling them distinct', () => {

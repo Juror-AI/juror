@@ -1,10 +1,11 @@
 /**
- * Stages 2 and 3 of consensus: block findings by file and line window, then merge within
- * a block by weighted lexical and identifier similarity. Both stages are free — no model call happens
- * here, which is the whole point: the agreement signal was already paid for during
- * fan-out and every other tool on the market throws it away.
+ * Stages 2 and 3 of consensus: block findings by file and line window, collapse normalized
+ * exact duplicates, then use weighted lexical and identifier similarity to nominate
+ * possible semantic duplicates for the referee.
  *
- * Anything the arithmetic cannot decide becomes an `AmbiguousPair` for `referee.ts`;
+ * Similarity is deliberately a routing signal, never permission to merge. Two different
+ * defects often share identifiers and vocabulary because they sit on the same line. Only
+ * normalized exact reports merge here; every semantic decision goes to `referee.ts` and
  * nothing is dropped.
  */
 
@@ -15,7 +16,7 @@ import type { AnchorStatus, AttributedFinding, Cluster, Severity } from '../type
 export interface AmbiguousPair {
   a: AttributedFinding;
   b: AttributedFinding;
-  jaccard: number;
+  similarity: number;
 }
 
 export interface ClusterOptions {
@@ -199,6 +200,33 @@ function normalizeTitle(title: string): string {
   return title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+function normalizeExact(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9_$]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * An equivalence key, not a similarity score. Keeping structured and legacy reports in
+ * separate namespaces prevents a transitive chain from silently joining findings that
+ * were never compared on the same evidence.
+ */
+function automaticDuplicateKey(f: AttributedFinding): string {
+  if (f.claim) {
+    return [
+      'claim',
+      normalizeExact(f.claim.trigger),
+      normalizeExact(f.claim.mechanism),
+      normalizeExact(f.claim.consequence),
+      normalizeExact(f.claim.fix),
+    ].join('\u0000');
+  }
+  return ['text', normalizeExact(f.title), normalizeExact(f.body)].join('\u0000');
+}
+
+/** Exported for regression tests and explain tooling. */
+export function isExactDuplicate(a: AttributedFinding, b: AttributedFinding): boolean {
+  return automaticDuplicateKey(a) === automaticDuplicateKey(b);
+}
+
 /**
  * Stable across runs and across models, so an incremental re-review of the same PR
  * produces the same ids and the sticky comment diffs cleanly.
@@ -297,26 +325,19 @@ class UnionFind {
   }
 }
 
-/** Sorted findings on one path split into runs no more than `window` lines apart. */
-function blocksOf(sorted: AttributedFinding[], window: number): AttributedFinding[][] {
-  const blocks: AttributedFinding[][] = [];
-  let current: AttributedFinding[] = [];
-  let previousLine = 0;
-
-  for (const f of sorted) {
-    if (current.length > 0 && f.anchoredLine - previousLine > window) {
-      blocks.push(current);
-      current = [];
-    }
-    current.push(f);
-    previousLine = f.anchoredLine;
-  }
-  if (current.length > 0) blocks.push(current);
-  return blocks;
-}
-
 function text(f: AttributedFinding): string {
   return `${f.title} ${f.body}`;
+}
+
+function claimSimilarity(a: AttributedFinding, b: AttributedFinding): number {
+  if (!a.claim || !b.claim) return 0;
+  const scores = [
+    similarity(a.claim.trigger, b.claim.trigger),
+    similarity(a.claim.mechanism, b.claim.mechanism),
+    similarity(a.claim.consequence, b.claim.consequence),
+    similarity(a.claim.fix, b.claim.fix),
+  ];
+  return scores.reduce((sum, score) => sum + score, 0) / scores.length;
 }
 
 /**
@@ -337,7 +358,12 @@ function comparisonScore(
 ): number {
   const wholeFinding = similarity(text(a), text(b));
   const titleOnly = similarity(a.title, b.title);
-  return Math.max(wholeFinding, Math.min(titleOnly, mergeThreshold));
+  const structuredClaim = claimSimilarity(a, b);
+  return Math.max(
+    wholeFinding,
+    structuredClaim,
+    Math.min(titleOnly, mergeThreshold),
+  );
 }
 
 export function clusterFindings(
@@ -358,37 +384,42 @@ export function clusterFindings(
     const sorted = [...(byPath.get(path) ?? [])].sort(
       (a, b) => a.anchoredLine - b.anchoredLine || byQuality(a, b),
     );
+    const uf = new UnionFind(sorted.length);
+    // Models often anchor one report at the effect and another at its catch or caller.
+    // Give a strong semantic match a wider window than ordinary nearby prose without
+    // comparing identical-looking defects hundreds of lines apart in the same file.
+    const extendedWindow = Math.max(o.lineWindow, Math.min(80, o.lineWindow * 3));
 
-    for (const block of blocksOf(sorted, o.lineWindow)) {
-      const uf = new UnionFind(block.length);
-
-      for (let i = 0; i < block.length; i++) {
-        const a = block[i];
-        if (!a) continue;
-        for (let j = i + 1; j < block.length; j++) {
-          const b = block[j];
-          if (!b) continue;
-          const score = comparisonScore(a, b, o.mergeThreshold);
-          if (score > o.mergeThreshold) uf.union(i, j);
-          else if (score >= o.distinctThreshold) ambiguousPairs.push({ a, b, jaccard: score });
-        }
+    for (let i = 0; i < sorted.length; i++) {
+      const a = sorted[i];
+      if (!a) continue;
+      for (let j = i + 1; j < sorted.length; j++) {
+        const b = sorted[j];
+        if (!b) continue;
+        const distance = b.anchoredLine - a.anchoredLine;
+        if (distance > extendedWindow) break;
+        const score = comparisonScore(a, b, o.mergeThreshold);
+        const local = distance <= o.lineWindow;
+        const routingFloor = local
+          ? o.distinctThreshold
+          : Math.max(o.distinctThreshold, o.mergeThreshold - 0.1);
+        if (isExactDuplicate(a, b)) uf.union(i, j);
+        else if (score >= routingFloor) ambiguousPairs.push({ a, b, similarity: score });
       }
+    }
 
-      // Merging is transitive: A~B and B~C put all three in one cluster even if A and C
-      // scored below the threshold against each other.
-      const groups = new Map<number, AttributedFinding[]>();
-      for (let i = 0; i < block.length; i++) {
-        const f = block[i];
-        if (!f) continue;
-        const root = uf.find(i);
-        const group = groups.get(root);
-        if (group) group.push(f);
-        else groups.set(root, [f]);
-      }
+    const groups = new Map<number, AttributedFinding[]>();
+    for (let i = 0; i < sorted.length; i++) {
+      const f = sorted[i];
+      if (!f) continue;
+      const root = uf.find(i);
+      const group = groups.get(root);
+      if (group) group.push(f);
+      else groups.set(root, [f]);
+    }
 
-      for (const group of groups.values()) {
-        clusters.push(buildCluster(group, group.length > 1 ? ['jaccard'] : ['singleton']));
-      }
+    for (const group of groups.values()) {
+      clusters.push(buildCluster(group, group.length > 1 ? ['exact'] : ['singleton']));
     }
   }
 

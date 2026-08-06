@@ -3,7 +3,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import { defaultConfig, loadConfig, loadPromptTemplate, renderTemplate, resolveModelRuntime } from '../src/config.js';
+import {
+  applyReviewPreset,
+  defaultConfig,
+  loadConfig,
+  loadPromptTemplate,
+  renderTemplate,
+  resolveModelRuntime,
+} from '../src/config.js';
 
 const dirs: string[] = [];
 
@@ -26,30 +33,54 @@ afterEach(() => {
 });
 
 describe('defaultConfig', () => {
-  it('ships the four-model jury including the opencode/deepseek entry', () => {
+  it('defaults to the balanced three-model jury', () => {
     const c = defaultConfig();
+    expect(c.preset).toBe('balanced');
     expect(c.review.publish_mode).toBe('all');
+    expect(c.review.max_turns).toBe(0);
     expect(c.consensus.min_agreement).toBe('all');
-    expect(c.models.map((m) => m.id)).toEqual([
-      'claude-opus-5',
-      'gpt-5.6-sol',
-      'deepseek-v4-flash-0731',
-      'grok-4.5',
-    ]);
-    const deepseek = c.models.find((m) => m.id === 'deepseek-v4-flash-0731');
-    expect(deepseek?.harness).toBe('opencode');
-    expect(deepseek?.secret).toBe('FIREWORKS_API_KEY');
-    expect(deepseek?.harness_model).toBe('fireworks-ai/accounts/fireworks/models/deepseek-v4-flash-0731');
-    expect(deepseek?.pricing_key).toBe('accounts/fireworks/models/deepseek-v4-flash-0731');
+    expect(c.models.map((m) => m.id)).toEqual(['gpt-5.6-terra', 'grok-4.5', 'kimi-k3']);
+    expect(c.models[0]?.args?.['reasoning_effort']).toBe('max');
+    expect(c.models[1]?.args?.['reasoning_effort']).toBe('high');
+    expect(c.models[2]?.harness).toBe('kimi-code');
+    expect(c.models[2]?.secret).toBe('FIREWORKS_API_KEY');
+    expect(c.models[2]?.harness_model).toBe('accounts/fireworks/models/kimi-k3');
+    expect(c.models[2]?.pricing_key).toBe('accounts/fireworks/models/kimi-k3');
+    expect(c.consensus.verify_model).toBe('kimi-k3');
+    expect(c.consensus.referee_model).toBe('kimi-k3');
   });
 
   it('hands out an independent copy each call', () => {
     const a = defaultConfig();
     a.review.severity_floor = 'P0';
     a.review.paths_ignore.push('mutated/**');
+    if (a.models[0]?.args) a.models[0].args['reasoning_effort'] = 'low';
     const b = defaultConfig();
-    expect(b.review.severity_floor).toBe('P2');
+    expect(b.review.severity_floor).toBe('P3');
     expect(b.review.paths_ignore).not.toContain('mutated/**');
+    expect(b.models[0]?.args?.['reasoning_effort']).toBe('max');
+  });
+
+  it('ships the requested fast, high, and ultra preset memberships', () => {
+    const base = defaultConfig();
+    const fast = applyReviewPreset(base, 'fast');
+    const high = applyReviewPreset(base, 'high');
+    const ultra = applyReviewPreset(base, 'ultra');
+
+    expect(fast.models.map((m) => m.id)).toEqual(['deepseek-v4-flash-0731', 'kimi-k3']);
+    expect(fast.models.map((m) => m.args?.['reasoning_effort'] ?? m.args?.['variant'])).toEqual(['low', 'low']);
+    expect(fast.consensus.referee_model).toBe('deepseek-v4-flash-0731');
+    expect(high.models.map((m) => m.id)).toEqual(['gpt-5.6-sol', 'claude-opus-5', 'grok-4.5']);
+    expect(high.consensus.referee_model).toBe('grok-4.5');
+    expect(ultra.models.map((m) => m.id)).toEqual([
+      'gpt-5.6-terra',
+      'gpt-5.6-sol',
+      'claude-opus-5',
+      'grok-4.5',
+      'kimi-k3',
+      'deepseek-v4-flash-0731',
+    ]);
+    expect(ultra.consensus.referee_model).toBe('deepseek-v4-flash-0731');
   });
 });
 
@@ -99,7 +130,7 @@ describe('loadConfig', () => {
     });
     const { config, problems } = loadConfig(dir);
     expect(config.review.publish_mode).toBe('all');
-    expect(config.review.severity_floor).toBe('P2');
+    expect(config.review.severity_floor).toBe('P3');
     expect(config.budget.on_exceed).toBe('partial');
     expect(config.output.suppressed_findings).toBe('collapsed');
     expect(config.consensus.min_agreement).toBe('all');
@@ -116,6 +147,44 @@ describe('loadConfig', () => {
     const { config, problems } = loadConfig(dir);
     expect(config.review.publish_mode).toBe('consensus');
     expect(problems).toEqual([]);
+  });
+
+  it('accepts zero as an unlimited review and per-model turn cap', () => {
+    const dir = repoWith({
+      '.juror.yml': [
+        'review:',
+        '  max_turns: 0',
+        'models:',
+        '  - id: kimi-k3',
+        '    harness: kimi-code',
+        '    max_turns: 0',
+        '',
+      ].join('\n'),
+    });
+    const { config, problems } = loadConfig(dir);
+    expect(problems).toEqual([]);
+    expect(config.review.max_turns).toBe(0);
+    expect(config.models[0]?.max_turns).toBe(0);
+  });
+
+  it('selects a built-in preset before applying section overrides', () => {
+    const dir = repoWith({
+      '.juror.yml': 'preset: high\nconsensus:\n  referee_model: claude-opus-5\n',
+    });
+    const { config, problems } = loadConfig(dir);
+    expect(problems).toEqual([]);
+    expect(config.preset).toBe('high');
+    expect(config.models.map((model) => model.id)).toEqual(['gpt-5.6-sol', 'claude-opus-5', 'grok-4.5']);
+    expect(config.consensus.verify_model).toBe('grok-4.5');
+    expect(config.consensus.referee_model).toBe('claude-opus-5');
+  });
+
+  it('keeps balanced and reports an unknown preset', () => {
+    const dir = repoWith({ '.juror.yml': 'preset: enormous\n' });
+    const { config, problems } = loadConfig(dir);
+    expect(config).toEqual(defaultConfig());
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain('expected one of fast, balanced, high, ultra');
   });
 
   it('falls back to the default and reports a problem for an out-of-range number', () => {
@@ -137,7 +206,7 @@ describe('loadConfig', () => {
     expect(problems).toHaveLength(1);
     expect(problems[0]).toContain('unknown key `reveiw`');
     expect(config.review.max_turns).toBe(12);
-    expect(config.review.severity_floor).toBe('P2');
+    expect(config.review.severity_floor).toBe('P3');
   });
 
   it('reports an unknown key inside a section', () => {
@@ -154,17 +223,29 @@ describe('loadConfig', () => {
     expect(problems).toEqual([]);
     expect(config.models).toHaveLength(1);
     expect(config.models[0]?.id).toBe('claude-opus-5');
+    expect(config.preset).toBeNull();
+    expect(config.consensus.verify_model).toBe('claude-opus-5');
+    expect(config.consensus.referee_model).toBe('claude-opus-5');
     // `enabled` and `secret` come from the per-harness default so they can be omitted.
     expect(config.models[0]?.enabled).toBe(true);
     expect(config.models[0]?.secret).toBe('ANTHROPIC_API_KEY');
+  });
+
+  it('defaults every Kimi Code model to the Fireworks credential', () => {
+    const dir = repoWith({
+      '.juror.yml': ['models:', '  - id: accounts/fireworks/models/kimi-k3', '    harness: kimi-code', ''].join('\n'),
+    });
+    const { config, problems } = loadConfig(dir);
+    expect(problems).toEqual([]);
+    expect(config.models[0]?.secret).toBe('FIREWORKS_API_KEY');
   });
 
   it('drops a model with an unknown harness and keeps its siblings', () => {
     const dir = repoWith({
       '.juror.yml': [
         'models:',
-        '  - id: kimi-k3',
-        '    harness: kimi-cli',
+        '  - id: unknown-model',
+        '    harness: made-up',
         '  - id: grok-4.5',
         '    harness: grok-build',
         '    enabled: false',
@@ -182,7 +263,7 @@ describe('loadConfig', () => {
     const dir = repoWith({ '.juror.yml': 'models:\n  - harness: codex\n' });
     const { config, problems } = loadConfig(dir);
     expect(config.models).toEqual(defaultConfig().models);
-    expect(problems.join('\n')).toContain('keeping the default models');
+    expect(problems.join('\n')).toContain('keeping the current models');
   });
 
   it('never throws on malformed YAML', () => {

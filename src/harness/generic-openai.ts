@@ -433,7 +433,7 @@ function readToolCalls(message: Record<string, unknown>): ToolCall[] {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function runGenericOpenAI(ctx: RunContext): Promise<HarnessResult> {
-  const baseUrl = readString(ctx.args['base_url']);
+  const baseUrl = readString(ctx.baseUrl) ?? readString(ctx.args['base_url']);
   if (!baseUrl) throw new Error('generic-openai requires `base_url` in the model config');
   const apiKey = resolveApiKey(ctx);
   if (!apiKey) {
@@ -466,7 +466,7 @@ export async function runGenericOpenAI(ctx: RunContext): Promise<HarnessResult> 
   let rawText = '';
   let turns = 0;
 
-  while (turns < ctx.maxTurns) {
+  while (ctx.maxTurns <= 0 || turns < ctx.maxTurns) {
     const remaining = deadline - Date.now();
     if (remaining <= 0) {
       truncated = true;
@@ -521,7 +521,7 @@ export async function runGenericOpenAI(ctx: RunContext): Promise<HarnessResult> 
       messages.push({ role: 'tool', tool_call_id: call.id, content: result });
     }
 
-    if (turns >= ctx.maxTurns) {
+    if (ctx.maxTurns > 0 && turns >= ctx.maxTurns) {
       truncated = true;
       diagnostics.push(`generic-openai stopped at the ${ctx.maxTurns}-turn limit with tool calls pending`);
     }

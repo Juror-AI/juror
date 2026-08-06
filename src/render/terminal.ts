@@ -36,6 +36,12 @@ export function renderTerminalReport(r: ReviewResult, o: { version: string }): s
   lines.push(
     `  ${label('Findings')}${c.dim(`${r.published.length} published, ${r.suppressed.length} suppressed`)}`,
   );
+  lines.push(
+    `  ${label('Coverage')}${c.dim(
+      `${r.coverage.accountedFor}/${r.coverage.rawFindings} raw → ${r.coverage.uniqueFindings} unique` +
+        (r.coverage.complete ? '' : ' (incomplete)'),
+    )}`,
+  );
 
   if (r.published.length) {
     lines.push('');

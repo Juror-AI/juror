@@ -1,12 +1,24 @@
-# Juror
+<div align="center">
 
-**N frontier models review your PR in parallel, through their own native agent harnesses.
-Duplicate reports collapse into one; by default, every unique finding gets posted. Every
-review prints its own receipt.**
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/hero-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/hero-light.svg">
+  <img alt="Juror — frontier models review your pull request in parallel" src="assets/hero-light.svg">
+</picture>
+
+<br>
+
+[![CI](https://img.shields.io/github/actions/workflow/status/cderinbogaz/juror/ci.yml?branch=main&style=flat-square&label=ci&labelColor=1b1f24&color=3fb950)](https://github.com/cderinbogaz/juror/actions/workflows/ci.yml) [![Juror reviews Juror](https://img.shields.io/badge/dogfooded-juror%20reviews%20juror-F2B33D?style=flat-square&labelColor=1b1f24)](.github/workflows/juror.yml) [![Node](https://img.shields.io/badge/node-%E2%89%A520-8593a8?style=flat-square&labelColor=1b1f24)](package.json) [![License](https://img.shields.io/badge/license-MIT-8593a8?style=flat-square&labelColor=1b1f24)](LICENSE)
+
+</div>
 
 ```
 npx juror review --pr 1234
 ```
+
+**N frontier models review your PR in parallel, each through its own native agent
+harness. Reports about the same defect collapse into one. Every review prints its own
+receipt.**
 
 ---
 
@@ -18,39 +30,95 @@ Single-model PR bots have three problems, in order of how much they cost you:
 2. **Duplication.** Multiple reviewers often describe the same defect in different words.
 3. **Opacity.** You pay per seat or per PR and never see what the inference actually cost.
 
-Juror runs several models, uses code-aware similarity to merge reports about the same
-defect, and defaults to high recall: every unique eligible finding is shown. Teams that
+Juror runs several models, uses code-aware similarity plus a conservative referee to
+deduplicate reports about the same defect, and defaults to high recall: every unique
+eligible finding is shown. Teams that
 prefer fewer, higher-confidence findings can switch `review.publish_mode` to `consensus`
 and use model agreement as a precision filter.
 
 And there is no index and no SaaS. A coding agent doesn't need a prebuilt semantic index:
-Claude Code, Codex, and opencode all ship `Read`/`Grep`/`Glob` and will go read the callers
-of the function you changed. You get repo-wide context for the price of a few tool calls,
-with zero indexing infrastructure, zero staleness, and no code leaving the runner beyond the
-model API call itself.
+the supported agent harnesses all ship repository read/search tools and will go inspect the
+callers of the function you changed. You get repo-wide context for the price of a few tool
+calls, with zero indexing infrastructure, zero staleness, and no code leaving the runner
+beyond the model API call itself.
 
 **Non-goals.** Not an autofix bot. Not a linter (yours is better and free). Not a chat
 interface. It reviews a diff and posts findings.
 
 ---
 
-## What you get
+## How it works
 
-A sticky summary comment with a deterministic merge score, a findings table annotated with
-how many models agreed, a collapsed block showing anything suppressed by the configured
-severity, anchoring, or consensus rules, and a cost receipt:
+<div align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/pipeline-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/pipeline-light.svg">
+  <img alt="The diff fans out to a jury of models; their findings are anchored, blocked, merged and refereed into one comment" src="assets/pipeline-light.svg">
+</picture>
+</div>
 
-```
-💸 This review cost $0.97 · 4 models · 2m14s
+Each model gets the diff and its own sandboxed checkout, and answers in its vendor's native
+agent loop. Their findings then go through five lossless merge stages — cheapest first,
+with a model call only for possible semantic duplicates:
 
-| Model                | Harness     | Input | Cached | Output | Cost  | Source    |
-| claude-opus-5        | Claude Code | 41.2k | 38.0k  | 6.1k   | $0.18 | reported  |
-| gpt-5.6-sol          | Codex       | 39.8k | 12.1k  | 8.9k   | $0.41 | estimated |
-| deepseek-v4-flash…   | opencode    | 40.1k | 0      | 5.2k   | $0.02 | reported  |
-| grok-4.5             | Grok Build  | —     | —      | —      | —     | skipped   |
-```
+1. **Anchor** *(free)* — snap every finding to a line the diff actually adds or modifies.
+   Findings landing outside the diff are reported separately, never silently dropped.
+2. **Block** *(free)* — group by file, then by overlapping line window.
+3. **Exact collapse** *(free)* — normalized identical reports, or identical structured
+   trigger/mechanism/consequence/fix claims, collapse without inference.
+4. **Similarity + referee** *(cheap)* — weighted prose/symbol similarity nominates possible
+   duplicates. One small call per block merges them only when trigger, mechanism,
+   consequence, and fix all match.
+5. **Coverage audit** *(free)* — prove every raw atomic finding belongs to exactly one final
+   published or explicitly suppressed result. Any accounting failure discards the merge
+   decisions and falls back to lossless singletons.
 
-Plus inline comments, posted as **one batched review** — one notification, not twelve.
+In `consensus` mode an additional **verify** stage runs: eligible P0/P1 and eligible
+single-model findings get an adversarial refutation pass. The verifier is asked to
+*refute*, and defaults to refuted when the evidence isn't clear.
+
+---
+
+## What it posts
+
+One sticky summary comment, and inline comments delivered as **a single batched review** —
+one notification, not twelve. Roughly:
+
+> #### Juror Review
+>
+> Adds SSE `event: error` detection to the reasoning stream so mid-stream provider failures
+> retry instead of ending the turn as a silent success.
+>
+> #### Merge Confidence: 4/5
+>
+> <sub>Model votes: GPT-5.6 Terra `4` · Grok 4.5 `5` · Kimi K3 `4` → median **4**, capped at **4.5** by 1 confirmed P2.</sub>
+>
+> | | Severity | Location | Finding | Agreement |
+> |---|---|---|---|---|
+> | 1 | P1 | `src/stream/parse.ts:212` | Error branch leaves the reader unlocked | `●●●` 3/3 |
+> | 2 | P2 | `src/stream/parse.ts:424` | Same swallow pattern not ported to the sibling class | `●○○` 1/3 |
+>
+> <details><summary>2 findings suppressed — below severity floor</summary><br>
+>
+> | Location | Finding | Raised by | Why suppressed |
+> |---|---|---|---|
+> | `src/stream/parse.ts:387` | `chunks_emitted` hardcoded on error events | GPT-5.6 Terra, Kimi K3 | below severity floor |
+>
+> </details>
+>
+> <details><summary><b>💸 This review cost $0.91</b> · 3 models · 2m14s</summary><br>
+>
+> | Model | Harness | Input | Cached | Output | Cost | Source |
+> |---|---|---|---|---|---|---|
+> | `GPT-5.6 Terra` | Codex | 39.8k | 12.1k | 8.9k | $0.34 | estimated |
+> | `Grok 4.5` | Grok Build | 40.1k | 0 | 5.2k | $0.38 | reported |
+> | `Kimi K3` | Kimi Code | 42.0k | 10.0k | 4.2k | $0.19 | estimated |
+> | `referee (1 call)` | opencode | — | — | — | $0.0011 | reported |
+> | **Total** | | **122k** | **22.1k** | **18.3k** | **$0.91** | |
+>
+> </details>
+
+Plus a file-by-file overview and an optional sequence diagram of the changed flow.
 
 With `--post`, Juror immediately creates one sticky **Juror is reviewing…** comment with an
 animated working indicator and a short progress checklist. The finished summary replaces
@@ -97,8 +165,8 @@ The same binary, the same code path, no CI-only surprises:
 ```bash
 npm i -g @juror/cli
 
-juror review --base main                       # review your working branch
-juror review --pr 1234 --repo owner/name       # review a PR, print to the terminal
+juror review --base main                         # review your working branch
+juror review --pr 1234 --repo owner/name         # review a PR, print to the terminal
 juror review --pr 1234 --repo owner/name --post  # ...and post it
 ```
 
@@ -108,6 +176,7 @@ Put your keys in a `.env` beside the repo (it is loaded automatically and never 
 ANTHROPIC_API_KEY=…
 OPENAI_API_KEY=…
 FIREWORKS_API_KEY=…
+XAI_API_KEY=…
 ```
 
 ---
@@ -123,6 +192,7 @@ the way its vendor intended.
 | `codex` | `codex exec` | any OpenAI model | ❌ → estimated | `--sandbox` (kernel) |
 | `opencode` | `opencode run` | anything on [models.dev](https://models.dev) — Fireworks, Groq, OpenRouter, … | ✅ per-step `cost` | tool removal |
 | `grok-build` | `grok -p` | Grok models | ✅ `total_cost_usd` | Landlock |
+| `kimi-code` | `kimi -p` | Kimi K3 on Fireworks | ❌ → estimated from session usage | tool allowlist + isolated runtime |
 | `generic-openai` | *(in-process)* | any OpenAI-compatible endpoint | ❌ → estimated | path-confined tools |
 
 The `opencode` harness is the reason adding a model is a config edit rather than a PR. To add
@@ -142,25 +212,43 @@ models:
 
 ## Configuration
 
-`.juror.yml` at the repo root. Every key is optional; the defaults are what you see below.
+Juror ships four jury presets. Models whose provider key is unavailable are skipped, so
+`ultra` means every built-in model that can actually authenticate on that runner.
+
+| Preset | Jury | Intended use |
+|---|---|---|
+| `fast` | DeepSeek V4 Flash via opencode/Fireworks (`low`) · Kimi K3 via Kimi Code/Fireworks (`low`) | Lowest latency and cost |
+| `balanced` **(default)** | GPT-5.6 Terra via Codex/OpenAI (`max`) · Grok 4.5 via Grok Build/xAI (`high`) · Kimi K3 via Kimi Code/Fireworks (`max`) | Strong provider diversity without the full burn |
+| `high` | GPT-5.6 Sol via Codex/OpenAI (`high`) · Opus 5 via Claude Code/Anthropic · Grok 4.5 via Grok Build/xAI (`high`) | Higher-confidence frontier jury |
+| `ultra` | Every model from the other presets (six total), using their higher reasoning settings | Maximum coverage; highest token and cost use |
+
+Select one in config, on the CLI, or in the Action:
+
+```bash
+juror review --preset fast --base main
+juror review --mode ultra --pr 1234 --repo owner/name
+```
+
+```yaml
+- uses: juror-dev/juror@v1
+  with:
+    preset: high
+```
+
+`.juror.yml` lives at the repo root. Every key is optional; the defaults are what you see below.
 
 ```yaml
 version: 1
-
-models:
-  - { id: claude-opus-5,          harness: claude-code, secret: ANTHROPIC_API_KEY }
-  - { id: gpt-5.6-sol,            harness: codex,       secret: OPENAI_API_KEY, args: { reasoning_effort: high } }
-  - { id: deepseek-v4-flash-0731, harness: opencode,    secret: FIREWORKS_API_KEY }
-  - { id: grok-4.5,               harness: grok-build,  secret: XAI_API_KEY }
+preset: balanced
 
 consensus:
   min_agreement: all             # all (literal unanimity) | majority | <number>
   verify_solo_findings: true     # adversarially refute eligible solo findings
-  verify_model: deepseek-v4-flash-0731
+  # verify_model/referee_model default to a model included in the selected preset
 
 review:
   publish_mode: all              # all (higher recall) | consensus (higher precision)
-  severity_floor: P2             # use P3 to include every severity
+  severity_floor: P3             # include every severity by default
   max_inline_comments: 15
   incremental: true              # re-review only new commits
   paths_ignore: ["**/*.lock", "dist/**", "**/*.generated.*"]
@@ -175,30 +263,22 @@ output:
   suppressed_findings: collapsed # collapsed | hidden | inline
 ```
 
+An explicit `models:` list replaces the preset completely and creates a custom jury; it is
+never merged with built-ins. `--models a,b` is different: it only narrows the selected preset
+or custom jury for one run. `--preset` and its `--mode` alias override the config selection.
+
 ---
 
-## How deduplication and filtering work
+## Publishing: recall or precision
 
-Cheap methods first; a model call only where the free ones are ambiguous.
-
-1. **Anchor** *(free)* — snap every finding to a line the diff actually adds or modifies.
-   Findings landing outside the diff are reported separately, never silently dropped.
-2. **Block** *(free)* — group by file, then by overlapping line window.
-3. **Jaccard merge** *(free)* — token-set similarity over `title + body`, identifiers
-   weighted 2×. `J > 0.55` → same finding. `J < 0.30` → distinct.
-4. **Referee** *(cheap, rare)* — one small call per ambiguous block. Typically 0–2 per PR.
-5. **Verify in consensus mode** *(adversarial)* — eligible P0/P1 and eligible single-model
-   findings get a refutation pass. The verifier is asked to *refute*, and defaults to
-   refuted when the evidence isn't clear. Findings already below a strict unanimity bar are
-   not verified; all-findings mode skips the pass and its cost entirely.
-
-Publication is controlled independently from deduplication:
+Publication is controlled independently from deduplication.
 
 - `publish_mode: all` *(default, higher recall)* publishes every unique cluster at or above
-  `severity_floor`. Agreement is still shown, but it does not hide a finding.
+  `severity_floor` (also P3 by default). Agreement is still shown, but it does not hide a
+  finding.
 - `publish_mode: consensus` *(higher precision)* applies the configured agreement and
-  verification rules below. The default `consensus.min_agreement: all` means every model
-  must raise the finding.
+  verification rules. The default `consensus.min_agreement: all` means every model must
+  raise the finding.
 
 With `min_agreement: all`, publication requires literal unanimity. If users deliberately
 choose `majority` or a numeric threshold, serious findings retain the safety exceptions:
@@ -212,7 +292,19 @@ publish if  agreement >= configured min_agreement
 Anything filtered out lands in the collapsed **suppressed** block with the reason. Nothing
 is thrown away — that transparency is what makes the optional precision filter trustworthy.
 
-## The merge score
+### Shadow benchmark
+
+Replacement decisions can be evaluated with a manually adjudicated corpus:
+
+```bash
+juror benchmark --file benchmarks/corpus.json
+```
+
+The report compares P0–P2 recall, overall recall, precision, duplicate rate, measured cost,
+and latency for every reviewer. See [the benchmarking protocol](docs/benchmarking.md); the
+bundled PR #10359 case is a seed, not a sufficient replacement benchmark by itself.
+
+### The merge score
 
 Not a model opinion — a deterministic function of published findings, with the votes shown
 so the arithmetic is auditable.
@@ -244,6 +336,9 @@ The differentiator, and the thing that must never be wrong.
 - **Codex `input_tokens` includes cached tokens; Claude's and opencode's do not.** Normalizing
   naively overbills a cache-heavy Codex run by up to an order of magnitude. There is a
   regression test pinned to a real `turn.completed` payload for exactly this.
+- **Kimi K3 runs through Fireworks.** Kimi Code exposes token usage but not provider USD,
+  so Juror multiplies those measured tokens by the versioned Fireworks list price and
+  labels the row `estimated`.
 
 `src/cost/pricing.json` is versioned, dated, and every entry carries a source URL.
 
@@ -260,9 +355,11 @@ It is designed for that.
 2. **Default trigger is `pull_request`, not `pull_request_target`.** Fork PRs get no secrets
    and no review, by design.
 3. **Sandbox where the harness supports it.** Codex and Grok Build get kernel-enforced
-   sandboxes. Claude Code and opencode get tool removal (no shell, no network tools), plus a
-   post-run **workspace guard** that reverts any file an agent modified that was clean before
-   the run — and never touches a file that was already dirty.
+   sandboxes. Claude Code, opencode, and Kimi Code get tool removal (no shell or network
+   tools), plus a post-run **workspace guard** that reverts any file an agent modified that
+   was clean before the run — and never touches a file that was already dirty. Kimi also
+   starts outside the repository with a private home, so a PR-controlled MCP config cannot
+   spawn during startup.
 4. **Keys are passed per harness**, never to all of them. Each model process gets an
    environment containing only its own provider key.
 5. **Injection is a finding.** Each model is told the diff is untrusted data and to report
@@ -274,6 +371,21 @@ It is designed for that.
    If the base object is unavailable locally, Juror warns and only uses a workspace copy the
    visible diff does not change.
 7. **Everything posted is redacted** for secret-shaped strings first.
+
+---
+
+## Limitations
+
+- Cost for Codex is **estimated**, not reported — the CLI exposes tokens but no dollar figure.
+- Cost for Kimi Code is **estimated** from its private session usage records and the
+  versioned Fireworks rate. If those records are unavailable, it falls back to `unknown`.
+- Grok Build's headless JSON shape is parsed defensively and marked `unknown` when the fields
+  aren't there, rather than guessed at.
+- Agreement filtering needs ≥2 models to mean anything. With one key configured, the
+  default all-findings mode still gives you a complete single-model review and an honest
+  receipt, but there is no cross-model precision signal.
+- Findings anchored outside the diff are surfaced in the summary but not posted inline,
+  because GitHub can't attach them.
 
 ---
 
@@ -290,16 +402,7 @@ node dist/cli.js review --base main
 Layout follows the pipeline: `src/diff` → `src/harness` → `src/merge` → `src/cost` →
 `src/render` → `src/github`. `src/types.ts` is the only shared vocabulary.
 
-## Limitations
-
-- Cost for Codex is **estimated**, not reported — the CLI exposes tokens but no dollar figure.
-- Grok Build's headless JSON shape is parsed defensively and marked `unknown` when the fields
-  aren't there, rather than guessed at.
-- Agreement filtering needs ≥2 models to mean anything. With one key configured, the
-  default all-findings mode still gives you a complete single-model review and an honest
-  receipt, but there is no cross-model precision signal.
-- Findings anchored outside the diff are surfaced in the summary but not posted inline,
-  because GitHub can't attach them.
+Juror reviews its own pull requests. Every PR in this repo carries a public cost receipt.
 
 ## License
 

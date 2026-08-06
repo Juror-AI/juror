@@ -62,6 +62,7 @@ function run(modelLabel: string, mergeConfidence: number | null): ModelRun {
           highlights: [],
           file_overviews: [],
           sequence_diagram: null,
+          async_contracts: [],
           findings: [],
         };
   return {

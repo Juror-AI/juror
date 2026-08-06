@@ -22,7 +22,8 @@ import type {
 } from './types.js';
 import { ZERO_USAGE } from './types.js';
 import { anchorFindings } from './diff/anchor.js';
-import { clusterFindings } from './merge/cluster.js';
+import { buildCluster, clusterFindings } from './merge/cluster.js';
+import { auditClusterMembership, buildFindingCoverage } from './merge/coverage.js';
 import { refereeClusters } from './merge/referee.js';
 import { verifyClusters } from './merge/verify.js';
 import { applyPublishRules, scoreReview } from './merge/score.js';
@@ -107,6 +108,9 @@ export async function runReview(o: ReviewOptions): Promise<ReviewResult> {
     for (const r of runs) {
       if (r.skipped) warnings.push(`${r.modelLabel} skipped — ${r.skipReason}`);
       else if (!r.ok) warnings.push(`${r.modelLabel} failed — ${r.error ?? 'unknown error'}`);
+      else if (r.result?.truncated) {
+        warnings.push(`${r.modelLabel} returned a partial report — the run ended before completion`);
+      }
     }
 
     const produced = runs.filter((r) => r.result?.report);
@@ -145,12 +149,26 @@ export async function runReview(o: ReviewOptions): Promise<ReviewResult> {
       enabled: ambiguousPairs.length > 0 && refereeModel !== null,
     });
 
-    // ── 7. Adversarial verification ──────────────────────────────────────────
+    // ── 7. Lossless coverage audit ───────────────────────────────────────────
+    // The final unit of recall is a raw atomic finding, not a cluster. If a future
+    // clustering/referee change ever loses or double-assigns one, discard all merge
+    // decisions and fall back to singletons. Duplicate comments are recoverable; a hidden
+    // defect is not.
+    const membership = auditClusterMembership(anchored, refereed.clusters);
+    let losslessClusters = refereed.clusters;
+    if (!membership.complete) {
+      const detail = membership.problems.join('; ');
+      warnings.push(`coverage audit failed — using lossless singleton findings: ${detail}`);
+      log.warn(`coverage audit failed; reverting deduplication (${detail})`);
+      losslessClusters = anchored.map((finding) => buildCluster([finding], ['singleton']));
+    }
+
+    // ── 8. Adversarial verification ──────────────────────────────────────────
     // High-recall mode publishes every eligible deduplicated cluster, so a refutation pass
     // cannot affect the result. Skip it instead of charging for evidence we will not use.
     const consensusMode = config.review.publish_mode === 'consensus';
     const verifyModel = consensusMode ? findModel(config, config.consensus.verify_model) : null;
-    const verified = await verifyClusters(refereed.clusters, {
+    const verified = await verifyClusters(losslessClusters, {
       modelRun: verifyModel,
       pricing,
       secrets: o.secrets,
@@ -168,14 +186,20 @@ export async function runReview(o: ReviewOptions): Promise<ReviewResult> {
       log.debug('verification skipped in all-findings mode');
     }
 
-    // ── 8. Publish rules & score ─────────────────────────────────────────────
+    // ── 9. Publish rules, disposition audit & score ──────────────────────────
     const modelsRun = produced.length;
     const clusters = applyPublishRules(verified.clusters, config, modelsRun);
     const published = clusters.filter((c) => c.published);
     const suppressed = clusters.filter((c) => !c.published);
+    const coverage = buildFindingCoverage(anchored, clusters);
+    if (!coverage.complete) {
+      // This should be unreachable after the singleton fallback. Keep it visible in both
+      // JSON and the sticky comment instead of claiming full recall.
+      warnings.push(`final coverage audit incomplete: ${coverage.problems.join('; ')}`);
+    }
     const verdict = scoreReview(clusters, runs);
 
-    // ── 9. Roll up ───────────────────────────────────────────────────────────
+    // ── 10. Roll up ──────────────────────────────────────────────────────────
     const extras: CostRow[] = [];
     if (refereed.calls > 0) {
       extras.push({
@@ -207,6 +231,7 @@ export async function runReview(o: ReviewOptions): Promise<ReviewResult> {
       clusters,
       published,
       suppressed,
+      coverage,
       verdict,
       summary,
       totals,
@@ -328,6 +353,14 @@ function emptyResult(diff: DiffContext, started: number, warnings: string[]): Re
     clusters: [],
     published: [],
     suppressed: [],
+    coverage: {
+      complete: true,
+      rawFindings: 0,
+      accountedFor: 0,
+      uniqueFindings: 0,
+      dispositions: [],
+      problems: [],
+    },
     verdict: { base: 3, penalty: 0, score: 3, votes: [], confirmed: { P0: 0, P1: 0, P2: 0, P3: 0 } },
     summary: {
       summary: 'No model produced a review for this diff.',
