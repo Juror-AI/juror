@@ -250,7 +250,12 @@ It is designed for that.
 5. **Injection is a finding.** Each model is told the diff is untrusted data and to report
    embedded instructions as a P0. Several independent models make a uniform injection
    substantially harder.
-6. **Everything posted is redacted** for secret-shaped strings first.
+6. **Repository rules come from the base revision.** Juror places the root `AGENTS.md` and
+   every applicable nested `AGENTS.md` directly in reviewer and verifier prompts. A PR can
+   update those files for future work, but cannot rewrite the policy used to review itself.
+   If the base object is unavailable locally, Juror warns and only uses a workspace copy the
+   visible diff does not change.
+7. **Everything posted is redacted** for secret-shaped strings first.
 
 ---
 

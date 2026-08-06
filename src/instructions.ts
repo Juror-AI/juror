@@ -1,0 +1,174 @@
+/**
+ * Repository review instructions.
+ *
+ * Agents are unreliable at remembering to discover AGENTS.md on their own, so Juror
+ * resolves the files that apply to the changed paths and puts their contents directly in
+ * the prompt. Read from the base revision whenever possible: a pull request must not be
+ * able to rewrite the rules used to review itself.
+ */
+
+import { readFile, readdir } from 'node:fs/promises';
+import path from 'node:path';
+
+import { run } from './util/proc.js';
+
+export interface LoadedAgentInstructions {
+  rendered: string;
+  paths: string[];
+  problems: string[];
+}
+
+const NONE = '(No applicable AGENTS.md file exists at the review base.)';
+const CACHE = new Map<string, Promise<LoadedAgentInstructions>>();
+
+function candidateDirectories(changedPaths: string[]): string[] {
+  const dirs = new Set<string>(['']);
+
+  for (const raw of changedPaths) {
+    const normalized = path.posix.normalize(raw.replaceAll('\\', '/'));
+    if (
+      path.posix.isAbsolute(normalized) ||
+      normalized === '..' ||
+      normalized.startsWith('../')
+    ) {
+      continue;
+    }
+
+    const parts = normalized.split('/').filter(Boolean);
+    // The last segment is the changed file. Every preceding directory can scope it.
+    for (let depth = 1; depth < parts.length; depth++) {
+      dirs.add(parts.slice(0, depth).join('/'));
+    }
+  }
+
+  return [...dirs].sort((a, b) => {
+    const depth = a.split('/').filter(Boolean).length - b.split('/').filter(Boolean).length;
+    return depth || a.localeCompare(b);
+  });
+}
+
+async function listBaseInstructions(repoDir: string, baseSha: string): Promise<string[] | null> {
+  if (!baseSha.trim()) return null;
+  // `git ls-tree` does not support pathspec magic such as `icase` or `glob`, so list names
+  // once and filter in-process. One tree walk is still much cheaper than two git processes
+  // for every directory touched by a large pull request.
+  const io = await run(['git', 'ls-tree', '-r', '--name-only', baseSha], {
+    cwd: repoDir,
+    timeoutMs: 30_000,
+  });
+  if (io.exitCode !== 0) return null;
+  return io.stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && path.posix.basename(line).toLowerCase() === 'agents.md');
+}
+
+async function readFromBase(repoDir: string, baseSha: string, file: string): Promise<string | null> {
+  const io = await run(['git', 'show', `${baseSha}:${file}`], {
+    cwd: repoDir,
+    timeoutMs: 30_000,
+  });
+  return io.exitCode === 0 ? io.stdout : null;
+}
+
+async function readFromWorkspace(
+  repoDir: string,
+  dir: string,
+): Promise<{ path: string; contents: string } | null> {
+  try {
+    const absoluteDir = dir ? path.join(repoDir, ...dir.split('/')) : repoDir;
+    const entries = await readdir(absoluteDir, { withFileTypes: true });
+    const entry =
+      entries.find((e) => e.name === 'AGENTS.md') ??
+      entries.find((e) => e.name.toLowerCase() === 'agents.md');
+    if (!entry || (!entry.isFile() && !entry.isSymbolicLink())) return null;
+    const file = dir ? `${dir}/${entry.name}` : entry.name;
+    return { path: file, contents: await readFile(path.join(absoluteDir, entry.name), 'utf8') };
+  } catch {
+    return null;
+  }
+}
+
+function render(files: { path: string; contents: string }[]): string {
+  if (files.length === 0) return NONE;
+  return files
+    .map(({ path: file, contents }) => {
+      const body = contents.trim() || '(empty file)';
+      return `--- BEGIN ${file} ---\n${body}\n--- END ${file} ---`;
+    })
+    .join('\n\n');
+}
+
+async function loadUncached(
+  repoDir: string,
+  baseSha: string,
+  changedPaths: string[],
+): Promise<LoadedAgentInstructions> {
+  const directories = candidateDirectories(changedPaths);
+  const changed = new Set(changedPaths);
+  const basePaths = await listBaseInstructions(repoDir, baseSha);
+  const reachable = basePaths !== null;
+  const baseByDirectory = new Map<string, string>();
+  for (const file of basePaths ?? []) {
+    const dir = path.posix.dirname(file) === '.' ? '' : path.posix.dirname(file);
+    const existing = baseByDirectory.get(dir);
+    // Prefer the conventional uppercase spelling if a repository somehow has both.
+    if (!existing || path.posix.basename(file) === 'AGENTS.md') baseByDirectory.set(dir, file);
+  }
+  const files: { path: string; contents: string }[] = [];
+  const problems: string[] = [];
+  let usedWorkspaceFallback = false;
+
+  for (const dir of directories) {
+    if (reachable) {
+      const basePath = baseByDirectory.get(dir);
+      if (basePath) {
+        const contents = await readFromBase(repoDir, baseSha, basePath);
+        if (contents !== null) files.push({ path: basePath, contents });
+        continue;
+      }
+
+      // A newly added instruction file is part of the untrusted PR, not review policy.
+      const workspace = await readFromWorkspace(repoDir, dir);
+      if (workspace && changed.has(workspace.path)) {
+        problems.push(`ignored ${workspace.path} because it does not exist at the review base`);
+      }
+      continue;
+    }
+
+    // Local object stores can occasionally lack the PR base. An unchanged workspace copy
+    // is the safest useful fallback; never follow one the reviewed diff itself changes.
+    const workspace = await readFromWorkspace(repoDir, dir);
+    if (!workspace) continue;
+    if (changed.has(workspace.path)) {
+      problems.push(`ignored changed ${workspace.path} because the review base is unavailable`);
+      continue;
+    }
+    files.push(workspace);
+    usedWorkspaceFallback = true;
+  }
+
+  if (usedWorkspaceFallback) {
+    problems.push(
+      `review base ${baseSha.slice(0, 12) || '(unknown)'} unavailable; used workspace AGENTS.md`,
+    );
+  }
+
+  return { rendered: render(files), paths: files.map((f) => f.path), problems };
+}
+
+/** Load root and nested AGENTS.md files that scope at least one changed file. */
+export function loadAgentInstructions(
+  repoDir: string,
+  baseSha: string,
+  changedPaths: string[],
+): Promise<LoadedAgentInstructions> {
+  // Main fan-out and verification use the same context. Keep their policy byte-identical
+  // and avoid walking a large repository tree twice during one review process.
+  const key = `${repoDir}\0${baseSha}\0${[...new Set(changedPaths)].sort().join('\0')}`;
+  const cached = CACHE.get(key);
+  if (cached) return cached;
+  const pending = loadUncached(repoDir, baseSha, changedPaths);
+  CACHE.set(key, pending);
+  return pending;
+}

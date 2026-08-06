@@ -30,6 +30,7 @@ import { loadPricing, totalCost } from './cost/compute.js';
 import { fanOut } from './harness/runner.js';
 import { synthesizeSummary } from './render/summary.js';
 import { loadPromptTemplate, renderTemplate, resolveModelRuntime } from './config.js';
+import { loadAgentInstructions } from './instructions.js';
 import { log } from './util/log.js';
 import { restoreWorkspace, snapshotWorkspace } from './util/workspace.js';
 
@@ -64,7 +65,16 @@ export async function runReview(o: ReviewOptions): Promise<ReviewResult> {
   try {
     // ── 1. Prompt ────────────────────────────────────────────────────────────
     const promptTemplate = loadPromptTemplate('review');
-    const promptVars = reviewPromptVars(o.diff, o.repoDir);
+    const instructions = await loadAgentInstructions(
+      o.repoDir,
+      o.diff.baseSha,
+      o.diff.files.filter((f) => !f.ignored).map((f) => f.path),
+    );
+    for (const problem of instructions.problems) warnings.push(`instructions: ${problem}`);
+    if (instructions.paths.length) {
+      log.debug(`repository instructions: ${instructions.paths.join(', ')}`);
+    }
+    const promptVars = reviewPromptVars(o.diff, o.repoDir, instructions.rendered);
 
     // ── 2. Budget precheck ───────────────────────────────────────────────────
     const enabled = config.models.filter((m) => m.enabled);
@@ -239,7 +249,11 @@ async function removeScratch(dir: string): Promise<void> {
  * attacker-controlled, so a PR containing the literal text `{{FINDINGS_PATH}}` would get it
  * substituted by the second pass. One left-to-right pass never rescans what it just wrote.
  */
-function reviewPromptVars(diff: DiffContext, repoDir: string): Record<string, string> {
+function reviewPromptVars(
+  diff: DiffContext,
+  repoDir: string,
+  repoInstructions: string,
+): Record<string, string> {
   const changed = diff.files
     .filter((f) => !f.ignored)
     .map((f) => `- ${f.path} (+${f.additions}/-${f.deletions})`)
@@ -250,6 +264,7 @@ function reviewPromptVars(diff: DiffContext, repoDir: string): Record<string, st
     BASE_SHA: diff.baseSha,
     HEAD_SHA: diff.headSha,
     CHANGED_FILES: changed || '(none)',
+    REPO_INSTRUCTIONS: repoInstructions,
     DIFF: diff.patch,
   };
 }

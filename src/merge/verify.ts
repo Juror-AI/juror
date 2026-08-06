@@ -23,6 +23,7 @@ import { renderTemplate, resolveModelRuntime } from '../config.js';
 import { computeCost } from '../cost/compute.js';
 import { getHarness } from '../harness/registry.js';
 import { runHarness } from '../harness/runner.js';
+import { loadAgentInstructions } from '../instructions.js';
 import { log } from '../util/log.js';
 
 export interface VerifyOptions {
@@ -248,6 +249,7 @@ async function verifyOne(
   m: ModelConfig,
   key: string,
   o: VerifyOptions,
+  repoInstructions: string,
 ): Promise<Attempt> {
   const rt = resolveModelRuntime(m);
   // Index-suffixed: two clusters on one file can share an id-shaped title hash, and two
@@ -264,6 +266,7 @@ async function verifyOne(
     REPO_DIR: o.repoDir,
     BASE_SHA: o.diff.baseSha,
     HEAD_SHA: o.diff.headSha,
+    REPO_INSTRUCTIONS: repoInstructions,
     PATH: c.path,
     LINE: String(c.line),
     SEVERITY: c.severity,
@@ -405,10 +408,17 @@ export async function verifyClusters(clusters: Cluster[], o: VerifyOptions): Pro
 
   log.step(`Verifying ${selected.length} finding(s) adversarially`);
 
+  const instructions = await loadAgentInstructions(
+    o.repoDir,
+    o.diff.baseSha,
+    o.diff.files.filter((f) => !f.ignored).map((f) => f.path),
+  );
+  for (const problem of instructions.problems) log.debug(`verify instructions: ${problem}`);
+
   const attempts = await pool<Cluster, Attempt>(selected, CONCURRENCY, async (c, index) => {
     if (o.signal?.aborted) return { verification: null, cost: null, called: false };
     try {
-      return await verifyOne(c, index, m, key, o);
+      return await verifyOne(c, index, m, key, o, instructions.rendered);
     } catch (e) {
       // Never throw, and never let an infrastructure failure convict a finding.
       log.warn(`verify ${c.id}: ${e instanceof Error ? e.message : String(e)}`);

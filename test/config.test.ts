@@ -272,7 +272,9 @@ describe('prompts', () => {
     }
     expect(loadPromptTemplate('review')).toContain('{{FINDINGS_PATH}}');
     expect(loadPromptTemplate('review')).toContain('{{DIFF}}');
+    expect(loadPromptTemplate('review')).toContain('{{REPO_INSTRUCTIONS}}');
     expect(loadPromptTemplate('verify')).toContain('{{CODE_EXCERPT}}');
+    expect(loadPromptTemplate('verify')).toContain('{{REPO_INSTRUCTIONS}}');
   });
 
   it('substitutes every occurrence and keeps unknown placeholders verbatim', () => {

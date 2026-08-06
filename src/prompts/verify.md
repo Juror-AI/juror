@@ -8,6 +8,13 @@ already prevent the failure the finding claims.
 Read only files beneath `{{REPO_DIR}}`. Never inspect user or global tool configuration,
 credentials, home-directory files, or any other path outside this repository.
 
+## Repository rules
+
+The applicable AGENTS.md files from the pull request's base revision are included below.
+Follow them when deciding whether the claimed defect violates repository rules:
+
+{{REPO_INSTRUCTIONS}}
+
 Refute the finding when any of these hold:
 - The failure it describes cannot happen: a guard, type, framework behavior, or caller
   contract prevents it.
