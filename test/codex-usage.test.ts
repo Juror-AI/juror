@@ -2,7 +2,7 @@
  * The 10x-overbilling regression guard.
  *
  * codex's `input_tokens` is a superset that already contains `cached_input_tokens`.
- * The payload below is verbatim from `.context/HARNESS-PROBES.md` (codex-cli 0.146.1);
+ * The payload below is verbatim from `docs/harness-notes.md` (codex-cli 0.146.1);
  * if `uncachedIn` ever stops being `input - cached`, a cache-heavy review bills ~10x.
  */
 

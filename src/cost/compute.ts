@@ -99,6 +99,11 @@ export function computeCost(o: {
   usage: CanonicalUsage | null;
   reportedCostUsd: number | null;
   pricing: PricingTable;
+  /**
+   * Model round-trips the usage is summed over. Load-bearing for the long-context tier —
+   * see `crossesLongContext()`. Omit only when the usage really is a single request.
+   */
+  turns?: number;
 }): CostBreakdown {
   const notes: string[] = [];
 
@@ -136,19 +141,14 @@ export function computeCost(o: {
     return unknownCost(`pricing entry for "${o.pricingKey}" is missing input/output rates`, notes);
   }
 
-  // Rule 3 — the long-context tier is a cliff, not a slope: once total input crosses the
-  // threshold the ENTIRE request reprices, every component included. `applies_to` is
-  // `entire_request` for every provider we model; nothing else is implemented.
+  // Rule 3 — the long-context tier is a cliff, not a slope: once a request's input crosses
+  // the threshold, that ENTIRE request reprices, every component included.
   const totalInput = inTok + readTok + writeTok;
   const lc = entry.long_context;
-  const tier: PricingTier = lc && totalInput >= lc.threshold_input_tokens ? lc : entry;
+  const verdict = crossesLongContext(totalInput, o.turns, entry);
+  const tier: PricingTier = lc && verdict.crosses ? lc : entry;
   const longContext = tier !== entry;
-  if (longContext && lc) {
-    notes.push(
-      `long-context tier: ${totalInput} input tokens crossed ${lc.threshold_input_tokens}, ` +
-        'repricing the entire request',
-    );
-  }
+  if (verdict.note) notes.push(verdict.note);
 
   // Rule 4 — cache writes bill; they are not a discount. Where a provider publishes no
   // separate rate the input rate is the documented fallback, and the receipt says so.
@@ -172,6 +172,60 @@ export function computeCost(o: {
   const cost: CostBreakdown = { usd, source: 'estimated', longContext };
   if (notes.length) cost.note = notes.join('; ');
   return cost;
+}
+
+/**
+ * Decide whether the long-context tier applies — the single easiest way to overbill by 2x.
+ *
+ * The threshold is per *request*: one prompt larger than 272k tokens reprices that prompt.
+ * What a harness hands back, though, is the sum over an entire agent session, and an agent
+ * resends its whole conversation on every turn. Testing the sum against a per-request
+ * threshold is a category error, and not a small one: a real Codex review of a 239-line
+ * diff reported 3.28M input tokens across ~40 turns — about 80k per request, nowhere near
+ * the cliff — yet the naive comparison priced all 3.28M at the long-context rate and turned
+ * $2.76 into $5.32.
+ *
+ * So divide by the turn count and test the average request. Two extra guards:
+ * a total that exceeds the model's context window is *definitionally* cumulative no matter
+ * what the turn count claims, and when the aggregate crosses but the average does not, the
+ * note says so — a surprising line in the receipt should always be explainable.
+ */
+function crossesLongContext(
+  totalInput: number,
+  turns: number | undefined,
+  entry: PricingEntry,
+): { crosses: boolean; note: string | null } {
+  const lc = entry.long_context;
+  if (!lc) return { crosses: false, note: null };
+
+  const rounds = turns && Number.isFinite(turns) && turns > 0 ? Math.floor(turns) : 1;
+  const perRequest = totalInput / rounds;
+  const window = entry.context_window;
+  const impossible = typeof window === 'number' && window > 0 && perRequest > window;
+
+  if (perRequest >= lc.threshold_input_tokens && !impossible) {
+    return {
+      crosses: true,
+      note:
+        `long-context tier: ~${Math.round(perRequest)} input tokens per request crossed ` +
+        `${lc.threshold_input_tokens}, repricing the entire request`,
+    };
+  }
+
+  if (totalInput >= lc.threshold_input_tokens) {
+    // The aggregate crossed and the per-request estimate did not. Priced at the standard
+    // tier, because nothing observed says any single request was over the line.
+    return {
+      crosses: false,
+      note:
+        `${totalInput} input tokens across ${rounds} turn${rounds === 1 ? '' : 's'} ` +
+        `(~${Math.round(perRequest)} per request) stayed under the ${lc.threshold_input_tokens} ` +
+        'long-context threshold; priced at the standard tier' +
+        (impossible ? ', and the total exceeds this model’s context window' : ''),
+    };
+  }
+
+  return { crosses: false, note: null };
 }
 
 function unknownCost(reason: string, notes: string[]): CostBreakdown {

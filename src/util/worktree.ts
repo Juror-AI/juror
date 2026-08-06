@@ -81,6 +81,10 @@ export async function checkoutAt(
     return { dir: repoDir, ephemeral: false, cleanup: NOOP };
   }
 
+  // Nothing can clean up after SIGKILL, so reap earlier leaks here instead. `prune` only
+  // drops registrations whose directory is already gone, which is exactly the leaked case.
+  await run(['git', 'worktree', 'prune'], { cwd: repoDir, timeoutMs: 60_000 });
+
   const dir = await mkdtemp(path.join(tmpdir(), 'juror-'));
   const target = path.join(dir, 'repo');
   await runOrThrow(['git', 'worktree', 'add', '--detach', '--quiet', target, sha], {

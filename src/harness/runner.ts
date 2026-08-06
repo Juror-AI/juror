@@ -272,6 +272,9 @@ async function runOne(
       usage: result.usage,
       reportedCostUsd: result.reportedCostUsd,
       pricing: o.pricing,
+      // Agent usage is summed over every round-trip, so the cost engine needs the turn
+      // count to tell a 3M-token session apart from a 3M-token single request.
+      turns: result.turns,
     });
 
     const ok = result.report !== null;

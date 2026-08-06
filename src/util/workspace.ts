@@ -2,7 +2,7 @@
  * Workspace guard.
  *
  * Two of the four harnesses cannot be pinned to a read-only filesystem: opencode drops its
- * write tool entirely if you deny edits by glob (measured — see .context/HARNESS-PROBES.md),
+ * write tool entirely if you deny edits by glob (measured — see docs/harness-notes.md),
  * and Claude Code sandboxes by tool removal rather than by kernel. Since a reviewer must be
  * able to write its findings file, "the agent can write" is a property we have to live with.
  *

@@ -3,7 +3,7 @@
  *
  * The flags below are confirmed present on grok 0.2.118, but no `XAI_API_KEY` was
  * available when this was written, so the **output shape is unverified** — see
- * `.context/HARNESS-PROBES.md`. Everything in `parse()` is therefore written to survive
+ * `docs/harness-notes.md`. Everything in `parse()` is therefore written to survive
  * a shape we have not seen: try the documented keys in order, and when nothing matches,
  * report `usage: null` so the cost engine prints "unknown" rather than a made-up number.
  */

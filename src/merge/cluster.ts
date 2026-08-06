@@ -89,12 +89,23 @@ export function jaccard(a: string, b: string): number {
   return union === 0 ? 0 : intersection / union;
 }
 
-/** The code symbols a finding names, which is the closest thing it has to a fingerprint. */
+/**
+ * The code symbols a finding names, which is the closest thing it has to a fingerprint.
+ *
+ * Dotted paths are indexed both whole and by their last segment, because models are
+ * inconsistent about the receiver: one writes `ctx.lost_task_ownership` where another
+ * writes plain `lost_task_ownership` for the same field. Treating those as unrelated
+ * symbols is how two models agreeing word-for-word about a field end up looking like
+ * strangers. Keeping the full path too means `a.close` and `b.close` still differ.
+ */
 function identifiers(text: string): Set<string> {
   const out = new Set<string>();
   for (const raw of text.match(TOKEN_RE) ?? []) {
     if (!isIdentifier(raw)) continue;
-    out.add(raw.toLowerCase().replace(/\(\)$/, ''));
+    const token = raw.toLowerCase().replace(/\(\)$/, '');
+    out.add(token);
+    const dot = token.lastIndexOf('.');
+    if (dot > 0 && dot < token.length - 1) out.add(token.slice(dot + 1));
   }
   return out;
 }
@@ -107,6 +118,42 @@ function setJaccard(a: Set<string>, b: Set<string>): number {
 }
 
 /**
+ * Minimum symbols before containment is distinctive rather than coincidental.
+ *
+ * One shared symbol is worthless — containment is trivially 1.0 and half the findings in a
+ * file mention `ctx`. Two exact matches is a different story when they are names like
+ * `lost_task_ownership` and `_finalize_stream_result`, and findings only ever get compared
+ * once they are already in the same file and line window. Measured on two real PRs, moving
+ * this from 3 to 2 merged a genuinely unanimous finding that had been split in two, and
+ * moved no unrelated pair above the merge threshold.
+ */
+const MIN_IDENTIFIERS_FOR_CONTAINMENT = 2;
+
+/**
+ * How much of the smaller finding's symbol set the larger one covers.
+ *
+ * Jaccard is the wrong shape here because the two sides are not the same size. Models
+ * write to wildly different lengths: on a real PR, one juror described a defect in 90
+ * words citing five symbols and another spent 240 words citing fifteen. They agreed
+ * completely — every symbol the short one named appeared in the long one — yet Jaccard
+ * scored 0.33, because the long finding's extra vocabulary inflates the union it divides by.
+ * Containment asks the question we actually care about: does everything one juror pointed
+ * at appear in what the other pointed at?
+ *
+ * Guarded, because containment is trivially 1.0 when the smaller set has one element.
+ * Below a few symbols there is not enough evidence for it to mean anything, so fall back
+ * to Jaccard and let the referee decide.
+ */
+function containment(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  const smaller = Math.min(a.size, b.size);
+  if (smaller < MIN_IDENTIFIERS_FOR_CONTAINMENT) return setJaccard(a, b);
+  let shared = 0;
+  for (const x of a) if (b.has(x)) shared++;
+  return shared / smaller;
+}
+
+/**
  * How likely two findings are the same defect.
  *
  * Prose Jaccard alone does not work, and the failure is not subtle. Measured on three
@@ -115,14 +162,17 @@ function setJaccard(a: Set<string>, b: Set<string>): number {
  * a quarter of their vocabulary even when they agree completely. Consensus would have
  * reported one unanimous bug as three separate single-model findings: precisely inverted.
  *
- * The identifiers each finding cites are far steadier than the sentences around them. On
- * that same sample, identifier overlap was 0.56–0.86 for the shared bug and 0.13–0.25 for
- * unrelated ones — a clean separation where prose had none. So identifiers carry most of
- * the weight, and prose breaks ties between findings that name the same symbols for
- * different reasons.
+ * The identifiers each finding cites are far steadier than the sentences around them, and
+ * comparing them by containment rather than by overlap survives the length asymmetry that
+ * broke the prose channel. Measured across two real PRs, that blend scores every
+ * same-defect pair at 0.55–0.75 and every unrelated pair at 0.04–0.39 — a gap wide enough
+ * to merge the obvious cases for free and hand the rest to the referee.
+ *
+ * Prose still carries a third of the weight, because two findings can name the same
+ * symbols for entirely different reasons and the sentences are what separate those.
  */
 export function similarity(a: string, b: string): number {
-  return 0.35 * jaccard(a, b) + 0.65 * setJaccard(identifiers(a), identifiers(b));
+  return 0.35 * jaccard(a, b) + 0.65 * containment(identifiers(a), identifiers(b));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -96,7 +96,11 @@ review:
   max_turns: 40 # agent turns per model
 
 budget:
-  max_cost_usd_per_pr: 2.00
+  # Split evenly across the models that have a key — the only allocation that can honour a
+  # hard per-PR cap. Measured: one Opus 5 run over a 240-line diff in a large monorepo cost
+  # $0.69, so allow roughly $1/model on a big repo. Too low and the strongest juror is the
+  # one that gets cut off.
+  max_cost_usd_per_pr: 5.00
   on_exceed: partial # partial = post what we have and say so | skip = post nothing
 
 output:

@@ -120,6 +120,68 @@ describe('similarity on real multi-model findings', () => {
   });
 });
 
+describe('length-asymmetric agreement (textcortex/platform#10333)', () => {
+  // Also verbatim. GPT-5.6 Sol and DeepSeek V4 Flash both found this defect on the same
+  // line of the same file; DeepSeek wrote about three times as much prose about it. Jaccard
+  // divides by the union, so the longer finding's extra vocabulary dragged the pair to
+  // 0.26 — under the referee floor — and the ensemble published one agreed defect twice,
+  // once as P1 and once as P2. Containment fixed it; this pins that it stays fixed.
+  const GPT = {
+    title: 'Supersession bypasses terminal cleanup',
+    body:
+      'When a throttled write sees a new task token, this sets `lost_task_ownership`; ' +
+      '`_finalize_stream_result` checks that flag before its superseded branch and returns as ' +
+      'skipped. The old automation run is therefore never cancelled and any pending ' +
+      'completion-email subscription for that run stays pending; represent supersession ' +
+      'separately, or handle it before owner loss, so writes remain fenced while the existing ' +
+      'superseded cleanup still runs.',
+  };
+
+  const DEEPSEEK = {
+    title: 'Superseded fence drops terminal end event',
+    body:
+      'When the fence fires on token supersession it sets ctx.lost_task_ownership=True, so ' +
+      "_finalize_stream_result exits at line 5196 before the superseded branch (line 5208) that " +
+      "appends the end event (reason='superseded') and calls " +
+      "_sync_automation_run_terminal_status('cancelled'). Because the fence re-checks only every " +
+      '1.5s, any supersession detected on a stream longer than that suppresses that terminal ' +
+      'marker and the automation sync that the retained code still attempts, whereas pre-PR a ' +
+      "token-superseded zombie (token mismatch is _still_owns_task_run's 'not my concern' path) " +
+      'always produced it.',
+  };
+
+  const UNRELATED = {
+    title: 'Fallback events bypass ownership fence',
+    body:
+      'The fallback path appends its events through a different helper that never consults the ' +
+      'fence, so a worker that has already lost the lease can still emit fallback content.',
+  };
+
+  it('merges the pair for free despite one finding being 3x longer', () => {
+    expect(similarity(text(GPT), text(DEEPSEEK))).toBeGreaterThan(OPTS.mergeThreshold);
+  });
+
+  it('still separates it from an unrelated finding in the same file', () => {
+    expect(similarity(text(GPT), text(UNRELATED))).toBeLessThan(OPTS.mergeThreshold);
+  });
+
+  it('collapses to a single P1 cluster with both models on it', () => {
+    const { clusters } = clusterFindings(
+      [
+        finding('gpt', 1351, GPT, 'P1'),
+        finding('deepseek', 1351, DEEPSEEK, 'P2'),
+        finding('gpt', 1384, UNRELATED, 'P2'),
+      ],
+      OPTS,
+    );
+    const merged = clusters.find((c) => c.line === 1351);
+    expect(merged?.agreement).toBe(2);
+    // The most severe member sets the cluster severity — a P1 must not be softened to P2.
+    expect(merged?.severity).toBe('P1');
+    expect(clusters).toHaveLength(2);
+  });
+});
+
 describe('clusterFindings on the real fan-out', () => {
   const findings = [
     finding('opus', 8, CLIPBOARD_OPUS),

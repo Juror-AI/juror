@@ -158,7 +158,7 @@ review:
   paths_ignore: ["**/*.lock", "dist/**", "**/*.generated.*"]
 
 budget:
-  max_cost_usd_per_pr: 2.00
+  max_cost_usd_per_pr: 5.00      # split evenly across the models that have a key
   on_exceed: partial             # partial | skip
 
 output:

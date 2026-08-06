@@ -98,7 +98,12 @@ export function defaultConfig(): JurorConfig {
       max_turns: 40,
     },
     budget: {
-      max_cost_usd_per_pr: 2.0,
+      // The ceiling is split evenly across the models that actually have a key, because an
+      // even split is the only allocation that can honour a hard per-PR cap. That makes the
+      // number less generous than it looks: at $2.00 with three models, each gets $0.67 —
+      // and a single Opus 5 run over a 240-line diff in a large monorepo measured $0.69,
+      // so the documented default would have killed the strongest juror mid-review.
+      max_cost_usd_per_pr: 5.0,
       on_exceed: 'partial',
     },
     output: {

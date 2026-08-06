@@ -1,7 +1,7 @@
 /**
  * Codex CLI adapter — `codex exec --json`.
  *
- * Two measured facts drive everything here (`.context/HARNESS-PROBES.md`):
+ * Two measured facts drive everything here (`docs/harness-notes.md`):
  * codex's `input_tokens` INCLUDES the cached tokens, and an `item.type === "error"`
  * event is a non-fatal note that shows up on perfectly successful exit-0 runs.
  */

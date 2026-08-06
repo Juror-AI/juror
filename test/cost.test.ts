@@ -109,6 +109,72 @@ describe('computeCost rule 2 — never guess', () => {
   });
 });
 
+describe('computeCost rule 3b — the cliff is per request, not per session', () => {
+  // Verbatim usage from a real Codex review of a 239-line diff in a large monorepo
+  // (textcortex/platform#10333, 2026-08-06). Summing a cliff test over ~40 agent turns
+  // priced the whole session at the long-context rate and reported $5.32 for what is
+  // actually a $2.76 review.
+  const REAL_SESSION = {
+    uncachedIn: 165_228,
+    cacheRead: 3_113_728,
+    cacheWrite: 0,
+    out: 12_412,
+  };
+  const STANDARD_TIER_USD = 2.755_4; // 165228*5 + 3113728*0.50 + 12412*30, per Mtok
+
+  it('does not apply the long-context tier to tokens accumulated across turns', () => {
+    const cost = computeCost({
+      pricingKey: 'gpt-5.6-sol',
+      usage: REAL_SESSION,
+      reportedCostUsd: null,
+      pricing,
+      turns: 40,
+    });
+    expect(cost.longContext).toBe(false);
+    expect(cost.usd).toBeCloseTo(STANDARD_TIER_USD, 3);
+    expect(cost.note).toContain('per request');
+  });
+
+  it('refuses the cliff when the total alone exceeds the context window', () => {
+    // Even with no turn count, 3.28M input cannot have been one request against a 1.05M
+    // window, so the aggregate is provably cumulative.
+    const cost = computeCost({
+      pricingKey: 'gpt-5.6-sol',
+      usage: REAL_SESSION,
+      reportedCostUsd: null,
+      pricing,
+    });
+    expect(cost.longContext).toBe(false);
+    expect(cost.usd).toBeCloseTo(STANDARD_TIER_USD, 3);
+  });
+
+  it('still applies the cliff when the average request genuinely crosses it', () => {
+    // 4 turns x 300k each: every request is over the line, so the tier is real.
+    const cost = computeCost({
+      pricingKey: 'gpt-5.6-sol',
+      usage: { uncachedIn: 1_200_000, cacheRead: 0, cacheWrite: 0, out: 4_000 },
+      reportedCostUsd: null,
+      pricing,
+      turns: 4,
+    });
+    expect(cost.longContext).toBe(true);
+    // 1_200_000 * $10/Mtok + 4_000 * $45/Mtok
+    expect(cost.usd).toBeCloseTo(12.18, 4);
+  });
+
+  it('never turns a session estimate into a credit or a zero', () => {
+    const cost = computeCost({
+      pricingKey: 'gpt-5.6-sol',
+      usage: REAL_SESSION,
+      reportedCostUsd: null,
+      pricing,
+      turns: 40,
+    });
+    expect(cost.usd).toBeGreaterThan(0);
+    expect(cost.source).toBe('estimated');
+  });
+});
+
 describe('computeCost rule 3 — the long-context cliff', () => {
   const key = 'gpt-5.6-sol';
 

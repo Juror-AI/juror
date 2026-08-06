@@ -49,7 +49,13 @@ const ZERO_COST: CostBreakdown = { usd: 0, source: 'estimated', longContext: fal
 const CONCURRENCY = 4;
 const EXCERPT_CONTEXT_LINES = 24;
 const MAX_EXCERPT_LINES = 220;
-const VERIFY_TIMEOUT_MS = 180_000;
+/**
+ * Verification is a read-the-code task, and on a large monorepo that means real grepping:
+ * measured on textcortex/platform, two of four verifications hit a 180s limit and came
+ * back unverified. An unverified solo P0/P1 gets suppressed by the publish rule, so a
+ * timeout here quietly costs recall — the cheapest fix is to stop being impatient.
+ */
+const VERIFY_TIMEOUT_MS = 420_000;
 const VERIFY_MAX_TURNS = 12;
 
 const ENV_ALLOWLIST = ['PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'LC_ALL', 'TMPDIR', 'TERM'];

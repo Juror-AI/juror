@@ -8,7 +8,7 @@
  * real USD cost per step.
  *
  * Every shape below was measured against opencode 1.17.20 — see
- * `.context/HARNESS-PROBES.md`. Do not "fix" this file against the docs.
+ * `docs/harness-notes.md`. Do not "fix" this file against the docs.
  */
 
 import { createHash } from 'node:crypto';

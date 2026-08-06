@@ -1,7 +1,7 @@
 /**
  * Claude Code adapter — `claude -p --output-format json`.
  *
- * Shapes here were measured against claude 2.1.223 (see `.context/HARNESS-PROBES.md`);
+ * Shapes here were measured against claude 2.1.223 (see `docs/harness-notes.md`);
  * they are ground truth and outrank the docs.
  */
 
@@ -195,6 +195,22 @@ export const claudeHarness: Harness = {
 
     const subtype = typeof obj['subtype'] === 'string' ? obj['subtype'] : null;
     const stopReason = typeof obj['stop_reason'] === 'string' ? obj['stop_reason'] : null;
+    const terminalReason =
+      typeof obj['terminal_reason'] === 'string' ? obj['terminal_reason'] : null;
+
+    // Claude Code is the only harness that can enforce a spend ceiling, and when it trips
+    // it exits 1 with no result — which reads exactly like a crashed model unless we say
+    // otherwise. Worth naming precisely: the fix is a budget change, not a retry.
+    if (subtype === 'error_max_budget_usd' || terminalReason === 'budget_exhausted') {
+      const spent = typeof obj['total_cost_usd'] === 'number' ? obj['total_cost_usd'] : null;
+      diagnostics.push(
+        `stopped early: per-model budget of $${ctx.budgetUsd?.toFixed(2) ?? '?'} exhausted` +
+          (spent === null ? '' : ` (spent $${spent.toFixed(2)})`) +
+          (report ? ' — using the partial report it had already written' : ''),
+      );
+    } else if (stopReason === 'max_turns') {
+      diagnostics.push(`stopped early: hit the ${ctx.maxTurns}-turn limit`);
+    }
 
     return {
       report,

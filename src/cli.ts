@@ -248,6 +248,16 @@ async function main(): Promise<number> {
   );
 
   // ── Review ─────────────────────────────────────────────────────────────────
+  // A review is minutes of model time, so Ctrl-C during one is normal rather than
+  // exceptional. `finally` does not run when the process is signalled, and a leaked
+  // worktree is not self-healing — it stays registered in the parent repo until someone
+  // runs `git worktree prune`. Hook the signals so the common case cleans up after itself.
+  const onSignal = (sig: NodeJS.Signals) => {
+    void checkout.cleanup().finally(() => process.exit(sig === 'SIGINT' ? 130 : 143));
+  };
+  process.once('SIGINT', onSignal);
+  process.once('SIGTERM', onSignal);
+
   let result;
   try {
     result = await runReview({
@@ -259,6 +269,8 @@ async function main(): Promise<number> {
       keepScratch: args.keepScratch,
     });
   } finally {
+    process.off('SIGINT', onSignal);
+    process.off('SIGTERM', onSignal);
     if (!args.keepScratch) await checkout.cleanup();
     else if (checkout.ephemeral) log.info(`worktree kept at ${checkout.dir}`);
   }

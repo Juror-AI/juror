@@ -48,6 +48,10 @@ answer in your final message and no file on disk counts as a failed review. Writ
 file before you finish, even when you found nothing (an empty `findings` array is a
 valid, useful answer). No prose outside the file.
 
+Write it **early and overwrite it as you learn more**, rather than saving it for last.
+Runs are capped by time and by spend, and a run that is cut off still counts for
+everything already on disk. A partial report beats no report.
+
 {
   "merge_confidence": 1-5,       // 5 = merge as-is; 1 = do not merge
   "confidence_reason": "one sentence, the single most important reason",
