@@ -21,6 +21,8 @@ export interface BenchmarkObservedFinding {
   severity: Severity;
   /** Null means the adjudicator rejected the report as a false positive. */
   expected_id: string | null;
+  /** Optional adjudicator label for repeated false positives describing the same claim. */
+  duplicate_key?: string | null;
 }
 
 export interface BenchmarkReviewerRun {
@@ -123,7 +125,10 @@ export function renderBenchmark(result: BenchmarkResult): string {
     '|---|---:|---:|---:|---:|---:|---:|',
   ];
   for (const metrics of result.reviewers) {
-    const cost = `${metrics.costPartial ? '≥' : ''}$${metrics.costUsd.toFixed(2)}`;
+    const cost =
+      metrics.costPartial && metrics.costUsd === 0
+        ? 'unknown'
+        : `${metrics.costPartial ? '≥' : ''}$${metrics.costUsd.toFixed(2)}`;
     lines.push(
       `| ${cell(metrics.reviewer)} | ${percent(metrics.p0ToP2Recall)} (${metrics.p0ToP2Found}/${metrics.p0ToP2Expected}) | ` +
         `${percent(metrics.recall)} (${metrics.found}/${metrics.expected}) | ${percent(metrics.precision)} | ` +
@@ -171,11 +176,20 @@ function evaluateReviewer(cases: BenchmarkCase[], reviewer: string): ReviewerBen
 
     const expectedById = new Map(item.expected.map((finding) => [finding.id, finding]));
     const foundInCase = new Set<string>();
+    const reportKeys = new Set<string>();
     for (const report of run.findings) {
+      const reportKey = report.expected_id
+        ? `expected:${report.expected_id}`
+        : report.duplicate_key
+          ? `rejected:${report.duplicate_key}`
+          : null;
+      if (reportKey) {
+        if (reportKeys.has(reportKey)) duplicateReports++;
+        reportKeys.add(reportKey);
+      }
       if (report.expected_id === null) continue;
       validReports++;
       const key = `${item.id}\u0000${report.expected_id}`;
-      if (foundInCase.has(report.expected_id)) duplicateReports++;
       foundInCase.add(report.expected_id);
       found.add(key);
       if (expectedById.get(report.expected_id)?.severity !== 'P3') p0ToP2Found.add(key);
@@ -213,7 +227,7 @@ function evaluateReviewer(cases: BenchmarkCase[], reviewer: string): ReviewerBen
     validReports,
     precision: ratio(validReports, reports),
     duplicateReports,
-    duplicateRate: ratio(duplicateReports, validReports),
+    duplicateRate: ratio(duplicateReports, reports),
     costUsd,
     costPartial,
     averageDurationMs: durationCount > 0 ? durationTotal / durationCount : null,
@@ -270,6 +284,9 @@ function parseRun(raw: unknown, at: string, expectedIds: Set<string>): Benchmark
       title: requiredString(value['title'], `${findingAt}.title`),
       severity: severity(value['severity'], `${findingAt}.severity`),
       expected_id: expectedId,
+      ...(value['duplicate_key'] === undefined || value['duplicate_key'] === null
+        ? {}
+        : { duplicate_key: requiredString(value['duplicate_key'], `${findingAt}.duplicate_key`) }),
     };
   });
   return {

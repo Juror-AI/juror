@@ -108,6 +108,18 @@ async function loadUncached(
   const changed = new Set(changedPaths);
   const basePaths = await listBaseInstructions(repoDir, baseSha);
   const reachable = basePaths !== null;
+  if (!reachable) {
+    // Never promote the checked-out PR head to trusted policy. The visible patch can be
+    // path-filtered, incrementally narrowed, or truncated, so `changedPaths` is not proof
+    // that an apparently unchanged workspace AGENTS.md was absent from the full change.
+    return {
+      rendered: NONE,
+      paths: [],
+      problems: [
+        `review base ${baseSha.slice(0, 12) || '(unknown)'} unavailable; workspace AGENTS.md was not trusted`,
+      ],
+    };
+  }
   const baseByDirectory = new Map<string, string>();
   for (const file of basePaths ?? []) {
     const dir = path.posix.dirname(file) === '.' ? '' : path.posix.dirname(file);
@@ -117,41 +129,20 @@ async function loadUncached(
   }
   const files: { path: string; contents: string }[] = [];
   const problems: string[] = [];
-  let usedWorkspaceFallback = false;
 
   for (const dir of directories) {
-    if (reachable) {
-      const basePath = baseByDirectory.get(dir);
-      if (basePath) {
-        const contents = await readFromBase(repoDir, baseSha, basePath);
-        if (contents !== null) files.push({ path: basePath, contents });
-        continue;
-      }
-
-      // A newly added instruction file is part of the untrusted PR, not review policy.
-      const workspace = await readFromWorkspace(repoDir, dir);
-      if (workspace && changed.has(workspace.path)) {
-        problems.push(`ignored ${workspace.path} because it does not exist at the review base`);
-      }
+    const basePath = baseByDirectory.get(dir);
+    if (basePath) {
+      const contents = await readFromBase(repoDir, baseSha, basePath);
+      if (contents !== null) files.push({ path: basePath, contents });
       continue;
     }
 
-    // Local object stores can occasionally lack the PR base. An unchanged workspace copy
-    // is the safest useful fallback; never follow one the reviewed diff itself changes.
+    // A newly added instruction file is part of the untrusted PR, not review policy.
     const workspace = await readFromWorkspace(repoDir, dir);
-    if (!workspace) continue;
-    if (changed.has(workspace.path)) {
-      problems.push(`ignored changed ${workspace.path} because the review base is unavailable`);
-      continue;
+    if (workspace && changed.has(workspace.path)) {
+      problems.push(`ignored ${workspace.path} because it does not exist at the review base`);
     }
-    files.push(workspace);
-    usedWorkspaceFallback = true;
-  }
-
-  if (usedWorkspaceFallback) {
-    problems.push(
-      `review base ${baseSha.slice(0, 12) || '(unknown)'} unavailable; used workspace AGENTS.md`,
-    );
   }
 
   return { rendered: render(files), paths: files.map((f) => f.path), problems };

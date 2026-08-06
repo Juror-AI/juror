@@ -309,6 +309,15 @@ describe('renderSummaryComment', () => {
     expect(renderSummaryComment(r, opts)).toContain('`●●○○` 2/4');
   });
 
+  it('keeps complete finding bodies in the sticky summary when inline delivery fails', () => {
+    const md = renderSummaryComment(
+      result({ published: [cluster({ body: 'The complete failure mechanism and remediation.' })] }),
+      opts,
+    );
+    expect(md).toContain('<details><summary>Finding details</summary>');
+    expect(md).toContain('The complete failure mechanism and remediation.');
+  });
+
   it('shows the lossless raw-finding coverage audit', () => {
     const r = result({
       coverage: {
@@ -409,6 +418,16 @@ describe('renderSummaryComment', () => {
     expect(md).toContain('### Merge Confidence: 3/5');
     expect(md).toContain('Juror v0.4.1 · reviewed `a1b2c3d`');
     expect(md).not.toContain('@juror ignore');
+  });
+
+  it('makes truncated diff coverage visible and never calls it complete', () => {
+    const truncated = diff();
+    truncated.truncated = true;
+    const md = renderSummaryComment(result({ diff: truncated }), opts);
+
+    expect(md).toContain('Review coverage incomplete');
+    expect(md).toContain('diff was truncated');
+    expect(md).not.toContain('none dropped');
   });
 
   it('names skipped models even when the receipt is switched off', () => {

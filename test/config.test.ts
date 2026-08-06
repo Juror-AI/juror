@@ -322,6 +322,19 @@ describe('loadConfig', () => {
     expect(problems).toEqual([]);
   });
 
+  it('reports invalid consensus model ids and restores a runnable preset default', () => {
+    const dir = repoWith({
+      '.juror.yml':
+        'preset: high\nconsensus:\n  verify_model: grok-typo\n  referee_model: opus-typo\n',
+    });
+    const { config, problems } = loadConfig(dir);
+
+    expect(config.consensus.verify_model).toBe('grok-4.5');
+    expect(config.consensus.referee_model).toBe('grok-4.5');
+    expect(problems).toHaveLength(2);
+    expect(problems.join('\n')).toContain('is not a configured model id');
+  });
+
   it('parses the example .juror.yml shipped at the repo root without problems', () => {
     const { config, problems, sourcePath } = loadConfig(fileURLToPath(new URL('..', import.meta.url)));
     expect(sourcePath).not.toBeNull();

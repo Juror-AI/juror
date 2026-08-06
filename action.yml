@@ -62,14 +62,28 @@ runs:
   steps:
     - name: Set up Node
       uses: actions/setup-node@v4
+      env:
+        ANTHROPIC_API_KEY: ''
+        OPENAI_API_KEY: ''
+        FIREWORKS_API_KEY: ''
+        XAI_API_KEY: ''
+        GITHUB_TOKEN: ''
+        GH_TOKEN: ''
       with:
         node-version: '22'
 
     - name: Build Juror
       shell: bash
       working-directory: ${{ github.action_path }}
+      env:
+        ANTHROPIC_API_KEY: ''
+        OPENAI_API_KEY: ''
+        FIREWORKS_API_KEY: ''
+        XAI_API_KEY: ''
+        GITHUB_TOKEN: ''
+        GH_TOKEN: ''
       run: |
-        npm ci --no-audit --no-fund
+        npm ci --ignore-scripts --no-audit --no-fund
         npm run build
 
     # Only harnesses backed by an available provider are installed. Fireworks supplies
@@ -108,9 +122,19 @@ runs:
         INPUT_POST: ${{ inputs.post }}
         INPUT_PR_NUMBER: ${{ inputs.pr-number }}
         EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
+        EVENT_FORK: ${{ github.event.pull_request.head.repo.fork }}
         TARGET_REPOSITORY: ${{ github.repository }}
       run: |
         set -euo pipefail
+        if [ "$EVENT_FORK" = "true" ]; then
+          echo "Skipping fork pull request: GitHub withholds provider secrets and the token cannot publish comments."
+          {
+            echo "score=3"
+            echo "findings=0"
+            echo "cost-usd=0"
+          } >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
         PR="$INPUT_PR_NUMBER"
         if [ -z "$PR" ]; then PR="$EVENT_PR_NUMBER"; fi
         ARGS=(review --pr "$PR" --repo "$TARGET_REPOSITORY" --repo-dir "$GITHUB_WORKSPACE" --json "$RUNNER_TEMP/juror.json")

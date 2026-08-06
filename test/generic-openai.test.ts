@@ -60,6 +60,21 @@ function completion(message: Record<string, unknown>): Response {
 }
 
 describe('generic OpenAI turn budget', () => {
+  it('uses the runner-resolved provider key when passthrough env makes inference ambiguous', async () => {
+    const ctx = context(0);
+    ctx.providerKey = 'resolved-provider-key';
+    ctx.env = { TEST_API_KEY: 'wrong-inferred-key', EXTRA_SETTING: 'also-non-system' };
+    const fetchMock = vi.fn().mockResolvedValue(
+      completion({ role: 'assistant', content: JSON.stringify(REPORT) }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await runGenericOpenAI(ctx);
+
+    const headers = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string>;
+    expect(headers['authorization']).toBe('Bearer resolved-provider-key');
+  });
+
   it('continues past one tool round when zero disables the step cap', async () => {
     const fetchMock = vi
       .fn()

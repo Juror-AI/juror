@@ -339,6 +339,28 @@ function applyConfig(config: JurorConfig, raw: Record<string, unknown>, problems
   applyReview(config, raw['review'], problems);
   applyBudget(config, raw['budget'], problems);
   applyOutput(config, raw['output'], problems);
+  validateConsensusModelRefs(config, problems);
+}
+
+function validateConsensusModelRefs(config: JurorConfig, problems: string[]): void {
+  const ids = new Set(config.models.map((model) => model.id));
+  const presetFallback = config.preset
+    ? PRESET_DEFINITIONS[config.preset].consensusModel
+    : null;
+  const fallback =
+    config.models.find((model) => model.enabled && model.id === presetFallback)?.id ??
+    config.models.find((model) => model.enabled)?.id ??
+    config.models[0]?.id ??
+    null;
+
+  for (const key of ['verify_model', 'referee_model'] as const) {
+    const selected = config.consensus[key];
+    if (selected === null || ids.has(selected)) continue;
+    problems.push(
+      `consensus.${key}: ${fmt(selected)} is not a configured model id — using ${fmt(fallback)}`,
+    );
+    config.consensus[key] = fallback;
+  }
 }
 
 /**

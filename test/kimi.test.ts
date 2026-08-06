@@ -85,6 +85,9 @@ describe('Kimi Code command isolation', () => {
     expect(command.cwd.startsWith(ctx.repoDir)).toBe(false);
     expect(command.argv).toContain('stream-json');
     expect(command.argv.slice(command.argv.indexOf('--add-dir') + 1)).toContain(ctx.repoDir);
+    expect(command.argv).toContain(ctx.scratchDir);
+    expect(command.argv).not.toContain(ctx.prompt);
+    expect(command.argv[command.argv.indexOf('-p') + 1]).toContain(ctx.promptPath);
     expect(command.argv).not.toContain('-m');
     expect(command.env['HOME']).toBe(runtimeRoot);
     expect(command.env['KIMI_CODE_HOME']).toBe(join(runtimeRoot, 'kimi-home'));

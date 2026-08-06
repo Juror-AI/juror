@@ -29,11 +29,16 @@ export function run(argv: string[], opts: RunOptions = {}): Promise<HarnessIO> {
   const maxBuffer = opts.maxBufferBytes ?? DEFAULT_MAX_BUFFER;
 
   return new Promise<HarnessIO>((resolve, reject) => {
+    // A harness is an agent process that may launch servers, tool runners, and helper
+    // commands of its own. On Unix, a separate process group lets a timeout terminate the
+    // complete tree instead of orphaning grandchildren after only the CLI parent dies.
+    const grouped = process.platform !== 'win32';
     const child = spawn(cmd, args, {
       cwd: opts.cwd,
       env: { ...process.env, ...opts.env } as NodeJS.ProcessEnv,
       stdio: ['pipe', 'pipe', 'pipe'],
       shell: false,
+      detached: grouped,
     });
 
     const out: Buffer[] = [];
@@ -43,19 +48,32 @@ export function run(argv: string[], opts: RunOptions = {}): Promise<HarnessIO> {
     let timedOut = false;
     let settled = false;
 
+    const killTree = () => {
+      if (grouped && child.pid !== undefined) {
+        try {
+          process.kill(-child.pid, 'SIGKILL');
+          return;
+        } catch {
+          // The group may already be gone; fall through to the direct-child fallback.
+        }
+      }
+      child.kill('SIGKILL');
+    };
+
     const timer =
       opts.timeoutMs && opts.timeoutMs > 0
         ? setTimeout(() => {
             timedOut = true;
-            child.kill('SIGKILL');
+            killTree();
           }, opts.timeoutMs)
         : null;
 
     const onAbort = () => {
       timedOut = true;
-      child.kill('SIGKILL');
+      killTree();
     };
-    opts.signal?.addEventListener('abort', onAbort, { once: true });
+    if (opts.signal?.aborted) onAbort();
+    else opts.signal?.addEventListener('abort', onAbort, { once: true });
 
     const cleanup = () => {
       if (timer) clearTimeout(timer);

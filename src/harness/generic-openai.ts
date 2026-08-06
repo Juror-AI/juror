@@ -224,6 +224,11 @@ function confine(p: unknown, roots: string[], base: string): { abs: string } | {
 }
 
 function resolveApiKey(ctx: RunContext): string | null {
+  // The runner resolves the configured secret before constructing the child env. Prefer
+  // that authoritative value: env_passthrough may legitimately add several non-system
+  // variables, which makes inference ambiguous even though the provider key is known.
+  const resolved = readString(ctx.providerKey);
+  if (resolved) return resolved;
   const named = readString(ctx.args['api_key_env']) ?? readString(ctx.args['secret']);
   if (named) return readString(ctx.env[named]);
   // The runner hands each model an env holding only its own provider key plus PATH/HOME/etc,

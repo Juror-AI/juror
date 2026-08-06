@@ -231,6 +231,8 @@ export interface Harness {
   command(ctx: RunContext): HarnessCommand;
   /** Turn raw child output into a normalized result. */
   parse(io: HarnessIO, ctx: RunContext): HarnessResult;
+  /** Remove adapter-owned runtime state after every outcome, including spawn failures. */
+  cleanup?(ctx: RunContext): void | Promise<void>;
 }
 
 export interface HarnessLocation {

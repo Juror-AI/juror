@@ -6,6 +6,9 @@
  * event is a non-fatal note that shows up on perfectly successful exit-0 runs.
  */
 
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+
 import type {
   CanonicalUsage,
   Harness,
@@ -24,6 +27,7 @@ import { parseModelReport, readReportFile } from '../report.js';
 const MIN_VERSION = '0.146.0';
 
 const DEFAULT_REASONING_EFFORT = 'high';
+const PERMISSION_PROFILE = 'juror-review';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Narrowing helpers
@@ -127,21 +131,59 @@ export const codexHarness: Harness = {
       effort = DEFAULT_REASONING_EFFORT;
     }
 
+    // Legacy `--sandbox read-only` can read the entire host filesystem. Build a private
+    // managed profile instead: runtime binaries, the sealed checkout, and Juror scratch
+    // are the only readable roots; only scratch is writable. The nested deny keeps Codex
+    // state/config inaccessible to model-generated shell commands.
+    const codexHome = join(ctx.scratchDir, 'codex-home');
+    mkdirSync(codexHome, { recursive: true });
+    const tomlKey = (value: string): string => JSON.stringify(resolve(value));
+    const shellEnv: Record<string, string> = {
+      PATH: ctx.env['PATH'] ?? process.env['PATH'] ?? '/usr/bin:/bin',
+      HOME: codexHome,
+      TMPDIR: ctx.scratchDir,
+    };
+    for (const name of ['LANG', 'LC_ALL', 'TERM', 'SHELL', 'USER']) {
+      const value = ctx.env[name];
+      if (value) shellEnv[name] = value;
+    }
+    const config = [
+      `default_permissions = ${JSON.stringify(PERMISSION_PROFILE)}`,
+      'approval_policy = "never"',
+      '',
+      '[shell_environment_policy]',
+      'inherit = "none"',
+      'experimental_use_profile = false',
+      '',
+      '[shell_environment_policy.set]',
+      ...Object.entries(shellEnv).map(([name, value]) => `${name} = ${JSON.stringify(value)}`),
+      '',
+      '[features]',
+      'shell_snapshot = false',
+      '',
+      `[permissions.${PERMISSION_PROFILE}.filesystem]`,
+      '":minimal" = "read"',
+      `${tomlKey(ctx.repoDir)} = "read"`,
+      `${tomlKey(ctx.scratchDir)} = "write"`,
+      `${tomlKey(codexHome)} = "none"`,
+      '',
+      `[permissions.${PERMISSION_PROFILE}.network]`,
+      'enabled = false',
+      '',
+    ].join('\n');
+    writeFileSync(join(codexHome, 'config.toml'), config, { encoding: 'utf8', mode: 0o600 });
+
     const argv = [
       'codex',
       'exec',
       '--json',
-      '--sandbox',
-      'read-only',
       '--ephemeral',
-      '--add-dir',
-      ctx.repoDir,
       '-m',
       ctx.model,
       '-c',
       `model_reasoning_effort=${effort}`,
-      // A user's global config leaks MCP servers and stale OAuth errors into the run.
-      '--ignore-user-config',
+      '--strict-config',
+      '--ignore-rules',
       '--skip-git-repo-check',
     ];
 
@@ -149,7 +191,14 @@ export const codexHarness: Harness = {
     // open hangs until the timeout, so the prompt is delivered there instead.
     // Starting outside the repository prevents Codex from auto-loading a PR-side
     // AGENTS.md. Juror already injected the trusted base-revision instructions.
-    return { argv, env: ctx.env, stdin: ctx.prompt, cwd: ctx.scratchDir };
+    return {
+      argv,
+      // A private CODEX_HOME prevents user MCP servers, skills, stale OAuth state, and
+      // global config from entering the review while preserving the managed profile above.
+      env: { ...ctx.env, CODEX_HOME: codexHome },
+      stdin: ctx.prompt,
+      cwd: ctx.scratchDir,
+    };
   },
 
   parse(io: HarnessIO, ctx: RunContext): HarnessResult {
@@ -157,7 +206,7 @@ export const codexHarness: Harness = {
 
     let finalText = '';
     let usage: CanonicalUsage | null = null;
-    let turns = 0;
+    let completedTurns = 0;
 
     for (const line of io.stdout.split(/\r?\n/)) {
       const t = line.trim();
@@ -191,7 +240,7 @@ export const codexHarness: Harness = {
       }
 
       if (type === 'turn.completed') {
-        turns++;
+        completedTurns++;
         const u = asRecord(ev['usage']);
         if (u) {
           const input = numOr(u['input_tokens'], 0);
@@ -210,7 +259,7 @@ export const codexHarness: Harness = {
     }
 
     // Success is "a turn completed", never "no error items" — errors are advisory.
-    const completed = turns > 0;
+    const completed = completedTurns > 0;
     if (!completed) diagnostics.push('no turn.completed event — the run did not finish a turn');
 
     const file = readReportSafely(ctx.findingsPath);
@@ -230,7 +279,10 @@ export const codexHarness: Harness = {
       usage,
       // codex emits no cost field at all; the receipt has to estimate from tokens.
       reportedCostUsd: null,
-      turns,
+      // One Codex turn can contain many provider requests around tool calls. Returning one
+      // here would make the cost engine misapply a per-request long-context tier to a
+      // session aggregate. Zero means the request distribution is unknown.
+      turns: 0,
       truncated: io.timedOut || !completed,
       rawText: finalText,
       diagnostics,

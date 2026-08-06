@@ -7,7 +7,7 @@
  * babbles, or has no key must never cost us a finding.
  */
 
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type {
@@ -51,6 +51,7 @@ const BLOCK_WINDOW = 8;
 /** A referee prompt is ~1k tokens. Anything past this is a pathological block. */
 const MAX_CANDIDATES_PER_BLOCK = 8;
 const REFEREE_TIMEOUT_MS = 120_000;
+const REFEREE_MAX_ATTEMPTS = 2;
 // No step cap by default; the short referee wall-clock timeout is the safety boundary.
 const REFEREE_MAX_TURNS = 0;
 
@@ -310,6 +311,7 @@ async function refereeBlock(
   verdict: RefereeVerdict | null;
   ids: Map<string, string>;
   cost: CostBreakdown;
+  calls: number;
 }> {
   const findings = block.findings.slice(0, MAX_CANDIDATES_PER_BLOCK);
   const ids = new Map<string, string>();
@@ -327,49 +329,66 @@ async function refereeBlock(
     REPO_DIR: o.repoDir,
     PATH: block.path,
   });
-  await writeFile(promptPath, prompt, 'utf8');
-
-  const ctx: RunContext = {
-    repoDir: o.repoDir,
-    scratchDir,
-    findingsPath,
-    promptPath,
-    prompt,
-    model: rt.harnessModel,
-    ...(m.base_url ? { baseUrl: m.base_url } : {}),
-    args: m.args ?? {},
-    env: childEnv(m, key),
-    providerKey: key,
-    timeoutMs: m.timeout_seconds ? m.timeout_seconds * 1000 : REFEREE_TIMEOUT_MS,
-    budgetUsd: null,
-    maxTurns: m.max_turns ?? REFEREE_MAX_TURNS,
-  };
-
-  const result = await runHarness(getHarness(m.harness), ctx, o.signal);
-  for (const d of result.diagnostics) log.debug(`referee: ${d}`);
-
-  // The file is the contract; stdout is the fallback for a model that answered inline.
-  let written = '';
-  try {
-    written = await readFile(findingsPath, 'utf8');
-  } catch {
-    written = '';
-  }
   const expectedIds = [...ids.values()];
-  const verdict =
-    readRefereeVerdict(extractJson(written), expectedIds) ??
-    readRefereeVerdict(extractJson(result.rawText), expectedIds);
-  return {
-    verdict,
-    ids,
-    cost: computeCost({
-      pricingKey: rt.pricingKey,
-      usage: result.usage,
-      reportedCostUsd: result.reportedCostUsd,
-      pricing: o.pricing,
-      turns: result.turns,
-    }),
-  };
+  const costs: CostBreakdown[] = [];
+  let calls = 0;
+
+  for (let attempt = 1; attempt <= REFEREE_MAX_ATTEMPTS; attempt++) {
+    if (o.signal?.aborted) break;
+    await rm(findingsPath, { force: true });
+    const attemptPrompt =
+      attempt === 1
+        ? prompt
+        : `${prompt.trim()}\n\n## Retry correction\n\nThe previous response was not a complete, parseable partition. Reply with the strict JSON object only. Do not call tools or add prose.\n`;
+    await writeFile(promptPath, attemptPrompt, 'utf8');
+
+    const ctx: RunContext = {
+      repoDir: o.repoDir,
+      scratchDir,
+      findingsPath,
+      promptPath,
+      prompt: attemptPrompt,
+      model: rt.harnessModel,
+      ...(m.base_url ? { baseUrl: m.base_url } : {}),
+      args: m.args ?? {},
+      env: childEnv(m, key),
+      providerKey: key,
+      timeoutMs: m.timeout_seconds ? m.timeout_seconds * 1000 : REFEREE_TIMEOUT_MS,
+      budgetUsd: null,
+      maxTurns: m.max_turns ?? REFEREE_MAX_TURNS,
+    };
+
+    const result = await runHarness(getHarness(m.harness), ctx, o.signal);
+    calls++;
+    for (const d of result.diagnostics) log.debug(`referee attempt ${attempt}: ${d}`);
+    costs.push(
+      computeCost({
+        pricingKey: rt.pricingKey,
+        usage: result.usage,
+        reportedCostUsd: result.reportedCostUsd,
+        pricing: o.pricing,
+        turns: result.turns,
+      }),
+    );
+
+    // The file is preferred when the harness can write; the final answer is always a
+    // fallback because read-only review harnesses deliberately disable edit tools.
+    let written = '';
+    try {
+      written = await readFile(findingsPath, 'utf8');
+    } catch {
+      written = '';
+    }
+    const verdict =
+      readRefereeVerdict(extractJson(written), expectedIds) ??
+      readRefereeVerdict(extractJson(result.rawText), expectedIds);
+    if (verdict) return { verdict, ids, cost: sumCosts(costs), calls };
+    if (attempt < REFEREE_MAX_ATTEMPTS) {
+      log.warn(`referee: unparseable answer for ${block.path}; retrying once`);
+    }
+  }
+
+  return { verdict: null, ids, cost: sumCosts(costs), calls };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -501,7 +520,7 @@ export async function refereeClusters(
     if (o.signal?.aborted) break;
     try {
       const answer = await refereeBlock(block, index, m, key, o);
-      calls++;
+      calls += answer.calls;
       costs.push(answer.cost);
       if (!answer.verdict) {
         log.warn(`referee: unparseable answer for ${block.path}, leaving pairs unmerged`);

@@ -277,7 +277,7 @@ export const kimiHarness: Harness = {
       argv: [
         'kimi',
         '-p',
-        ctx.prompt,
+        `Read ${ctx.promptPath} completely, follow its review contract exactly, and return the requested JSON report.`,
         '--output-format',
         'stream-json',
         '--skills-dir',
@@ -286,6 +286,8 @@ export const kimiHarness: Harness = {
         agentFile,
         '--add-dir',
         ctx.repoDir,
+        '--add-dir',
+        ctx.scratchDir,
       ],
       env: {
         ...ctx.env,

@@ -143,7 +143,7 @@ function makeFake(createReviewImpl?: () => Promise<void>): Fake {
     getPull: vi.fn(async () => {
       throw new Error('unused');
     }),
-    getPullDiff: vi.fn(async () => {
+    getCompareDiff: vi.fn(async () => {
       throw new Error('unused');
     }),
     listIssueComments,
@@ -272,6 +272,24 @@ describe('publishReview — sticky summary', () => {
     expect(fake.updateIssueComment).toHaveBeenCalledTimes(1);
     expect(fake.store.filter((c) => c.body.includes(MARKER))).toHaveLength(1);
     expect(fake.store.find((c) => c.id === 100)?.body).toContain('Second pass.');
+  });
+
+  it('updates the replacement sticky after an old bot marker becomes uneditable', async () => {
+    const fake = makeFake();
+    fake.store.push({ id: 9, body: `${MARKER}\nlegacy`, user: { login: 'old-juror[bot]' } });
+    fake.updateIssueComment.mockImplementation(async (id: number, body: string) => {
+      if (id === 9) {
+        throw new GitHubApiError(403, '/x', 'GitHub API 403: Forbidden', null, '');
+      }
+      const found = fake.store.find((comment) => comment.id === id);
+      if (!found) throw new GitHubApiError(404, '/x', 'GitHub API 404: Not Found', null, '');
+      found.body = body;
+    });
+
+    expect((await publishReview(makeResult(), options(fake.client))).summaryCommentId).toBe(100);
+    expect((await publishReview(makeResult(), options(fake.client))).summaryCommentId).toBe(100);
+    expect(fake.createIssueComment).toHaveBeenCalledTimes(1);
+    expect(fake.updateIssueComment.mock.calls.map((call) => call[0])).toEqual([9, 100]);
   });
 
   it('re-adds the marker if the renderer ever drops it, so run two still upserts', async () => {

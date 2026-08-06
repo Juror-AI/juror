@@ -7,7 +7,14 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { log } from '../util/log.js';
 import { roundUsd } from './compute.js';
@@ -33,11 +40,16 @@ interface Ledger {
 }
 
 const FILE_NAME = 'rolling.json';
+const LOCK_NAME = 'rolling.lock';
 const DAY_MS = 86_400_000;
 export const DEFAULT_WINDOW_DAYS = 30;
 
 /** A ceiling so a busy monorepo cannot grow the ledger without bound inside the window. */
 const MAX_ENTRIES = 5_000;
+/** Ledger writes take milliseconds; this is generous enough for a heavily loaded runner. */
+const LOCK_WAIT_MS = 10_000;
+/** A killed process cannot release its directory. Reap only locks far older than any write. */
+const STALE_LOCK_MS = 120_000;
 
 export function loadRolling(stateDir: string, windowDays = DEFAULT_WINDOW_DAYS): RollingSpend {
   return summarize(readLedger(stateDir), windowDays, Date.now());
@@ -51,26 +63,112 @@ export function recordSpend(
 ): RollingSpend {
   const now = Date.now();
   const cutoff = now - windowDays * DAY_MS;
+  const release = acquireLedgerLock(stateDir);
+  if (!release) return summarize(readLedger(stateDir), windowDays, now);
 
-  // De-duplicate by prKey: re-reviewing the same head SHA replaces its entry instead of
-  // double-counting, which is what makes an idempotent CI re-run safe.
-  const entries = readLedger(stateDir).filter(
-    (e) => e.prKey !== prKey && Date.parse(e.at) >= cutoff,
-  );
-  entries.push({
-    prKey,
-    usd: usd != null && Number.isFinite(usd) && usd >= 0 ? usd : null,
-    at: new Date(now).toISOString(),
-  });
-  if (entries.length > MAX_ENTRIES) entries.splice(0, entries.length - MAX_ENTRIES);
+  try {
+    // The lock covers the entire read-modify-rename sequence. Atomic rename alone prevents
+    // torn JSON but cannot prevent two concurrent reviews from both reading the same old
+    // ledger and having the last writer erase the other's entry.
+    const entries = readLedger(stateDir).filter(
+      (e) => e.prKey !== prKey && Date.parse(e.at) >= cutoff,
+    );
+    entries.push({
+      prKey,
+      usd: usd != null && Number.isFinite(usd) && usd >= 0 ? usd : null,
+      at: new Date(now).toISOString(),
+    });
+    if (entries.length > MAX_ENTRIES) entries.splice(0, entries.length - MAX_ENTRIES);
 
-  writeLedger(stateDir, { version: 1, entries });
-  return summarize(entries, windowDays, now);
+    writeLedger(stateDir, { version: 1, entries });
+    return summarize(entries, windowDays, now);
+  } finally {
+    release();
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Ledger I/O — every failure is a warning, never an exception
 // ─────────────────────────────────────────────────────────────────────────────
+
+function errorCode(error: unknown): string | null {
+  if (typeof error !== 'object' || error === null || !('code' in error)) return null;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === 'string' ? code : null;
+}
+
+function waitSync(ms: number): void {
+  // No shell `sleep`, no busy spin, and no async API change for callers that render the
+  // returned total immediately. This blocks only while another tiny ledger write finishes.
+  const cell = new Int32Array(new SharedArrayBuffer(4));
+  Atomics.wait(cell, 0, 0, ms);
+}
+
+/**
+ * Cross-process directory lock. `mkdir` is atomic on every supported filesystem. The owner
+ * token prevents a delayed holder from deleting a replacement lock after its own was reaped.
+ */
+function acquireLedgerLock(stateDir: string): (() => void) | null {
+  const lock = join(stateDir, LOCK_NAME);
+  const token = `${process.pid}-${randomBytes(8).toString('hex')}`;
+  const owner = join(lock, 'owner');
+  const deadline = Date.now() + LOCK_WAIT_MS;
+
+  try {
+    mkdirSync(stateDir, { recursive: true });
+  } catch (error) {
+    log.warn(`could not prepare rolling spend state at ${stateDir}: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
+
+  while (Date.now() <= deadline) {
+    let created = false;
+    try {
+      mkdirSync(lock, { mode: 0o700 });
+      created = true;
+      writeFileSync(owner, `${token}\n`, { encoding: 'utf8', mode: 0o600 });
+      return () => {
+        try {
+          if (readFileSync(owner, 'utf8').trim() === token) {
+            rmSync(lock, { recursive: true, force: true });
+          }
+        } catch {
+          // A stale-lock recovery may already have moved it. Never delete an unknown owner.
+        }
+      };
+    } catch (error) {
+      if (created) {
+        try {
+          rmSync(lock, { recursive: true, force: true });
+        } catch {
+          /* best effort; the stale-lock path will recover it later */
+        }
+      }
+      if (errorCode(error) !== 'EEXIST') {
+        log.warn(`could not lock rolling spend at ${lock}: ${error instanceof Error ? error.message : String(error)}`);
+        return null;
+      }
+    }
+
+    try {
+      if (Date.now() - statSync(lock).mtimeMs > STALE_LOCK_MS) {
+        // Rename claims this exact stale inode atomically. A new writer may acquire `lock`
+        // immediately afterward without either waiter being able to remove the other's dir.
+        const stale = `${lock}.stale.${token}`;
+        renameSync(lock, stale);
+        rmSync(stale, { recursive: true, force: true });
+        continue;
+      }
+    } catch {
+      // It disappeared or another waiter reaped it; retry the atomic mkdir.
+      continue;
+    }
+    waitSync(25);
+  }
+
+  log.warn(`timed out waiting for rolling spend lock at ${lock}; leaving the ledger unchanged`);
+  return null;
+}
 
 function readLedger(stateDir: string): SpendEntry[] {
   let text: string;

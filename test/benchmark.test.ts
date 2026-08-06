@@ -54,7 +54,7 @@ describe('shadow benchmark', () => {
     expect(juror?.recall).toBeCloseTo(1 / 3);
     expect(juror?.p0ToP2Recall).toBeCloseTo(1 / 2);
     expect(juror?.precision).toBeCloseTo(2 / 3);
-    expect(juror?.duplicateRate).toBeCloseTo(1 / 2);
+    expect(juror?.duplicateRate).toBeCloseTo(1 / 3);
     expect(juror?.misses.map((miss) => miss.expectedId)).toEqual(['retry', 'nit']);
 
     const rendered = renderBenchmark(result);
@@ -75,7 +75,7 @@ describe('shadow benchmark', () => {
     partial.cases[0]!.runs[0]!.cost_usd = null;
     const metrics = evaluateBenchmark(parseBenchmarkCorpus(partial)).reviewers[0];
     expect(metrics?.costPartial).toBe(true);
-    expect(renderBenchmark({ cases: 1, reviewers: [metrics!] })).toContain('≥$0.00');
+    expect(renderBenchmark({ cases: 1, reviewers: [metrics!] })).toContain('unknown');
   });
 
   it('requires every case to include the same reviewers', () => {
@@ -86,5 +86,28 @@ describe('shadow benchmark', () => {
       runs: [],
     });
     expect(() => parseBenchmarkCorpus(mismatched)).toThrow(/same reviewers/);
+  });
+
+  it('counts repeated rejected claims as duplicates when the adjudicator labels them', () => {
+    const rejected = {
+      version: 1,
+      cases: [{
+        id: 'false-duplicates',
+        expected: [],
+        runs: [{
+          reviewer: 'Juror',
+          cost_usd: 0,
+          duration_ms: 1,
+          findings: [
+            { title: 'Unused copied modules', severity: 'P2', expected_id: null, duplicate_key: 'staged-copy' },
+            { title: 'Duplicate implementations', severity: 'P2', expected_id: null, duplicate_key: 'staged-copy' },
+          ],
+        }],
+      }],
+    };
+
+    const metrics = evaluateBenchmark(parseBenchmarkCorpus(rejected)).reviewers[0];
+    expect(metrics?.duplicateReports).toBe(1);
+    expect(metrics?.duplicateRate).toBe(0.5);
   });
 });

@@ -6,6 +6,8 @@
  * if `uncachedIn` ever stops being `input - cached`, a cache-heavy review bills ~10x.
  */
 
+import { readFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { codexHarness } from '../src/harness/codex.js';
@@ -56,14 +58,26 @@ function io(stdout: string, over: Partial<HarnessIO> = {}): HarnessIO {
 }
 
 describe('codex parse() — canonical usage', () => {
-  it('runs read-only outside the repo so PR-side AGENTS.md is not auto-discovered', () => {
+  it('runs outside the repo under a split filesystem permission profile', () => {
     const context = ctx();
     const command = codexHarness.command(context);
     expect(command.cwd).toBe(context.scratchDir);
-    expect(command.argv[command.argv.indexOf('--sandbox') + 1]).toBe('read-only');
+    expect(command.argv).not.toContain('--sandbox');
     expect(command.argv).toContain('--ephemeral');
-    expect(command.argv[command.argv.indexOf('--add-dir') + 1]).toBe(context.repoDir);
-    expect(command.argv.join(' ')).not.toContain('writable_roots');
+    expect(command.argv).toContain('--strict-config');
+    expect(command.argv).toContain('--ignore-rules');
+    const home = command.env['CODEX_HOME'];
+    expect(home).toBe(join(context.scratchDir, 'codex-home'));
+    const config = readFileSync(join(home as string, 'config.toml'), 'utf8');
+    expect(config).toContain('default_permissions = "juror-review"');
+    expect(config).toContain(`${JSON.stringify(context.repoDir)} = "read"`);
+    expect(config).toContain(`${JSON.stringify(context.scratchDir)} = "write"`);
+    expect(config).toContain(`${JSON.stringify(home)} = "none"`);
+    expect(config).toContain('enabled = false');
+    expect(config).toContain('[shell_environment_policy]');
+    expect(config).toContain('inherit = "none"');
+    expect(config).toContain('shell_snapshot = false');
+    rmSync(context.scratchDir, { recursive: true, force: true });
   });
 
   it('subtracts cached tokens from the reported input total', () => {
@@ -77,11 +91,11 @@ describe('codex parse() — canonical usage', () => {
     expect(r.usage?.out).toBe(156);
   });
 
-  it('reports no cost of its own, and counts completed turns', () => {
+  it('reports no cost of its own without mislabeling a Codex turn as one provider request', () => {
     const r = codexHarness.parse(io(jsonl([{ type: 'thread.started' }, TURN_COMPLETED])), ctx());
 
     expect(r.reportedCostUsd).toBeNull();
-    expect(r.turns).toBe(1);
+    expect(r.turns).toBe(0);
     expect(r.truncated).toBe(false);
   });
 

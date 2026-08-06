@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clusterFindings, jaccard } from '../src/merge/cluster.js';
+import { buildCluster, clusterFindings, jaccard } from '../src/merge/cluster.js';
 import type { AttributedFinding } from '../src/types.js';
 
 const OPTS = { lineWindow: 8, mergeThreshold: 0.55, distinctThreshold: 0.3 };
@@ -149,6 +149,41 @@ describe('clusterFindings', () => {
     expect(ambiguousPairs).toHaveLength(1);
   });
 
+  it('routes a systemic duplicate anchored in different files to the referee', () => {
+    const hook = finding({
+      path: 'apps/packages/conversation/hooks/useActiveConversation.ts',
+      title: 'Duplicated ZenoChat modules land without consumers',
+      body:
+        'All added files are copies of existing live modules, yet nothing imports the new copies, creating two drifting sources of truth.',
+    });
+    const util = finding({
+      sourceId: 'model-b:1',
+      modelId: 'model-b',
+      modelLabel: 'Model B',
+      path: 'apps/packages/conversation/utils/zenochat/conversationResumeContext.ts',
+      title: 'PR duplicates existing live modules with no consumer',
+      body: 'This violates the repo reuse-before-create convention.',
+    });
+
+    const { clusters, ambiguousPairs } = clusterFindings([hook, util], OPTS);
+    expect(clusters).toHaveLength(2);
+    expect(ambiguousPairs).toHaveLength(1);
+  });
+
+  it('does not compare unrelated cross-file findings on generic prose alone', () => {
+    const promise = finding({ path: 'src/shutdown.ts' });
+    const query = finding({
+      sourceId: 'model-b:1',
+      modelId: 'model-b',
+      modelLabel: 'Model B',
+      path: 'src/query.ts',
+      title: 'Dashboard query scans every tenant row',
+      body: 'The tenant_id column lacks an index, so each request scans the complete table.',
+    });
+
+    expect(clusterFindings([promise, query], OPTS).ambiguousPairs).toHaveLength(0);
+  });
+
   it('merges transitively through a shared middle finding', () => {
     const a = finding({ modelId: 'model-a', line: 10, anchoredLine: 10 });
     const b = finding({ modelId: 'model-b', modelLabel: 'Model B', line: 16, anchoredLine: 16 });
@@ -174,7 +209,9 @@ describe('clusterFindings', () => {
         confidence: 0.95,
         title: 'Lower severity wording',
         claim,
-        anchor: 'outside-diff',
+        line: 42,
+        anchoredLine: 42,
+        anchor: 'exact',
       }),
       finding({
         modelId: 'model-b',
@@ -187,7 +224,7 @@ describe('clusterFindings', () => {
         claim,
         category: 'concurrency',
         convention: 'AGENTS.md',
-        anchor: 'snapped',
+        anchor: 'outside-diff',
       }),
     ];
 
@@ -198,9 +235,33 @@ describe('clusterFindings', () => {
     expect(cluster?.title).toBe('Unawaited promise in shutdown handler');
     expect(cluster?.category).toBe('concurrency');
     expect(cluster?.convention).toBe('AGENTS.md');
-    expect(cluster?.line).toBe(43);
-    expect(cluster?.anchor).toBe('snapped');
+    expect(cluster?.line).toBe(42);
+    expect(cluster?.anchor).toBe('exact');
     expect(cluster?.maxConfidence).toBeCloseTo(0.95);
+  });
+
+  it('keeps a cross-file anchor line attached to the file that supplied it', () => {
+    const strongest = finding({
+      path: 'src/summary.ts',
+      line: 900,
+      anchoredLine: 900,
+      severity: 'P0',
+      anchor: 'outside-diff',
+    });
+    const located = finding({
+      sourceId: 'model-b:1',
+      modelId: 'model-b',
+      modelLabel: 'Model B',
+      path: 'src/implementation.ts',
+      line: 42,
+      anchoredLine: 42,
+      severity: 'P2',
+      anchor: 'exact',
+    });
+
+    const cluster = buildCluster([strongest, located], ['referee']);
+
+    expect(cluster).toMatchObject({ path: 'src/implementation.ts', line: 42, anchor: 'exact' });
   });
 
   it('gives the same id to the same finding across runs and different ids across files', () => {

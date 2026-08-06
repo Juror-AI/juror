@@ -72,6 +72,24 @@ export function harnessScratch(scratchRoot: string, modelId: string, ordinal = 0
   return join(scratchRoot, `${slug(modelId)}-${suffix}`);
 }
 
+/**
+ * Retry only failures that ended before the provider recorded a turn, usage, or cost.
+ * A malformed answer after a billable model call is not safe to repeat automatically:
+ * that can silently double the user's spend. Empty CLI startup failures are different —
+ * opencode can occasionally exit before opening a session, and one fresh private-home
+ * retry turns that transient into a usable review without repeating paid work.
+ */
+export function shouldRetryEmptyRun(result: HarnessResult, signal?: AbortSignal): boolean {
+  return (
+    !signal?.aborted &&
+    result.report === null &&
+    result.turns === 0 &&
+    result.usage === null &&
+    result.reportedCostUsd === null &&
+    result.rawText.trim().length === 0
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Single run
 // ─────────────────────────────────────────────────────────────────────────────
@@ -149,6 +167,15 @@ export async function runHarness(
       rawText: '',
       diagnostics: [`${h.id} failed to run: ${errText(e)}`],
     };
+  } finally {
+    // Some CLIs keep session databases outside Juror's ordinary scratch tree. Cleanup is
+    // an adapter lifecycle hook so timeouts, parse failures, and spawn failures cannot
+    // leave reviewed source or prompts behind on a persistent runner.
+    try {
+      await h.cleanup?.(ctx);
+    } catch (e) {
+      log.warn(`${h.id}: could not remove private runtime state: ${errText(e)}`);
+    }
   }
 }
 
@@ -283,7 +310,19 @@ async function runOne(
     };
 
     log.info(`${modelLabel}: running via ${h.label} (${rt.harnessModel})`);
-    const result = await runHarness(h, ctx, o.signal);
+    let result = await runHarness(h, ctx, o.signal);
+    if (shouldRetryEmptyRun(result, o.signal)) {
+      log.warn(`${modelLabel}: ended before a billable turn; retrying once`);
+      const firstDiagnostics = result.diagnostics;
+      const retried = await runHarness(h, ctx, o.signal);
+      result = {
+        ...retried,
+        diagnostics: [
+          ...firstDiagnostics.map((diagnostic) => `attempt 1: ${diagnostic}`),
+          ...retried.diagnostics.map((diagnostic) => `attempt 2: ${diagnostic}`),
+        ],
+      };
+    }
     const durationMs = Date.now() - started;
 
     for (const d of result.diagnostics) log.debug(`${modelLabel}: ${d}`);

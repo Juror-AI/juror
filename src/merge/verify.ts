@@ -38,6 +38,8 @@ export interface VerifyOptions {
   verifySolo: boolean;
   /** Skip clusters that cannot reach the active publication threshold. */
   minimumAgreement: number;
+  /** Majority/numeric policies let serious findings survive below their normal threshold. */
+  allowSeriousBelowThreshold: boolean;
   /** Trusted base-revision instructions preloaded before model checkout sealing. */
   repoInstructions?: string;
   signal?: AbortSignal;
@@ -75,9 +77,13 @@ export function needsVerification(
   c: Cluster,
   verifySolo: boolean,
   minimumAgreement = 1,
+  allowSeriousBelowThreshold = false,
 ): boolean {
+  const serious = c.severity === 'P0' || c.severity === 'P1';
+  if (serious) {
+    return c.agreement >= minimumAgreement || allowSeriousBelowThreshold;
+  }
   if (c.agreement < minimumAgreement) return false;
-  if (c.severity === 'P0' || c.severity === 'P1') return true;
   return verifySolo && c.agreement === 1;
 }
 
@@ -178,9 +184,11 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 const HEDGE =
   /\b(unclear|uncertain|not sure|cannot (?:be )?(?:determine|confirm|verify|tell)|could not (?:determine|confirm|verify)|unable to|insufficient|no access|without (?:seeing|access)|might|maybe|possibly|appears to|seems to|likely)\b/i;
 
-type Judgement = { refuted: boolean; reason: string } | null;
+export type Judgement = { refuted: boolean; reason: string } | null;
 
-function readJudgement(raw: unknown): Judgement {
+const FILE_LINE = /(?:^|[\s`('"\[])([A-Za-z_][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9_.-]+)*):[1-9]\d*\b/;
+
+export function readJudgement(raw: unknown): Judgement {
   if (!isRecord(raw)) return null;
   const reasonRaw = raw['reason'];
   const reason = typeof reasonRaw === 'string' && reasonRaw.trim() ? reasonRaw.trim() : '';
@@ -191,11 +199,18 @@ function readJudgement(raw: unknown): Judgement {
   else if (refutedRaw === 'true' || refutedRaw === 'false') refuted = refutedRaw === 'true';
   else return null;
 
-  // Asymmetry, deliberately: a hedged "not refuted" is not evidence the finding is real.
-  if (!refuted && reason && HEDGE.test(reason)) {
-    return { refuted: true, reason: `verifier hedged: ${reason}` };
+  // Asymmetry, deliberately: a hedged or unsupported "not refuted" is not evidence the
+  // finding is real. Confirmations must cite the concrete file:line the prompt required.
+  if (!refuted) {
+    if (!reason) {
+      return { refuted: true, reason: 'verifier supplied no evidence for its confirmation' };
+    }
+    if (HEDGE.test(reason)) return { refuted: true, reason: `verifier hedged: ${reason}` };
+    if (!FILE_LINE.test(reason)) {
+      return { refuted: true, reason: `verifier supplied no concrete file:line evidence: ${reason}` };
+    }
   }
-  return { refuted, reason: reason || (refuted ? 'refuted without a reason' : 'survived refutation') };
+  return { refuted, reason: reason || 'refuted without a reason' };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -419,7 +434,12 @@ export async function verifyClusters(clusters: Cluster[], o: VerifyOptions): Pro
   }
 
   const selected = clusters.filter((c) =>
-    needsVerification(c, o.verifySolo, o.minimumAgreement),
+    needsVerification(
+      c,
+      o.verifySolo,
+      o.minimumAgreement,
+      o.allowSeriousBelowThreshold,
+    ),
   );
   if (selected.length === 0) return { clusters, cost: { ...ZERO_COST }, calls: 0 };
 

@@ -3,13 +3,14 @@ independently and landed on nearby lines. Decide which of these findings describ
 same defect** and, for each group you merge, write the one title and body that should be
 posted in their place.
 
-Two findings are the same defect only when they have the same trigger, faulty mechanism,
-observable consequence, and independently actionable fix. Fixing one must necessarily
-fix the other. Same file, adjacent lines, shared symbols, a related symptom, or a shared
-high-level root cause is not enough — a retry state machine and a callback that discards
-its promise are two findings even when both break the same autosave flow. When unsure,
-leave them apart: posting two related comments is a small cost, merging two different
-bugs hides one.
+Two findings are the same defect when they identify the same faulty mechanism and the
+same independently actionable fix, with substantially overlapping trigger and consequence.
+One report may name only a subset of the affected entry points or observable effects; that
+does not make it a separate bug when fixing the shared mechanism necessarily fixes both.
+Same file, adjacent lines, shared symbols, a related symptom, or a shared high-level root
+cause is not enough — a retry state machine and a callback that discards its promise are
+two findings even when both break the same autosave flow. When unsure, leave them apart:
+posting two related comments is a small cost, merging two different bugs hides one.
 
 Anchor lines do not have to match. One model may point at an effect and another at its
 catch or caller even though they describe the same trigger and mechanism. Judge the four
@@ -35,9 +36,9 @@ Rules, in priority order:
 
 ## Output
 
-Write strict JSON to `{{FINDINGS_PATH}}` with your write tool, and reply with the same
-JSON and nothing else — no prose, no code fence, no explanation. The file is read first;
-the reply is the fallback:
+Reply with strict JSON and nothing else — no prose, no code fence, no explanation. If a
+write tool is available, also write the same JSON to `{{FINDINGS_PATH}}`; the reply is
+always required because read-only review harnesses intentionally disable writes:
 
 {
   "merges": [{

@@ -67,8 +67,10 @@ with a model call only for possible semantic duplicates:
 3. **Exact collapse** *(free)* — normalized identical reports, or identical structured
    trigger/mechanism/consequence/fix claims, collapse without inference.
 4. **Similarity + referee** *(cheap)* — weighted prose/symbol similarity nominates possible
-   duplicates. One small call per block merges them only when trigger, mechanism,
-   consequence, and fix all match.
+   duplicates. A small call per block merges them only when the faulty mechanism and fix
+   match and their affected behavior substantially overlaps; extra entry points or effects
+   in one report do not make the same bug new. A malformed partition is retried once, then
+   fails open to separate findings so deduplication can never hide a report.
 5. **Coverage audit** *(free)* — prove every raw atomic finding belongs to exactly one final
    published or explicitly suppressed result. Any accounting failure discards the merge
    decisions and falls back to lossless singletons.
@@ -191,7 +193,7 @@ the way its vendor intended.
 | Harness | CLI | Models | Reports cost | Sandbox |
 |---|---|---|---|---|
 | `claude-code` | `claude -p` | any Anthropic model | ✅ `total_cost_usd` | tool removal |
-| `codex` | `codex exec` | any OpenAI model | ❌ → estimated | `--sandbox` (kernel) |
+| `codex` | `codex exec` | any OpenAI model | ❌ → estimated | split filesystem profile (kernel) |
 | `opencode` | `opencode run` | anything on [models.dev](https://models.dev) — Fireworks, Groq, OpenRouter, … | ✅ per-step `cost` | tool removal |
 | `grok-build` | `grok -p` | Grok models | ✅ `total_cost_usd` | Landlock |
 | `kimi-code` | `kimi -p` | Kimi K3 on Fireworks | ❌ → estimated from session usage | tool allowlist + isolated runtime |
@@ -338,7 +340,9 @@ The differentiator, and the thing that must never be wrong.
   model to see a diff pays the write premium, and re-reviews on later pushes get cheap.
 - **Codex `input_tokens` includes cached tokens; Claude's and opencode's do not.** Normalizing
   naively overbills a cache-heavy Codex run by up to an order of magnitude. There is a
-  regression test pinned to a real `turn.completed` payload for exactly this.
+  regression test pinned to a real `turn.completed` payload for exactly this. A Codex turn
+  can contain several provider requests, so its aggregate is never treated as one request
+  when deciding whether a long-context price cliff applies.
 - **Kimi K3 runs through Fireworks.** Kimi Code exposes token usage but not provider USD,
   so Juror multiplies those measured tokens by the versioned Fireworks list price and
   labels the row `estimated`.
@@ -363,7 +367,10 @@ It is designed for that.
    Prompt injection can at worst produce a bad review comment — never a push or merge.
 2. **Default trigger is `pull_request`, not `pull_request_target`.** Fork PRs get no secrets
    and no review, by design.
-3. **The repository is read-only to every juror.** Codex uses its read-only kernel sandbox;
+3. **The repository is read-only to every juror.** Codex uses a kernel-enforced split
+   filesystem profile that exposes only runtime files, the sealed checkout, and Juror scratch;
+   its model-controlled shells inherit no process environment or shell snapshot, so the
+   provider credential remains available to the Codex client but not to commands it runs.
    Claude, Grok Build, opencode, and Kimi receive read/search tools only. Generic OpenAI
    resolves symlinks and may write only one exact report path outside the repository. Claude,
    Codex, and Kimi start from private temporary directories so PR-controlled hooks, MCP,
@@ -379,8 +386,11 @@ It is designed for that.
 6. **Repository rules come from the base revision.** Juror places the root `AGENTS.md` and
    every applicable nested `AGENTS.md` directly in reviewer and verifier prompts. A PR can
    update those files for future work, but cannot rewrite the policy used to review itself.
-   If the base object is unavailable locally, Juror warns and only uses a workspace copy the
-   visible diff does not change.
+   If the base object is unavailable locally, Juror warns and refuses to treat any workspace
+   copy as policy; use a full checkout (`fetch-depth: 0`) so the trusted rules can be loaded.
+   The GitHub PR title and description are also included as explicitly untrusted intent
+   context, so reviewers can recognize documented staged migrations without treating author
+   claims as proof or executable instructions.
 7. **Execution configuration also comes from the base revision.** A pull request cannot
    redirect a provider endpoint, select `GITHUB_TOKEN` as a model secret, or enable a new
    harness while it is being reviewed. If the base object is unavailable, secure defaults win.

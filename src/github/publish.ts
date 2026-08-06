@@ -203,11 +203,14 @@ async function upsertSticky(
   const safe = clamp(redact(body), warnings);
 
   const existing = await o.client.listIssueComments(o.prNumber);
-  const sticky = existing.find(
-    (c) => c.user.login.endsWith('[bot]') && c.body.includes(STICKY_MARKER),
-  );
+  const stickies = existing
+    .filter((c) => c.user.login.endsWith('[bot]') && c.body.includes(STICKY_MARKER))
+    .sort((a, b) => b.id - a.id);
+  let foundUneditable = false;
 
-  if (sticky) {
+  // GitHub lists oldest-first. After a bot identity change, the oldest marker may be an
+  // uneditable legacy comment while a newer replacement belongs to the current token.
+  for (const sticky of stickies) {
     try {
       await o.client.updateIssueComment(sticky.id, safe);
       log.info(`updated the juror sticky comment (#${sticky.id})`);
@@ -216,9 +219,11 @@ async function upsertSticky(
       // A different bot can carry the marker, or the comment can disappear between list
       // and update. In either case, create our own instead of losing publication.
       if (!isGitHubApiError(e) || (e.status !== 403 && e.status !== 404)) throw e;
-      warnings.push('the previous bot summary was not editable; posted a new one');
+      foundUneditable = true;
     }
   }
+
+  if (foundUneditable) warnings.push('the previous bot summary was not editable; posted a new one');
 
   const created = await o.client.createIssueComment(o.prNumber, safe);
   log.info(`posted the juror sticky comment (#${created.id})`);

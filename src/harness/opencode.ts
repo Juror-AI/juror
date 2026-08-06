@@ -84,6 +84,11 @@ function realOrSelf(p: string): string {
   }
 }
 
+function runtimeHome(ctx: RunContext): string {
+  const key = createHash('sha256').update(resolve(ctx.scratchDir)).digest('hex').slice(0, 16);
+  return join(tmpdir(), 'juror-opencode', key);
+}
+
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
@@ -170,17 +175,19 @@ export const opencodeHarness = {
     // ever got corrupted would otherwise poison every future run of that model; the
     // symptom is a run that dies in about a second with empty output, which reads like a
     // model failure and is not one. Re-initialising costs ~1 MB and well under a second.
-    const key = createHash('sha256').update(resolve(ctx.scratchDir)).digest('hex').slice(0, 16);
-    const home = join(tmpdir(), 'juror-opencode', key);
+    const home = runtimeHome(ctx);
     rmSync(home, { recursive: true, force: true });
     const dataHome = join(home, 'data');
     const cacheHome = join(home, 'cache');
     const configHome = join(home, 'config');
     const stateHome = join(home, 'state');
-    mkdirSync(dataHome, { recursive: true });
-    mkdirSync(cacheHome, { recursive: true });
-    mkdirSync(configHome, { recursive: true });
-    mkdirSync(stateHome, { recursive: true });
+    // Session SQLite rows can contain prompt and source excerpts. The root mode protects
+    // every child even on a permissive umask; explicit child modes make the intent clear.
+    mkdirSync(home, { recursive: true, mode: 0o700 });
+    mkdirSync(dataHome, { recursive: true, mode: 0o700 });
+    mkdirSync(cacheHome, { recursive: true, mode: 0o700 });
+    mkdirSync(configHome, { recursive: true, mode: 0o700 });
+    mkdirSync(stateHome, { recursive: true, mode: 0o700 });
 
     const argv = [
       'opencode',
@@ -196,7 +203,9 @@ export const opencodeHarness = {
       realOrSelf(ctx.repoDir),
       '-m',
       ctx.model,
-      ctx.prompt,
+      'Read the attached review prompt completely, follow it exactly, and return the requested JSON report.',
+      '--file',
+      ctx.promptPath,
     ];
 
     // `variant` is opencode's reasoning-effort knob (low|high|max on the reasoning models).
@@ -328,5 +337,9 @@ export const opencodeHarness = {
       rawText,
       diagnostics,
     };
+  },
+
+  cleanup(ctx: RunContext): void {
+    rmSync(runtimeHome(ctx), { recursive: true, force: true });
   },
 } satisfies Harness;

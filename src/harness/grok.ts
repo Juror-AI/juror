@@ -1,12 +1,16 @@
 /**
  * Grok Build adapter.
  *
- * The flags below are confirmed present on grok 0.2.118, but no `XAI_API_KEY` was
- * available when this was written, so the **output shape is unverified** — see
- * `docs/harness-notes.md`. Everything in `parse()` is therefore written to survive
- * a shape we have not seen: try the documented keys in order, and when nothing matches,
- * report `usage: null` so the cost engine prints "unknown" rather than a made-up number.
+ * The flags below are confirmed present on grok 0.2.118. The output parser remains
+ * deliberately tolerant because Grok has emitted more than one headless envelope shape —
+ * see `docs/harness-notes.md`. It tries documented keys in order and, when nothing matches,
+ * reports `usage: null` so the cost engine prints "unknown" rather than a made-up number.
  */
+
+import { createHash } from 'node:crypto';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 
 import type {
   CanonicalUsage,
@@ -36,6 +40,45 @@ function num(v: unknown): number {
 
 function finiteOrNull(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+/**
+ * Grok discovers rules, hooks, plugins, skills, MCP servers, and permission overrides from
+ * both its working directory and home. Neither may be the reviewed checkout or the
+ * operator's real home while a provider credential is present.
+ */
+function runtimeRoot(ctx: RunContext): string {
+  const key = createHash('sha256').update(resolve(ctx.scratchDir)).digest('hex').slice(0, 16);
+  let root = join(tmpdir(), 'juror-grok', key);
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  try {
+    root = realpathSync(root);
+  } catch {
+    // The directory was just created; `resolve` is still a safe cleanup target if a
+    // platform-specific realpath race removes it before this call.
+    root = resolve(root);
+  }
+  return root;
+}
+
+function physical(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+function tomlString(value: string): string {
+  // JSON strings are valid TOML basic strings and correctly escape Windows separators.
+  return JSON.stringify(value);
+}
+
+function isAbnormalStopReason(value: unknown): boolean {
+  return (
+    typeof value === 'string' &&
+    /(?:max[_ -]?turn|turn[_ -]?limit|budget|cancel|interrupt|error|timeout|length)/i.test(value)
+  );
 }
 
 /** `readReportFile` is another module's; a throw there must not fail the whole run. */
@@ -136,10 +179,29 @@ export const grokHarness = {
     if (!binPath) {
       throw new Error('grok not found on PATH — install Grok Build or disable the model in .juror.yml');
     }
-    const io = await run([binPath, '--version'], {
-      timeoutMs: 15_000,
-      env: { ...env, GROK_DISABLE_AUTOUPDATER: '1' },
-    });
+    // Even version probing should not inherit project/user startup discovery or a paid key.
+    // Current Grok exits before loading extensions here, but keeping the probe isolated makes
+    // that an implementation detail rather than a credential-bearing assumption.
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'juror-grok-version-')));
+    const home = join(root, 'home');
+    const grokHome = join(home, '.grok');
+    mkdirSync(grokHome, { recursive: true, mode: 0o700 });
+    let io: HarnessIO;
+    try {
+      io = await run([binPath, '--version'], {
+        cwd: root,
+        timeoutMs: 15_000,
+        env: {
+          ...env,
+          HOME: home,
+          GROK_HOME: grokHome,
+          XAI_API_KEY: undefined,
+          GROK_DISABLE_AUTOUPDATER: '1',
+        },
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
     const version = (io.stdout.trim() || io.stderr.trim()).split('\n')[0]?.trim() ?? '';
     const warnings: string[] = [];
     if (io.exitCode !== 0) warnings.push(`grok --version exited ${io.exitCode}`);
@@ -148,19 +210,91 @@ export const grokHarness = {
   },
 
   command(ctx: RunContext): HarnessCommand {
+    const root = runtimeRoot(ctx);
+    // A retry gets a fresh session/config tree. Session transcripts can contain source and
+    // prompt excerpts, so every directory is private even on a permissive runner umask.
+    rmSync(root, { recursive: true, force: true });
+    const home = join(root, 'home');
+    const grokHome = join(home, '.grok');
+    const cwd = join(root, 'workspace');
+    const cacheHome = join(root, 'cache');
+    const configHome = join(root, 'config');
+    const dataHome = join(root, 'data');
+    const stateHome = join(root, 'state');
+    const tempHome = join(root, 'tmp');
+    for (const dir of [root, home, grokHome, cwd, cacheHome, configHome, dataHome, stateHome, tempHome]) {
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+    }
+
+    // `strict` alone can read only the private cwd and system paths. Add exactly the sealed
+    // review checkout and Juror scratch as read-only roots; PR-controlled `.grok` files are
+    // children to inspect, never startup configuration because Grok starts outside the repo.
+    writeFileSync(
+      join(grokHome, 'sandbox.toml'),
+      [
+        '[profiles.juror-review]',
+        'extends = "strict"',
+        `read_only = [${tomlString(physical(ctx.repoDir))}, ${tomlString(physical(ctx.scratchDir))}]`,
+        '',
+      ].join('\n'),
+      { encoding: 'utf8', mode: 0o600 },
+    );
+    writeFileSync(
+      join(grokHome, 'config.toml'),
+      [
+        '[cli]',
+        'auto_update = false',
+        '[features]',
+        'telemetry = false',
+        'codebase_indexing = false',
+        'remote_fetch = false',
+        '[session]',
+        'load_envrc = false',
+        '[hints]',
+        'project_picker_disabled = true',
+        '[compat.cursor]',
+        'skills = false',
+        'rules = false',
+        'agents = false',
+        'mcps = false',
+        'hooks = false',
+        'sessions = false',
+        '[compat.claude]',
+        'skills = false',
+        'rules = false',
+        'agents = false',
+        'mcps = false',
+        'hooks = false',
+        'sessions = false',
+        '[compat.codex]',
+        'sessions = false',
+        '',
+      ].join('\n'),
+      { encoding: 'utf8', mode: 0o600 },
+    );
+
     const argv = [
       'grok',
-      '-p',
-      ctx.prompt,
+      '--prompt-file',
+      ctx.promptPath,
       '-m',
       ctx.model,
       '--output-format',
       'json',
-      // Kernel-enforced (Landlock on Linux runners), unlike Claude Code's tool removal.
+      // Kernel-enforced (Landlock/bubblewrap on Linux, Seatbelt on macOS), unlike a prompt
+      // instruction. The named profile lives only in the private GROK_HOME above.
       '--sandbox',
-      'workspace',
+      'juror-review',
       '--tools',
-      'read_file,grep,list_dir',
+      'Read,Grep,Glob',
+      // `--tools` filters built-ins but deliberately keeps MCP meta-tools. There should be
+      // no discovered servers in this empty home/cwd; the deny is a second independent gate.
+      '--deny',
+      'MCPTool(*)',
+      '--permission-mode',
+      'dontAsk',
+      '--no-subagents',
+      '--no-memory',
       '--disable-web-search',
     ];
     // Grok has no documented unlimited sentinel, so omission is the unbounded form.
@@ -176,9 +310,19 @@ export const grokHarness = {
     return {
       argv,
       // An auto-update mid-run silently changes the binary we asserted the version of.
-      env: { ...ctx.env, GROK_DISABLE_AUTOUPDATER: '1' },
+      env: {
+        ...ctx.env,
+        HOME: home,
+        GROK_HOME: grokHome,
+        XDG_CACHE_HOME: cacheHome,
+        XDG_CONFIG_HOME: configHome,
+        XDG_DATA_HOME: dataHome,
+        XDG_STATE_HOME: stateHome,
+        TMPDIR: tempHome,
+        GROK_DISABLE_AUTOUPDATER: '1',
+      },
       stdin: '',
-      cwd: ctx.repoDir,
+      cwd,
     };
   },
 
@@ -215,7 +359,7 @@ export const grokHarness = {
         usage: null,
         reportedCostUsd: null,
         turns: 0,
-        truncated: io.timedOut,
+        truncated: io.timedOut || io.exitCode !== 0,
         rawText: io.stdout.trim(),
         diagnostics,
       };
@@ -232,15 +376,26 @@ export const grokHarness = {
 
     const rawText = pickText(root) || io.stdout.trim();
     recoverFromText(rawText);
+    const turns = Math.trunc(num(root['num_turns']) || num(root['turns']));
+    const partial =
+      io.timedOut ||
+      io.exitCode !== 0 ||
+      root['is_error'] === true ||
+      isAbnormalStopReason(stopReason) ||
+      (ctx.maxTurns > 0 && turns >= ctx.maxTurns);
 
     return {
       report,
       usage,
       reportedCostUsd: finiteOrNull(root['total_cost_usd']) ?? finiteOrNull(root['cost']),
-      turns: Math.trunc(num(root['num_turns']) || num(root['turns'])),
-      truncated: io.timedOut,
+      turns,
+      truncated: partial,
       rawText,
       diagnostics,
     };
+  },
+
+  cleanup(ctx: RunContext): void {
+    rmSync(runtimeRoot(ctx), { recursive: true, force: true });
   },
 } satisfies Harness;

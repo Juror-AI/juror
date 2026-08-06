@@ -28,6 +28,8 @@ describe('Claude Code command', () => {
     expect(command.argv).toContain('--no-session-persistence');
     expect(command.argv[command.argv.indexOf('--tools') + 1]).toBe('Read,Grep,Glob');
     expect(command.argv[command.argv.indexOf('--add-dir') + 1]).toBe(ctx.repoDir);
+    expect(command.argv).not.toContain(ctx.prompt);
+    expect(command.stdin).toBe(ctx.prompt);
   });
 
   it('omits the turn flag in unlimited mode', () => {

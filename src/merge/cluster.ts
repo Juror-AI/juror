@@ -119,6 +119,40 @@ function setJaccard(a: Set<string>, b: Set<string>): number {
 }
 
 /**
+ * Coarse prose lexemes for cross-file duplicate routing.
+ *
+ * Systemic findings are often anchored in different files and name no shared code symbol.
+ * A tiny suffix normalizer is enough to match "duplicate"/"duplicated" and
+ * "consumer"/"consumers" without pretending this is a semantic merge decision. The score
+ * can only nominate a pair for the referee.
+ */
+function proseLexemes(text: string): Set<string> {
+  const out = new Set<string>();
+  for (const raw of text.match(TOKEN_RE) ?? []) {
+    let token = raw.toLowerCase();
+    if (STOPWORDS.has(token)) continue;
+    if (!isIdentifier(raw)) {
+      if (token.length > 5 && token.endsWith('ing')) token = token.slice(0, -3);
+      else if (token.length > 4 && token.endsWith('ed')) token = token.slice(0, -2);
+      else if (token.length > 4 && token.endsWith('es')) token = token.slice(0, -2);
+      else if (token.length > 3 && token.endsWith('s')) token = token.slice(0, -1);
+    }
+    if (token.length > 1 && !STOPWORDS.has(token)) out.add(token);
+  }
+  return out;
+}
+
+function proseContainment(a: string, b: string): { score: number; shared: number } {
+  const left = proseLexemes(a);
+  const right = proseLexemes(b);
+  const smaller = Math.min(left.size, right.size);
+  if (smaller === 0) return { score: 0, shared: 0 };
+  let shared = 0;
+  for (const token of left) if (right.has(token)) shared++;
+  return { score: shared / smaller, shared };
+}
+
+/**
  * Minimum symbols before containment is distinctive rather than coincidental.
  *
  * One shared symbol is worthless — containment is trivially 1.0 and half the findings in a
@@ -248,6 +282,14 @@ export function buildCluster(
   const best = ranked[0];
   if (!best) throw new Error('buildCluster() called with no members');
 
+  // Canonical prose/severity should come from the strongest report, but its location may
+  // be unusable. Keep location selection independent so a P0 outside the diff cannot lend
+  // its line to the `exact` anchor supplied by a lower-severity member.
+  const located =
+    [...ranked].sort(
+      (a, b) => ANCHOR_RANK[a.anchor] - ANCHOR_RANK[b.anchor] || byQuality(a, b),
+    )[0] ?? best;
+
   // Distinct models only. Two findings from one model are one voice, however loudly it
   // repeated itself — inflating agreement here would defeat the entire publish rule.
   const modelIds: string[] = [];
@@ -265,17 +307,19 @@ export function buildCluster(
 
   // Anchoring may have moved the start line; carry the range along by the same delta so a
   // multi-line finding keeps its length instead of pointing at an unrelated span.
-  const drift = best.anchoredLine - best.line;
+  const drift = located.anchoredLine - located.line;
   const endLine =
-    best.end_line === null ? null : Math.max(best.anchoredLine, best.end_line + drift);
+    located.end_line === null
+      ? null
+      : Math.max(located.anchoredLine, located.end_line + drift);
 
   const title = canonical?.title?.trim() || best.title;
   const body = canonical?.body?.trim() || best.body;
 
   return {
-    id: clusterId(best.path, title),
-    path: best.path,
-    line: best.anchoredLine,
+    id: clusterId(located.path, title),
+    path: located.path,
+    line: located.anchoredLine,
     endLine,
     severity: best.severity,
     category: best.category,
@@ -420,6 +464,30 @@ export function clusterFindings(
 
     for (const group of groups.values()) {
       clusters.push(buildCluster(group, group.length > 1 ? ['exact'] : ['singleton']));
+    }
+  }
+
+  // A single root cause can affect several copied modules or be anchored at a caller in one
+  // file and the failing implementation in another. Same-path blocking cannot see those
+  // duplicates. Compare cross-file pairs conservatively: require meaningful containment and
+  // at least four shared lexemes, then ask the referee. Never merge locally.
+  const crossPathFloor = Math.max(o.distinctThreshold, 0.35);
+  for (let i = 0; i < findings.length; i++) {
+    const a = findings[i];
+    if (!a) continue;
+    for (let j = i + 1; j < findings.length; j++) {
+      const b = findings[j];
+      if (!b || a.path === b.path) continue;
+      const whole = proseContainment(text(a), text(b));
+      const titles = proseContainment(a.title, b.title);
+      const eligibleLexical = [whole, titles]
+        .filter((candidate) => candidate.shared >= 4)
+        .sort((left, right) => right.score - left.score)[0];
+      if (!eligibleLexical) continue;
+      const score = Math.max(comparisonScore(a, b, o.mergeThreshold), eligibleLexical.score);
+      if (score >= crossPathFloor) {
+        ambiguousPairs.push({ a, b, similarity: score });
+      }
     }
   }
 

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -575,5 +575,18 @@ describe('rolling spend', () => {
       }),
     );
     expect(loadRolling(dir)).toMatchObject({ totalUsd: 2, prCount: 1 });
+  });
+
+  it('reaps a stale cross-process lock before updating the ledger', () => {
+    const dir = tmp();
+    const lock = join(dir, 'rolling.lock');
+    mkdirSync(lock);
+    writeFileSync(join(lock, 'owner'), 'dead-process\n');
+    const stale = new Date(Date.now() - 5 * 60_000);
+    utimesSync(lock, stale, stale);
+
+    const result = recordSpend(dir, 0.75, 'owner/repo#4@ddd');
+    expect(result).toMatchObject({ totalUsd: 0.75, prCount: 1 });
+    expect(loadRolling(dir)).toEqual(result);
   });
 });

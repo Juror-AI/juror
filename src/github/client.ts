@@ -16,6 +16,7 @@ import { log, redact } from '../util/log.js';
 export interface PullMeta {
   number: number;
   title: string;
+  body: string;
   baseSha: string;
   headSha: string;
   baseRef: string;
@@ -66,7 +67,8 @@ export interface GitHubApi {
   readonly repo: string;
   request<T>(method: string, path: string, body?: unknown): Promise<T>;
   getPull(n: number): Promise<PullMeta>;
-  getPullDiff(n: number): Promise<string>;
+  /** Immutable three-dot comparison for one captured pull-request snapshot. */
+  getCompareDiff(baseSha: string, headSha: string): Promise<string>;
   listIssueComments(n: number): Promise<IssueComment[]>;
   listReviewComments(n: number): Promise<ReviewComment[]>;
   createIssueComment(n: number, body: string): Promise<{ id: number }>;
@@ -193,8 +195,11 @@ export class GitHubClient implements GitHubApi {
     return toPullMeta(await this.request<unknown>('GET', path), path);
   }
 
-  async getPullDiff(n: number): Promise<string> {
-    const path = `/repos/${this.#repoPath()}/pulls/${n}`;
+  async getCompareDiff(baseSha: string, headSha: string): Promise<string> {
+    // Both sides are commit ids captured from `getPull()`. Unlike `/pulls/{n}`, this path
+    // cannot start returning a newer diff if the author pushes while the request is in flight.
+    const comparison = `${encodeURIComponent(baseSha)}...${encodeURIComponent(headSha)}`;
+    const path = `/repos/${this.#repoPath()}/compare/${comparison}`;
     const { text } = await this.#send(
       'GET',
       path,
@@ -413,6 +418,7 @@ function toPullMeta(v: unknown, path: string): PullMeta {
   return {
     number: asNumber(o.number),
     title: asString(o.title),
+    body: asString(o.body),
     baseSha: asString(base.sha),
     headSha: asString(head.sha),
     baseRef: asString(base.ref),

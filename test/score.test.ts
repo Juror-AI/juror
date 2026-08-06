@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyPublishRules, requiredAgreement, scoreReview } from '../src/merge/score.js';
-import { needsVerification } from '../src/merge/verify.js';
+import { needsVerification, readJudgement } from '../src/merge/verify.js';
 import { defaultConfig } from '../src/config.js';
 import type { Cluster, JurorConfig, ModelReport, ModelRun, PublishMode, Severity } from '../src/types.js';
 
@@ -93,7 +93,7 @@ function run(modelLabel: string, mergeConfidence: number | null): ModelRun {
 
 describe('requiredAgreement', () => {
   it('resolves majority, all, and explicit counts', () => {
-    expect(requiredAgreement('majority', 4)).toBe(2);
+    expect(requiredAgreement('majority', 4)).toBe(3);
     expect(requiredAgreement('majority', 3)).toBe(2);
     expect(requiredAgreement('majority', 1)).toBe(1);
     expect(requiredAgreement('all', 4)).toBe(4);
@@ -111,6 +111,27 @@ describe('needsVerification', () => {
     expect(needsVerification(cluster({ severity: 'P0', agreement: 2 }), true, 4)).toBe(false);
     expect(needsVerification(cluster({ severity: 'P0', agreement: 4 }), true, 4)).toBe(true);
     expect(needsVerification(cluster({ severity: 'P2', agreement: 1 }), true, 1)).toBe(true);
+  });
+
+  it('keeps serious exceptions without verifying below-threshold P2/P3 findings', () => {
+    expect(needsVerification(cluster({ severity: 'P1', agreement: 1 }), true, 3, true)).toBe(true);
+    expect(needsVerification(cluster({ severity: 'P2', agreement: 1 }), true, 3, true)).toBe(false);
+    expect(needsVerification(cluster({ severity: 'P3', agreement: 1 }), true, 3, true)).toBe(false);
+  });
+});
+
+describe('readJudgement', () => {
+  it('accepts only evidence-backed, unhedged confirmations', () => {
+    expect(
+      readJudgement({ refuted: false, reason: 'reachable from the handler at src/app.ts:40' }),
+    ).toMatchObject({ refuted: false });
+    expect(readJudgement({ refuted: false, reason: '' })).toMatchObject({ refuted: true });
+    expect(readJudgement({ refuted: false, reason: 'the failure is reachable' })).toMatchObject({
+      refuted: true,
+    });
+    expect(
+      readJudgement({ refuted: false, reason: 'possibly reachable at src/app.ts:40' }),
+    ).toMatchObject({ refuted: true });
   });
 });
 
@@ -149,7 +170,7 @@ describe('applyPublishRules', () => {
   });
 
   it('publishes at or above the required agreement', () => {
-    const [out] = applyPublishRules([cluster({ severity: 'P2', agreement: 2 })], c, 4);
+    const [out] = applyPublishRules([cluster({ severity: 'P2', agreement: 3 })], c, 4);
     expect(out?.published).toBe(true);
     expect(out?.suppressedReason).toBeNull();
   });

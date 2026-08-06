@@ -319,6 +319,19 @@ function findingsSection(published: Cluster[], models: number): string {
       `| ${i + 1} | ${severityCell(c.severity)} | \`${mdCell(location(c))}\` | ${mdCell(c.title)} | \`${dots(c.agreement, models)}\` ${c.agreement}/${models} |`,
     );
   });
+  // Inline review comments are best-effort: GitHub can reject an anchor, and the configured
+  // cap can overflow otherwise publishable findings. Preserve every complete finding body
+  // in the sticky summary so the table can never become a title-only loss channel.
+  lines.push('', '<details><summary>Finding details</summary>', '');
+  published.forEach((c, i) => {
+    lines.push(
+      `#### ${i + 1}. ${c.severity} \`${mdCell(location(c))}\` — ${mdText(c.title)}`,
+      '',
+      mdBlock(c.body),
+      '',
+    );
+  });
+  lines.push('</details>');
   return lines.join('\n');
 }
 
@@ -327,6 +340,12 @@ function coverageLine(r: ReviewResult): string {
   const base =
     `${coverage.accountedFor}/${coverage.rawFindings} raw model findings accounted for` +
     ` → ${coverage.uniqueFindings} unique finding${coverage.uniqueFindings === 1 ? '' : 's'}`;
+  if (r.diff.truncated) {
+    const findingAudit = coverage.complete
+      ? `${base}; no received model findings were dropped`
+      : `${base}; the finding audit is also incomplete`;
+    return `**⚠ Review coverage incomplete:** The diff was truncated before models ran. ${mdText(findingAudit)}.`;
+  }
   if (coverage.complete) return `<sub>Coverage audit: ${base}; none dropped.</sub>`;
   return `**⚠ Coverage audit incomplete:** ${mdText(base)}.`;
 }

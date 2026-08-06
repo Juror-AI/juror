@@ -23,7 +23,9 @@ export function requiredAgreement(
   minAgreement: JurorConfig['consensus']['min_agreement'],
   modelsRun: number,
 ): number {
-  if (minAgreement === 'majority') return Math.ceil(modelsRun / 2);
+  // Majority means strictly more than half. `ceil(n / 2)` accidentally accepted a 2-2
+  // split when four models ran.
+  if (minAgreement === 'majority') return Math.floor(modelsRun / 2) + 1;
   if (minAgreement === 'all') return modelsRun;
   return Math.max(1, Math.round(minAgreement));
 }

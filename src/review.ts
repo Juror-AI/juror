@@ -27,7 +27,7 @@ import { buildCluster, clusterFindings } from './merge/cluster.js';
 import { auditClusterMembership, buildFindingCoverage } from './merge/coverage.js';
 import { refereeClusters } from './merge/referee.js';
 import { verifyClusters } from './merge/verify.js';
-import { applyPublishRules, scoreReview } from './merge/score.js';
+import { applyPublishRules, requiredAgreement, scoreReview } from './merge/score.js';
 import { loadPricing, totalCost } from './cost/compute.js';
 import { fanOut } from './harness/runner.js';
 import { synthesizeSummary } from './render/summary.js';
@@ -49,6 +49,8 @@ export interface ReviewOptions {
   signal?: AbortSignal;
   /** Preloaded before an ephemeral model checkout has its `.git` pointer removed. */
   instructions?: LoadedAgentInstructions;
+  /** GitHub-authored context for distinguishing intentional scope from accidental omission. */
+  pullRequest?: { title: string; body: string };
 }
 
 export async function runReview(o: ReviewOptions): Promise<ReviewResult> {
@@ -90,7 +92,12 @@ export async function runReview(o: ReviewOptions): Promise<ReviewResult> {
     if (instructions.paths.length) {
       log.debug(`repository instructions: ${instructions.paths.join(', ')}`);
     }
-    const promptVars = reviewPromptVars(o.diff, o.repoDir, instructions.rendered);
+    const promptVars = reviewPromptVars(
+      o.diff,
+      o.repoDir,
+      instructions.rendered,
+      o.pullRequest,
+    );
 
     // ── 2. Budget precheck ───────────────────────────────────────────────────
     const plan = planModelsWithinTarget(requestedConfig, o.diff, o.secrets, pricing, warnings);
@@ -189,6 +196,10 @@ export async function runReview(o: ReviewOptions): Promise<ReviewResult> {
     // cannot affect the result. Skip it instead of charging for evidence we will not use.
     const consensusMode = config.review.publish_mode === 'consensus';
     const verifyModel = consensusMode ? findModel(config, config.consensus.verify_model) : null;
+    const verificationThreshold = requiredAgreement(
+      config.consensus.min_agreement,
+      produced.length,
+    );
     const verified = await verifyClusters(losslessClusters, {
       modelRun: verifyModel,
       pricing,
@@ -198,7 +209,8 @@ export async function runReview(o: ReviewOptions): Promise<ReviewResult> {
       promptTemplate: consensusMode ? loadPromptTemplate('verify') : '',
       diff: o.diff,
       verifySolo: config.consensus.verify_solo_findings,
-      minimumAgreement: config.consensus.min_agreement === 'all' ? produced.length : 1,
+      minimumAgreement: verificationThreshold,
+      allowSeriousBelowThreshold: config.consensus.min_agreement !== 'all',
       repoInstructions: instructions.rendered,
       ...(o.signal ? { signal: o.signal } : {}),
     });
@@ -312,21 +324,34 @@ async function removeScratch(dir: string): Promise<void> {
  * attacker-controlled, so a PR containing the literal text `{{FINDINGS_PATH}}` would get it
  * substituted by the second pass. One left-to-right pass never rescans what it just wrote.
  */
-function reviewPromptVars(
+const MAX_PR_BODY_CHARS = 20_000;
+
+export function reviewPromptVars(
   diff: DiffContext,
   repoDir: string,
   repoInstructions: string,
+  pullRequest?: { title: string; body: string },
 ): Record<string, string> {
   const changed = diff.files
     .filter((f) => !f.ignored)
     .map((f) => `- ${f.path} (+${f.additions}/-${f.deletions})`)
     .join('\n');
 
+  const body = pullRequest?.body ?? '';
+  const boundedBody =
+    body.length > MAX_PR_BODY_CHARS
+      ? `${body.slice(0, MAX_PR_BODY_CHARS)}\n\n[PR body truncated by Juror]`
+      : body;
+  const prContext = pullRequest
+    ? JSON.stringify({ title: pullRequest.title, body: boundedBody }, null, 2)
+    : '(No pull request title or description was supplied for this local review.)';
+
   return {
     REPO_DIR: repoDir,
     BASE_SHA: diff.baseSha,
     HEAD_SHA: diff.headSha,
     CHANGED_FILES: changed || '(none)',
+    PR_CONTEXT: prContext,
     REPO_INSTRUCTIONS: repoInstructions,
     DIFF: diff.patch,
   };

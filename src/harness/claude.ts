@@ -118,7 +118,6 @@ export const claudeHarness: Harness = {
       'claude',
       '--bare',
       '-p',
-      ctx.prompt,
       '--model',
       ctx.model,
       '--output-format',
@@ -135,7 +134,9 @@ export const claudeHarness: Harness = {
     if (ctx.budgetUsd !== null && ctx.budgetUsd > 0) {
       argv.push('--max-budget-usd', String(ctx.budgetUsd));
     }
-    return { argv, env: ctx.env, stdin: '', cwd: ctx.scratchDir };
+    // Prompts can contain a 400 KB diff. Passing that through argv hits E2BIG on Linux;
+    // Claude print mode reads the prompt from stdin when no positional prompt is present.
+    return { argv, env: ctx.env, stdin: ctx.prompt, cwd: ctx.scratchDir };
   },
 
   parse(io: HarnessIO, ctx: RunContext): HarnessResult {

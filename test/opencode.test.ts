@@ -5,6 +5,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -64,6 +65,13 @@ describe('opencode command path confinement', () => {
     expect(command.argv[dirFlag + 1]).toBe(realpathSync(ctx.repoDir));
     expect(command.cwd).toBe(realpathSync(ctx.repoDir));
     expect(command.argv).toContain('--pure');
+    expect(command.argv[command.argv.indexOf('--file') + 1]).toBe(ctx.promptPath);
+    expect(command.argv).not.toContain(ctx.prompt);
+    const messageIndex = command.argv.findIndex((arg) => arg.startsWith('Read the attached review prompt'));
+    expect(messageIndex).toBeGreaterThan(-1);
+    // `--file` accepts an array and greedily consumes later positionals, so the small
+    // message must precede it or opencode mistakes the message for another file path.
+    expect(messageIndex).toBeLessThan(command.argv.indexOf('--file'));
     expect(command.env['HOME']).toBe(home);
     expect(command.env['OPENCODE_CONFIG_DIR']).toBe(join(home, 'config'));
     expect(command.env['OPENCODE_DISABLE_PROJECT_CONFIG']).toBe('true');
@@ -73,6 +81,10 @@ describe('opencode command path confinement', () => {
     expect(command.env['OPENCODE_DISABLE_DEFAULT_PLUGINS']).toBe('true');
     expect(existsSync(join(home, 'config'))).toBe(true);
     expect(existsSync(join(home, 'state'))).toBe(true);
+    expect(statSync(home as string).mode & 0o077).toBe(0);
+
+    opencodeHarness.cleanup?.(ctx);
+    expect(existsSync(home as string)).toBe(false);
   });
 
   it('accepts external report paths because the model has no edit capability', () => {

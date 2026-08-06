@@ -267,7 +267,7 @@ async function main(): Promise<number> {
   };
 
   if (pull && githubClient && prNumber !== null) {
-    const patch = await githubClient.getPullDiff(prNumber);
+    const patch = await githubClient.getCompareDiff(pull.baseSha, pull.headSha);
     diff = collectFromPatch(patch, {
       baseSha: pull.baseSha,
       headSha: pull.headSha,
@@ -371,6 +371,7 @@ async function main(): Promise<number> {
       keepScratch: args.keepScratch,
       signal: controller.signal,
       instructions,
+      ...(pull ? { pullRequest: { title: pull.title, body: pull.body } } : {}),
     });
   } catch (e) {
     await markFailed(errorMessage(e));
@@ -404,26 +405,54 @@ async function main(): Promise<number> {
       return 2;
     }
     let outcome;
+    let current: PullMeta | null = null;
     try {
-      outcome = await publishReview(result, {
-        client: githubClient,
-        prNumber,
-        headSha,
-        config,
-        version: VERSION,
-        rolling,
-        dryRun: args.dryRun,
-      });
+      // A synchronize event normally cancels this job, but cancellation is advisory: a
+      // provider call or network request may finish first. Never let that stale run replace
+      // the new head's sticky comment or attach findings to an obsolete commit.
+      current = await githubClient.getPull(prNumber);
     } catch (e) {
-      await markFailed(`Publishing the completed review failed: ${errorMessage(e)}`);
-      throw e;
+      // Fail closed without touching the sticky: it may already belong to a newer run, and
+      // a failed freshness request gives us no safe way to distinguish that case.
+      log.warn(
+        `Could not confirm PR #${prNumber}'s current head; the completed review was not posted: ` +
+          errorMessage(e),
+      );
     }
-    for (const w of outcome.warnings) log.warn(w);
-    log.info(
-      args.dryRun
-        ? 'dry run: nothing was posted'
-        : `posted — summary comment ${outcome.summaryCommentId}, ${outcome.inlinePosted} inline`,
-    );
+
+    if (current) {
+      const snapshotChanged = current.headSha !== headSha || current.baseSha !== diff.baseSha;
+      if (snapshotChanged) {
+        log.warn(
+          `PR #${prNumber} changed during review; completed snapshot ${headSha.slice(0, 12)} ` +
+            'was not posted because a fresh run must review the current head.',
+        );
+        outcome = null;
+      } else {
+        try {
+          outcome = await publishReview(result, {
+            client: githubClient,
+            prNumber,
+            headSha,
+            config,
+            version: VERSION,
+            rolling,
+            dryRun: args.dryRun,
+          });
+        } catch (e) {
+          await markFailed(`Publishing the completed review failed: ${errorMessage(e)}`);
+          throw e;
+        }
+      }
+    }
+    if (outcome) {
+      for (const w of outcome.warnings) log.warn(w);
+      log.info(
+        args.dryRun
+          ? 'dry run: nothing was posted'
+          : `posted — summary comment ${outcome.summaryCommentId}, ${outcome.inlinePosted} inline`,
+      );
+    }
   }
 
   if (args.markdown) {
