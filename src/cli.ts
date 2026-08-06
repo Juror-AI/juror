@@ -2,9 +2,9 @@
 /**
  * `juror` — the same binary in CI and on your laptop.
  *
- * There is exactly one code path: collect a diff, fan out, reach consensus, render. Whether
- * the result is printed to a terminal or posted to a pull request is decided at the very
- * end, which is what keeps "works locally" and "works in Actions" from drifting apart.
+ * There is exactly one code path: collect a diff, fan out, deduplicate, filter, render.
+ * Whether the result is printed to a terminal or posted to a pull request is decided at
+ * the very end, which is what keeps "works locally" and "works in Actions" from drifting.
  */
 
 import { writeFile } from 'node:fs/promises';

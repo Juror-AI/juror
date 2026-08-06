@@ -43,6 +43,7 @@ const DEFAULT_SECRET: Record<HarnessId, string> = {
 
 const SUPPRESSED_MODES = ['collapsed', 'hidden', 'inline'] as const;
 const ON_EXCEED_MODES = ['partial', 'skip'] as const;
+const PUBLISH_MODES = ['all', 'consensus'] as const;
 
 export function defaultConfig(): JurorConfig {
   return {
@@ -70,7 +71,7 @@ export function defaultConfig(): JurorConfig {
       { id: 'grok-4.5', harness: 'grok-build', enabled: true, secret: 'XAI_API_KEY', label: 'Grok 4.5' },
     ],
     consensus: {
-      min_agreement: 'majority',
+      min_agreement: 'all',
       verify_solo_findings: true,
       verify_model: 'deepseek-v4-flash-0731',
       referee_model: 'deepseek-v4-flash-0731',
@@ -79,6 +80,7 @@ export function defaultConfig(): JurorConfig {
       line_window: 8,
     },
     review: {
+      publish_mode: 'all',
       severity_floor: 'P2',
       max_inline_comments: 15,
       incremental: true,
@@ -341,6 +343,7 @@ function applyConsensus(config: JurorConfig, raw: unknown, problems: string[]): 
 }
 
 const REVIEW_KEYS = [
+  'publish_mode',
   'severity_floor',
   'max_inline_comments',
   'incremental',
@@ -356,6 +359,16 @@ function applyReview(config: JurorConfig, raw: unknown, problems: string[]): voi
   if (!section) return;
   reportUnknown(section, REVIEW_KEYS, 'review', problems);
   const r = config.review;
+
+  if ('publish_mode' in section) {
+    const s = asString(section['publish_mode']);
+    const mode = PUBLISH_MODES.find((m) => m === s);
+    if (mode) r.publish_mode = mode;
+    else
+      problems.push(
+        `review.publish_mode: expected one of ${PUBLISH_MODES.join(', ')}, got ${fmt(section['publish_mode'])} — using ${r.publish_mode}`,
+      );
+  }
 
   if ('severity_floor' in section) {
     const s = asString(section['severity_floor'])?.toUpperCase();

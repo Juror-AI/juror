@@ -1,14 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { applyPublishRules, requiredAgreement, scoreReview } from '../src/merge/score.js';
+import { needsVerification } from '../src/merge/verify.js';
 import { defaultConfig } from '../src/config.js';
-import type { Cluster, JurorConfig, ModelReport, ModelRun, Severity } from '../src/types.js';
+import type { Cluster, JurorConfig, ModelReport, ModelRun, PublishMode, Severity } from '../src/types.js';
 
-function config(over: Partial<JurorConfig['consensus']> = {}, floor: Severity = 'P3'): JurorConfig {
+function config(
+  over: Partial<JurorConfig['consensus']> = {},
+  floor: Severity = 'P3',
+  publishMode: PublishMode = 'consensus',
+): JurorConfig {
   const base = defaultConfig();
   return {
     ...base,
-    consensus: { ...base.consensus, ...over },
-    review: { ...base.review, severity_floor: floor },
+    consensus: { ...base.consensus, min_agreement: 'majority', ...over },
+    review: { ...base.review, publish_mode: publishMode, severity_floor: floor },
   };
 }
 
@@ -100,8 +105,47 @@ describe('requiredAgreement', () => {
   });
 });
 
+describe('needsVerification', () => {
+  it('does not spend verification calls on findings below a strict agreement bar', () => {
+    expect(needsVerification(cluster({ severity: 'P0', agreement: 2 }), true, 4)).toBe(false);
+    expect(needsVerification(cluster({ severity: 'P0', agreement: 4 }), true, 4)).toBe(true);
+    expect(needsVerification(cluster({ severity: 'P2', agreement: 1 }), true, 1)).toBe(true);
+  });
+});
+
 describe('applyPublishRules', () => {
   const c = config();
+
+  it('publishes every eligible deduplicated cluster by default', () => {
+    const defaults = defaultConfig();
+    const [solo, refuted] = applyPublishRules(
+      [
+        cluster({ severity: 'P2', agreement: 1 }),
+        cluster({ id: 'refuted', severity: 'P1', agreement: 1, verification: verification(true) }),
+      ],
+      defaults,
+      4,
+    );
+    expect(defaults.review.publish_mode).toBe('all');
+    expect(solo?.published).toBe(true);
+    expect(refuted?.published).toBe(true);
+  });
+
+  it('still applies anchoring and severity controls in all-findings mode', () => {
+    const all = config({}, 'P2', 'all');
+    const [unknown, belowFloor, summaryOnly] = applyPublishRules(
+      [
+        cluster({ id: 'unknown', anchor: 'unknown-file', severity: 'P1' }),
+        cluster({ id: 'low', severity: 'P3' }),
+        cluster({ id: 'outside', anchor: 'outside-diff', severity: 'P2' }),
+      ],
+      all,
+      4,
+    );
+    expect(unknown).toMatchObject({ published: false, suppressedReason: 'outside the diff' });
+    expect(belowFloor).toMatchObject({ published: false, suppressedReason: 'below severity floor' });
+    expect(summaryOnly).toMatchObject({ published: true, suppressedReason: null });
+  });
 
   it('publishes at or above the required agreement', () => {
     const [out] = applyPublishRules([cluster({ severity: 'P2', agreement: 2 })], c, 4);
@@ -119,7 +163,7 @@ describe('applyPublishRules', () => {
 
     const [unverified] = applyPublishRules([solo], c, 4);
     expect(unverified?.published).toBe(false);
-    expect(unverified?.suppressedReason).toBe('single-model, unverified');
+    expect(unverified?.suppressedReason).toBe('below agreement threshold');
 
     const [survived] = applyPublishRules(
       [cluster({ ...solo, verification: verification(false) })],
@@ -136,7 +180,7 @@ describe('applyPublishRules', () => {
       4,
     );
     expect(out?.published).toBe(false);
-    expect(out?.suppressedReason).toBe('single-model, unverified');
+    expect(out?.suppressedReason).toBe('below agreement threshold');
   });
 
   it('suppresses a refuted finding no matter how many models agreed', () => {
@@ -169,11 +213,25 @@ describe('applyPublishRules', () => {
     expect(belowFloor?.suppressedReason).toBe('below severity floor');
   });
 
-  it('honors an explicit min_agreement over the majority default', () => {
+  it('honors an explicit all-model agreement threshold', () => {
     const strict = config({ min_agreement: 'all' });
     const [out] = applyPublishRules([cluster({ severity: 'P2', agreement: 3 })], strict, 4);
     expect(out?.published).toBe(false);
-    expect(out?.suppressedReason).toBe('single-model, unverified');
+    expect(out?.suppressedReason).toBe('below agreement threshold');
+  });
+
+  it('treats min_agreement all as literal unanimity without serious-finding exceptions', () => {
+    const strict = config({ min_agreement: 'all' });
+    const [pair, unanimous] = applyPublishRules(
+      [
+        cluster({ id: 'pair', severity: 'P0', agreement: 2, verification: verification(false) }),
+        cluster({ id: 'all', severity: 'P0', agreement: 4, verification: verification(false) }),
+      ],
+      strict,
+      4,
+    );
+    expect(pair).toMatchObject({ published: false, suppressedReason: 'below agreement threshold' });
+    expect(unanimous).toMatchObject({ published: true, suppressedReason: null });
   });
 
   it('returns new objects and mutates nothing', () => {

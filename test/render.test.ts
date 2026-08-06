@@ -49,6 +49,7 @@ function config(over: Partial<JurorConfig['output']> = {}, review: Partial<Juror
       line_window: 8,
     },
     review: {
+      publish_mode: 'all',
       severity_floor: 'P2',
       max_inline_comments: 15,
       incremental: true,

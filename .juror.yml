@@ -48,14 +48,15 @@ models:
     secret: XAI_API_KEY
     label: Grok 4.5
 
-# How independent findings become one published finding.
+# How independent findings are deduplicated and, optionally, agreement-filtered.
 consensus:
-  # How many models must raise a finding for it to publish on its own merits.
-  # majority | all | a number. P0/P1 findings have their own, looser rules (see the docs).
-  min_agreement: majority
+  # Used only when review.publish_mode is consensus. `all` means literal unanimity.
+  # `majority` or a number enables the looser P0/P1 safety rules described in the docs.
+  min_agreement: all
 
-  # Run the adversarial refutation pass on findings only one model raised. This is the
-  # precision dial: solo findings are where the false positives live.
+  # In consensus mode, adversarially refute eligible findings raised by only one model.
+  # Findings already below a strict unanimity bar are skipped, as is all verification in
+  # all-findings mode.
   verify_solo_findings: true
 
   # Which model runs the refutation pass, and which one breaks deduplication ties.
@@ -72,7 +73,11 @@ consensus:
   line_window: 8
 
 review:
-  severity_floor: P2 # do not post anything below this inline
+  # all = publish every unique finding after similarity deduplication (higher recall)
+  # consensus = apply consensus.min_agreement and adversarial verification (higher precision)
+  publish_mode: all
+
+  severity_floor: P2 # suppress findings below this severity; use P3 to show every severity
   max_inline_comments: 15 # the rest stay in the summary table
   incremental: true # on a re-review, only look at commits pushed since the last one
 

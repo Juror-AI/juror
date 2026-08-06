@@ -1,7 +1,7 @@
 {
   "name": "@juror/cli",
   "version": "0.1.0",
-  "description": "Multi-model PR review that shows you the bill. N frontier models review your PR in parallel through their native agent harnesses; only what they agree on gets posted.",
+  "description": "Multi-model PR review that shows you the bill. Duplicate findings collapse into one, with optional agreement filtering.",
   "license": "MIT",
   "type": "module",
   "bin": {

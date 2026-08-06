@@ -295,7 +295,7 @@ function filesNeedingAttention(published: Cluster[]): string {
 
 function findingsSection(published: Cluster[], models: number): string {
   if (published.length === 0) {
-    return '### Findings\n\nNothing cleared the consensus bar. Anything the models raised individually is listed below.';
+    return '### Findings\n\nNo publishable findings.';
   }
   const lines = [
     '### Findings',

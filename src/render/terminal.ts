@@ -42,7 +42,7 @@ export function renderTerminalReport(r: ReviewResult, o: { version: string }): s
     for (const cluster of r.published) lines.push(findingLine(cluster, models, c));
   } else {
     lines.push('');
-    lines.push(c.dim('  Nothing cleared the consensus bar.'));
+    lines.push(c.dim('  No publishable findings.'));
   }
 
   const outsideDiff = r.published.filter((x) => x.anchor === 'outside-diff').length;

@@ -1,10 +1,11 @@
 /**
- * Stage 5: the adversarial pass. The verifier is asked to *refute* a claimed defect, and
- * ambiguity resolves against the finding — precision is what we are selling, and a
- * plausible-but-unconfirmed comment costs more than a missed one.
+ * Stage 5 in consensus mode: the adversarial pass. The verifier is asked to *refute* a
+ * claimed defect, and ambiguity resolves against the finding. All-findings mode bypasses
+ * this stage because verification cannot affect publication there.
  *
- * Verified: every P0/P1 regardless of agreement, plus every solo finding when
- * `verifySolo`. A P2/P3 that two models found independently already has its evidence.
+ * Among clusters that can reach the active agreement threshold, verify every P0/P1 plus
+ * every solo finding when `verifySolo`. A P2/P3 that two models found independently already
+ * has its evidence.
  */
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -35,6 +36,8 @@ export interface VerifyOptions {
   promptTemplate: string;
   diff: DiffContext;
   verifySolo: boolean;
+  /** Skip clusters that cannot reach the active publication threshold. */
+  minimumAgreement: number;
   signal?: AbortSignal;
 }
 
@@ -65,7 +68,12 @@ const ENV_ALLOWLIST = ['PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'LC_ALL', 'TMPDI
 // Selection
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function needsVerification(c: Cluster, verifySolo: boolean): boolean {
+export function needsVerification(
+  c: Cluster,
+  verifySolo: boolean,
+  minimumAgreement = 1,
+): boolean {
+  if (c.agreement < minimumAgreement) return false;
   if (c.severity === 'P0' || c.severity === 'P1') return true;
   return verifySolo && c.agreement === 1;
 }
@@ -322,8 +330,8 @@ async function verifyOne(
   // answered mushily counts against the finding — ambiguity resolves to refuted, which is
   // the asymmetry we are buying. A verifier that never answered at all (missing binary,
   // timeout, dead network) is not evidence of anything, so `verification` stays null:
-  // `applyPublishRules` then suppresses a solo P0/P1 as 'single-model, unverified' rather
-  // than branding a possibly-real defect 'refuted on verification'.
+  // `applyPublishRules` then suppresses a solo P0/P1 as below the agreement threshold
+  // rather than branding a possibly-real defect 'refuted on verification'.
   const spoke = written.trim().length > 0 || result.rawText.trim().length > 0;
   const crashed = result.diagnostics.some((d) => /failed to run|timed out/i.test(d));
   if (!spoke || crashed) {
@@ -403,7 +411,9 @@ export async function verifyClusters(clusters: Cluster[], o: VerifyOptions): Pro
     return { clusters, cost: { ...ZERO_COST }, calls: 0 };
   }
 
-  const selected = clusters.filter((c) => needsVerification(c, o.verifySolo));
+  const selected = clusters.filter((c) =>
+    needsVerification(c, o.verifySolo, o.minimumAgreement),
+  );
   if (selected.length === 0) return { clusters, cost: { ...ZERO_COST }, calls: 0 };
 
   log.step(`Verifying ${selected.length} finding(s) adversarially`);

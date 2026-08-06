@@ -1,7 +1,8 @@
 # Juror
 
 **N frontier models review your PR in parallel, through their own native agent harnesses.
-Only what they *agree on* gets posted. Every review prints its own receipt.**
+Duplicate reports collapse into one; by default, every unique finding gets posted. Every
+review prints its own receipt.**
 
 ```
 npx juror review --pr 1234
@@ -11,15 +12,16 @@ npx juror review --pr 1234
 
 ## Why
 
-Single-model PR bots have two problems, in order of how much they cost you:
+Single-model PR bots have three problems, in order of how much they cost you:
 
-1. **Noise.** One model's false positives are unfiltered. Teams stop reading the bot.
-2. **Opacity.** You pay per seat or per PR and never see what the inference actually cost.
+1. **Blind spots.** Every model misses different bugs.
+2. **Duplication.** Multiple reviewers often describe the same defect in different words.
+3. **Opacity.** You pay per seat or per PR and never see what the inference actually cost.
 
-Juror attacks both with the same mechanism. Running several models and publishing only the
-intersection converts *model disagreement* — normally invisible — into a precision filter.
-A finding three models independently flag is real. A finding one model flags is usually a
-style opinion wearing a bug costume.
+Juror runs several models, uses code-aware similarity to merge reports about the same
+defect, and defaults to high recall: every unique eligible finding is shown. Teams that
+prefer fewer, higher-confidence findings can switch `review.publish_mode` to `consensus`
+and use model agreement as a precision filter.
 
 And there is no index and no SaaS. A coding agent doesn't need a prebuilt semantic index:
 Claude Code, Codex, and opencode all ship `Read`/`Grep`/`Glob` and will go read the callers
@@ -35,8 +37,8 @@ interface. It reviews a diff and posts findings.
 ## What you get
 
 A sticky summary comment with a deterministic merge score, a findings table annotated with
-how many models agreed, a collapsed block showing everything that was *suppressed* and why,
-and a cost receipt:
+how many models agreed, a collapsed block showing anything suppressed by the configured
+severity, anchoring, or consensus rules, and a cost receipt:
 
 ```
 💸 This review cost $0.97 · 4 models · 2m14s
@@ -147,12 +149,13 @@ models:
   - { id: grok-4.5,               harness: grok-build,  secret: XAI_API_KEY }
 
 consensus:
-  min_agreement: majority        # majority | all | <number>
-  verify_solo_findings: true     # adversarially refute anything only one model saw
+  min_agreement: all             # all (literal unanimity) | majority | <number>
+  verify_solo_findings: true     # adversarially refute eligible solo findings
   verify_model: deepseek-v4-flash-0731
 
 review:
-  severity_floor: P2             # don't post P3 inline
+  publish_mode: all              # all (higher recall) | consensus (higher precision)
+  severity_floor: P2             # use P3 to include every severity
   max_inline_comments: 15
   incremental: true              # re-review only new commits
   paths_ignore: ["**/*.lock", "dist/**", "**/*.generated.*"]
@@ -169,7 +172,7 @@ output:
 
 ---
 
-## How consensus works
+## How deduplication and filtering work
 
 Cheap methods first; a model call only where the free ones are ambiguous.
 
@@ -179,24 +182,34 @@ Cheap methods first; a model call only where the free ones are ambiguous.
 3. **Jaccard merge** *(free)* — token-set similarity over `title + body`, identifiers
    weighted 2×. `J > 0.55` → same finding. `J < 0.30` → distinct.
 4. **Referee** *(cheap, rare)* — one small call per ambiguous block. Typically 0–2 per PR.
-5. **Verify** *(adversarial)* — every P0/P1 and every single-model finding gets a refutation
-   pass. The verifier is asked to *refute*, and defaults to refuted when the evidence isn't
-   clear. That asymmetry is deliberate: precision is what we're buying.
+5. **Verify in consensus mode** *(adversarial)* — eligible P0/P1 and eligible single-model
+   findings get a refutation pass. The verifier is asked to *refute*, and defaults to
+   refuted when the evidence isn't clear. Findings already below a strict unanimity bar are
+   not verified; all-findings mode skips the pass and its cost entirely.
 
-Then:
+Publication is controlled independently from deduplication:
+
+- `publish_mode: all` *(default, higher recall)* publishes every unique cluster at or above
+  `severity_floor`. Agreement is still shown, but it does not hide a finding.
+- `publish_mode: consensus` *(higher precision)* applies the configured agreement and
+  verification rules below. The default `consensus.min_agreement: all` means every model
+  must raise the finding.
+
+With `min_agreement: all`, publication requires literal unanimity. If users deliberately
+choose `majority` or a numeric threshold, serious findings retain the safety exceptions:
 
 ```
-publish if  agreement >= majority
+publish if  agreement >= configured min_agreement
         or (agreement >= 2 and severity in {P0,P1})
         or (agreement == 1 and severity in {P0,P1} and survived refutation)
 ```
 
-Everything else lands in the collapsed **suppressed** block with the reason. Nothing is
-thrown away — that transparency is what makes the filter trustworthy.
+Anything filtered out lands in the collapsed **suppressed** block with the reason. Nothing
+is thrown away — that transparency is what makes the optional precision filter trustworthy.
 
 ## The merge score
 
-Not a model opinion — a deterministic function of verified findings, with the votes shown
+Not a model opinion — a deterministic function of published findings, with the votes shown
 so the arithmetic is auditable.
 
 ```
@@ -277,8 +290,9 @@ Layout follows the pipeline: `src/diff` → `src/harness` → `src/merge` → `s
 - Cost for Codex is **estimated**, not reported — the CLI exposes tokens but no dollar figure.
 - Grok Build's headless JSON shape is parsed defensively and marked `unknown` when the fields
   aren't there, rather than guessed at.
-- Consensus needs ≥2 models to mean anything. With one key configured you get a competent
-  single-model reviewer and an honest receipt, but no precision filter.
+- Agreement filtering needs ≥2 models to mean anything. With one key configured, the
+  default all-findings mode still gives you a complete single-model review and an honest
+  receipt, but there is no cross-model precision signal.
 - Findings anchored outside the diff are surfaced in the summary but not posted inline,
   because GitHub can't attach them.
 

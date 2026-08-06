@@ -2,8 +2,8 @@
  * The publish rule and the merge score — §7 and §8.
  *
  * Both are pure and deterministic on purpose. The score in the summary comment is not a
- * model's opinion, it is arithmetic over what survived consensus, and the votes are shown
- * so a surprising number is explainable rather than mystical.
+ * model's opinion, it is arithmetic over what was published, and the votes are shown so a
+ * surprising number is explainable rather than mystical.
  */
 
 import type { Cluster, JurorConfig, ModelRun, Severity, Verdict } from '../types.js';
@@ -13,7 +13,7 @@ const SEVERITY_RANK: Record<Severity, number> = { P0: 0, P1: 1, P2: 2, P3: 3 };
 const SUPPRESSED_OUTSIDE_DIFF = 'outside the diff';
 const SUPPRESSED_REFUTED = 'refuted on verification';
 const SUPPRESSED_BELOW_FLOOR = 'below severity floor';
-const SUPPRESSED_UNCORROBORATED = 'single-model, unverified';
+const SUPPRESSED_BELOW_AGREEMENT = 'below agreement threshold';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Publish rule
@@ -32,9 +32,16 @@ function isSerious(c: Cluster): boolean {
   return c.severity === 'P0' || c.severity === 'P1';
 }
 
-/** §7, verbatim. Kept separate from the suppression reasons so it stays readable. */
-function shouldPublish(c: Cluster, required: number): boolean {
+/** Consensus policy, kept separate from suppression reasons so it stays readable. */
+function shouldPublish(
+  c: Cluster,
+  required: number,
+  minAgreement: JurorConfig['consensus']['min_agreement'],
+): boolean {
   if (c.agreement >= required) return true;
+  // `all` is the simple low-recall setting exposed in the default config: it means literal
+  // unanimity. The safety exceptions below remain available with majority/numeric policies.
+  if (minAgreement === 'all') return false;
   if (c.agreement >= 2 && isSerious(c)) return true;
   // A solo serious finding has to have survived the refutation pass. Unverified is not
   // the same as confirmed — a verifier that never answered leaves `verification` null,
@@ -54,9 +61,14 @@ export function applyPublishRules(
     // First match wins; the order is the order a reader would ask the questions in.
     let reason: string | null = null;
     if (c.anchor === 'unknown-file') reason = SUPPRESSED_OUTSIDE_DIFF;
-    else if (c.verification?.refuted) reason = SUPPRESSED_REFUTED;
+    else if (config.review.publish_mode === 'consensus' && c.verification?.refuted) reason = SUPPRESSED_REFUTED;
     else if (SEVERITY_RANK[c.severity] > floor) reason = SUPPRESSED_BELOW_FLOOR;
-    else if (!shouldPublish(c, required)) reason = SUPPRESSED_UNCORROBORATED;
+    else if (
+      config.review.publish_mode === 'consensus' &&
+      !shouldPublish(c, required, config.consensus.min_agreement)
+    ) {
+      reason = SUPPRESSED_BELOW_AGREEMENT;
+    }
 
     return { ...c, published: reason === null, suppressedReason: reason };
   });

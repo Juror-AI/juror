@@ -28,6 +28,8 @@ afterEach(() => {
 describe('defaultConfig', () => {
   it('ships the four-model jury including the opencode/deepseek entry', () => {
     const c = defaultConfig();
+    expect(c.review.publish_mode).toBe('all');
+    expect(c.consensus.min_agreement).toBe('all');
     expect(c.models.map((m) => m.id)).toEqual([
       'claude-opus-5',
       'gpt-5.6-sol',
@@ -84,6 +86,7 @@ describe('loadConfig', () => {
     const dir = repoWith({
       '.juror.yml': [
         'review:',
+        '  publish_mode: every',
         '  severity_floor: P9',
         'budget:',
         '  on_exceed: explode',
@@ -95,15 +98,24 @@ describe('loadConfig', () => {
       ].join('\n'),
     });
     const { config, problems } = loadConfig(dir);
+    expect(config.review.publish_mode).toBe('all');
     expect(config.review.severity_floor).toBe('P2');
     expect(config.budget.on_exceed).toBe('partial');
     expect(config.output.suppressed_findings).toBe('collapsed');
-    expect(config.consensus.min_agreement).toBe('majority');
-    expect(problems).toHaveLength(4);
+    expect(config.consensus.min_agreement).toBe('all');
+    expect(problems).toHaveLength(5);
+    expect(problems.join('\n')).toContain('review.publish_mode');
     expect(problems.join('\n')).toContain('review.severity_floor');
     expect(problems.join('\n')).toContain('budget.on_exceed');
     expect(problems.join('\n')).toContain('output.suppressed_findings');
     expect(problems.join('\n')).toContain('consensus.min_agreement');
+  });
+
+  it('accepts both publication modes', () => {
+    const dir = repoWith({ '.juror.yml': 'review:\n  publish_mode: consensus\n' });
+    const { config, problems } = loadConfig(dir);
+    expect(config.review.publish_mode).toBe('consensus');
+    expect(problems).toEqual([]);
   });
 
   it('falls back to the default and reports a problem for an out-of-range number', () => {

@@ -1,7 +1,7 @@
 /**
  * The review pipeline.
  *
- * collect & anchor → fan out → cluster → referee → verify → score & render.
+ * collect & anchor → fan out → cluster → referee → optional verify → score & render.
  *
  * Publishing deliberately lives outside this module. Everything here runs with model
  * processes in the loop and no GitHub token in the environment; `src/github/publish.ts`
@@ -146,19 +146,27 @@ export async function runReview(o: ReviewOptions): Promise<ReviewResult> {
     });
 
     // ── 7. Adversarial verification ──────────────────────────────────────────
-    const verifyModel = findModel(config, config.consensus.verify_model);
+    // High-recall mode publishes every eligible deduplicated cluster, so a refutation pass
+    // cannot affect the result. Skip it instead of charging for evidence we will not use.
+    const consensusMode = config.review.publish_mode === 'consensus';
+    const verifyModel = consensusMode ? findModel(config, config.consensus.verify_model) : null;
     const verified = await verifyClusters(refereed.clusters, {
       modelRun: verifyModel,
       pricing,
       secrets: o.secrets,
       repoDir: o.repoDir,
       scratchRoot,
-      promptTemplate: loadPromptTemplate('verify'),
+      promptTemplate: consensusMode ? loadPromptTemplate('verify') : '',
       diff: o.diff,
       verifySolo: config.consensus.verify_solo_findings,
+      minimumAgreement: config.consensus.min_agreement === 'all' ? produced.length : 1,
       ...(o.signal ? { signal: o.signal } : {}),
     });
-    log.step(`${verified.calls} verification${verified.calls === 1 ? '' : 's'} run`);
+    if (consensusMode) {
+      log.step(`${verified.calls} verification${verified.calls === 1 ? '' : 's'} run`);
+    } else {
+      log.debug('verification skipped in all-findings mode');
+    }
 
     // ── 8. Publish rules & score ─────────────────────────────────────────────
     const modelsRun = produced.length;

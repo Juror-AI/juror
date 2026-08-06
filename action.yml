@@ -1,5 +1,5 @@
 name: Juror
-description: Multi-model PR review that shows you the bill — N frontier models review in parallel, only what they agree on gets posted.
+description: Multi-model PR review that shows you the bill — duplicate findings collapse into one, with optional agreement filtering.
 author: juror-dev
 branding:
   icon: check-circle

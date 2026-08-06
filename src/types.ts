@@ -12,6 +12,9 @@
 
 export type Severity = 'P0' | 'P1' | 'P2' | 'P3';
 
+/** Which deduplicated findings make it into the published review. */
+export type PublishMode = 'all' | 'consensus';
+
 export const SEVERITIES: readonly Severity[] = ['P0', 'P1', 'P2', 'P3'] as const;
 
 export type Category =
@@ -364,6 +367,7 @@ export interface JurorConfig {
     line_window: number;
   };
   review: {
+    publish_mode: PublishMode;
     severity_floor: Severity;
     max_inline_comments: number;
     incremental: boolean;
