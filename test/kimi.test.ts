@@ -76,7 +76,7 @@ function io(stdout: string, over: Partial<HarnessIO> = {}): HarnessIO {
 }
 
 describe('Kimi Code command isolation', () => {
-  it('uses an external private home and a read/search/write-only agent profile', () => {
+  it('uses an external private home and a read-only agent profile', () => {
     const ctx = context();
     const command = kimiHarness.command(ctx);
     const runtimeRoot = dirname(command.cwd);
@@ -86,7 +86,7 @@ describe('Kimi Code command isolation', () => {
     expect(command.argv).toContain('stream-json');
     expect(command.argv.slice(command.argv.indexOf('--add-dir') + 1)).toContain(ctx.repoDir);
     expect(command.argv).not.toContain('-m');
-    expect(command.env['HOME']).toBeUndefined();
+    expect(command.env['HOME']).toBe(runtimeRoot);
     expect(command.env['KIMI_CODE_HOME']).toBe(join(runtimeRoot, 'kimi-home'));
     expect(command.env['KIMI_MODEL_NAME']).toBe('accounts/fireworks/models/kimi-k3');
     expect(command.env['KIMI_MODEL_API_KEY']).toBe('test-only');
@@ -102,7 +102,7 @@ describe('Kimi Code command isolation', () => {
     expect(agentFile).toBeTruthy();
     const profile = readFileSync(agentFile as string, 'utf8');
     expect(profile).toContain('  - Read\n');
-    expect(profile).toContain('  - Write\n');
+    expect(profile).not.toContain('  - Write\n');
     expect(profile).toContain('  - Grep\n');
     expect(profile).toContain('  - Glob\n');
     expect(profile).not.toMatch(/\n\s+- (Bash|WebSearch|FetchURL|Agent|mcp__)/);

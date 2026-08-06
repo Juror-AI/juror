@@ -131,14 +131,14 @@ export const grokHarness = {
   id: 'grok-build',
   label: 'Grok Build',
 
-  async locate(): Promise<HarnessLocation> {
+  async locate(env?: Record<string, string | undefined>): Promise<HarnessLocation> {
     const binPath = await which('grok');
     if (!binPath) {
       throw new Error('grok not found on PATH — install Grok Build or disable the model in .juror.yml');
     }
     const io = await run([binPath, '--version'], {
       timeoutMs: 15_000,
-      env: { GROK_DISABLE_AUTOUPDATER: '1' },
+      env: { ...env, GROK_DISABLE_AUTOUPDATER: '1' },
     });
     const version = (io.stdout.trim() || io.stderr.trim()).split('\n')[0]?.trim() ?? '';
     const warnings: string[] = [];
@@ -160,7 +160,7 @@ export const grokHarness = {
       '--sandbox',
       'workspace',
       '--tools',
-      'read_file,grep,list_dir,write_file',
+      'read_file,grep,list_dir',
       '--disable-web-search',
     ];
     // Grok has no documented unlimited sentinel, so omission is the unbounded form.

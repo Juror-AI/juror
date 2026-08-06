@@ -19,8 +19,8 @@ inputs:
   models:
     description: Comma-separated model ids to run, overriding the config's enabled set.
     required: false
-  max-cost-usd:
-    description: Per-PR budget ceiling. Overrides budget.max_cost_usd_per_pr.
+  cost-target-usd:
+    description: Per-PR planning target. Overrides budget.target_cost_usd_per_pr; not every provider exposes a hard limit.
     required: false
   post:
     description: Post the review to the pull request. Set to "false" for a dry run.
@@ -32,19 +32,19 @@ inputs:
   claude-code-version:
     description: npm version spec for Claude Code. Pinned for reproducible cost accounting.
     required: false
-    default: '@anthropic-ai/claude-code@latest'
+    default: '@anthropic-ai/claude-code@2.1.223'
   codex-version:
     description: npm version spec for Codex CLI. Must be >= 0.146.0 for cache-write accounting.
     required: false
-    default: '@openai/codex@latest'
+    default: '@openai/codex@0.146.1'
   opencode-version:
     description: npm version spec for opencode.
     required: false
-    default: 'opencode-ai@latest'
+    default: 'opencode-ai@1.17.20'
   kimi-code-version:
     description: npm version spec for Kimi Code CLI.
     required: false
-    default: '@moonshot-ai/kimi-code@latest'
+    default: '@moonshot-ai/kimi-code@0.34.0'
 
 outputs:
   score:
@@ -76,13 +76,21 @@ runs:
     # both the opencode models and Kimi K3 through Kimi Code.
     - name: Install harnesses
       shell: bash
+      env:
+        CLAUDE_CODE_SPEC: ${{ inputs.claude-code-version }}
+        CODEX_SPEC: ${{ inputs.codex-version }}
+        OPENCODE_SPEC: ${{ inputs.opencode-version }}
+        KIMI_CODE_SPEC: ${{ inputs.kimi-code-version }}
       run: |
         set -euo pipefail
-        [ -n "${ANTHROPIC_API_KEY:-}" ] && npm i -g "${{ inputs.claude-code-version }}" || true
-        [ -n "${OPENAI_API_KEY:-}"    ] && npm i -g "${{ inputs.codex-version }}"        || true
-        [ -n "${FIREWORKS_API_KEY:-}" ] && npm i -g "${{ inputs.opencode-version }}"     || true
-        [ -n "${FIREWORKS_API_KEY:-}" ] && npm i -g "${{ inputs.kimi-code-version }}"    || true
-        if [ -n "${XAI_API_KEY:-}" ]; then curl -fsSL https://grok.com/install.sh | bash || true; fi
+        CLEAN_ENV=(env -u ANTHROPIC_API_KEY -u OPENAI_API_KEY -u FIREWORKS_API_KEY -u XAI_API_KEY -u GITHUB_TOKEN -u GH_TOKEN)
+        [ -n "${ANTHROPIC_API_KEY:-}" ] && "${CLEAN_ENV[@]}" npm i -g "$CLAUDE_CODE_SPEC" || true
+        [ -n "${OPENAI_API_KEY:-}"    ] && "${CLEAN_ENV[@]}" npm i -g "$CODEX_SPEC"       || true
+        [ -n "${FIREWORKS_API_KEY:-}" ] && "${CLEAN_ENV[@]}" npm i -g "$OPENCODE_SPEC"    || true
+        [ -n "${FIREWORKS_API_KEY:-}" ] && "${CLEAN_ENV[@]}" npm i -g "$KIMI_CODE_SPEC"   || true
+        if [ -n "${XAI_API_KEY:-}" ]; then
+          "${CLEAN_ENV[@]}" curl -fsSL https://grok.com/install.sh | "${CLEAN_ENV[@]}" bash || true
+        fi
         echo "$HOME/.grok/bin" >> "$GITHUB_PATH"
 
     - name: Review
@@ -93,16 +101,24 @@ runs:
         # which runs after every model process has exited. See design §11.
         GITHUB_TOKEN: ${{ inputs.github-token }}
         JUROR_ACTION_PATH: ${{ github.action_path }}
+        INPUT_CONFIG: ${{ inputs.config }}
+        INPUT_PRESET: ${{ inputs.preset }}
+        INPUT_MODELS: ${{ inputs.models }}
+        INPUT_COST_TARGET: ${{ inputs.cost-target-usd }}
+        INPUT_POST: ${{ inputs.post }}
+        INPUT_PR_NUMBER: ${{ inputs.pr-number }}
+        EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
+        TARGET_REPOSITORY: ${{ github.repository }}
       run: |
         set -euo pipefail
-        PR="${{ inputs.pr-number }}"
-        if [ -z "$PR" ]; then PR="${{ github.event.pull_request.number }}"; fi
-        ARGS=(review --pr "$PR" --repo "${{ github.repository }}" --repo-dir "$GITHUB_WORKSPACE" --json "$RUNNER_TEMP/juror.json")
-        if [ "${{ inputs.post }}" = "true" ]; then ARGS+=(--post); else ARGS+=(--dry-run --post); fi
-        if [ -n "${{ inputs.config }}" ]; then ARGS+=(--config "${{ inputs.config }}"); fi
-        if [ -n "${{ inputs.preset }}" ]; then ARGS+=(--preset "${{ inputs.preset }}"); fi
-        if [ -n "${{ inputs.models }}" ]; then ARGS+=(--models "${{ inputs.models }}"); fi
-        if [ -n "${{ inputs.max-cost-usd }}" ]; then ARGS+=(--max-cost "${{ inputs.max-cost-usd }}"); fi
+        PR="$INPUT_PR_NUMBER"
+        if [ -z "$PR" ]; then PR="$EVENT_PR_NUMBER"; fi
+        ARGS=(review --pr "$PR" --repo "$TARGET_REPOSITORY" --repo-dir "$GITHUB_WORKSPACE" --json "$RUNNER_TEMP/juror.json")
+        if [ "$INPUT_POST" = "true" ]; then ARGS+=(--post); else ARGS+=(--dry-run --post); fi
+        if [ -n "$INPUT_CONFIG" ]; then ARGS+=(--config "$INPUT_CONFIG"); fi
+        if [ -n "$INPUT_PRESET" ]; then ARGS+=(--preset "$INPUT_PRESET"); fi
+        if [ -n "$INPUT_MODELS" ]; then ARGS+=(--models "$INPUT_MODELS"); fi
+        if [ -n "$INPUT_COST_TARGET" ]; then ARGS+=(--cost-target "$INPUT_COST_TARGET"); fi
         node "${{ github.action_path }}/dist/cli.js" "${ARGS[@]}"
 
         node -e '
@@ -110,5 +126,6 @@ runs:
           const out = require("fs");
           out.appendFileSync(process.env.GITHUB_OUTPUT, `score=${r.verdict.score}\n`);
           out.appendFileSync(process.env.GITHUB_OUTPUT, `findings=${r.published.length}\n`);
-          out.appendFileSync(process.env.GITHUB_OUTPUT, `cost-usd=${r.totals.usd ?? "unknown"}\n`);
+          const cost = r.totals.usd == null || r.totals.partial ? "unknown" : r.totals.usd;
+          out.appendFileSync(process.env.GITHUB_OUTPUT, `cost-usd=${cost}\n`);
         '

@@ -69,6 +69,25 @@ describe('collectLocalDiff', () => {
     expect(ctx.files.map((f) => f.path)).toEqual(['a.ts', 'z.ts']);
   });
 
+  it('includes staged and unstaged working-tree edits when --head is omitted', async () => {
+    const dir = newRepo();
+    const base = commit(dir, 'base', { 'a.ts': 'one\ntwo\n', 'b.ts': 'old\n' });
+    writeFileSync(join(dir, 'a.ts'), 'one\nTWO\n');
+    git(dir, ['add', 'a.ts']);
+    writeFileSync(join(dir, 'b.ts'), 'new\n');
+
+    const ctx = await collectLocalDiff({
+      repoDir: dir,
+      base,
+      pathsIgnore: [],
+      maxDiffBytes: 1_000_000,
+    });
+
+    expect(ctx.files.map((file) => file.path)).toEqual(['a.ts', 'b.ts']);
+    expect(ctx.patch).toContain('+TWO');
+    expect(ctx.patch).toContain('+new');
+  });
+
   it('truncates on whole-file boundaries', async () => {
     const dir = newRepo();
     const base = commit(dir, 'base', { 'a.ts': 'one\n', 'z.ts': 'z\n' });

@@ -7,6 +7,7 @@ import {
   applyReviewPreset,
   defaultConfig,
   loadConfig,
+  loadConfigText,
   loadPromptTemplate,
   renderTemplate,
   resolveModelRuntime,
@@ -101,16 +102,31 @@ describe('loadConfig', () => {
     expect(problems).toEqual([]);
     expect(config.review.severity_floor).toBe('P1');
     expect(config.review.max_inline_comments).toBe(3);
-    expect(config.review.incremental).toBe(true);
     expect(config.review.paths_ignore).toEqual(defaultConfig().review.paths_ignore);
     expect(config.consensus).toEqual(defaultConfig().consensus);
   });
 
   it('finds .github/juror.yml when there is no root config', () => {
-    const dir = repoWith({ '.github/juror.yml': 'budget:\n  max_cost_usd_per_pr: 5\n' });
+    const dir = repoWith({ '.github/juror.yml': 'budget:\n  target_cost_usd_per_pr: 5\n' });
     const { config, sourcePath } = loadConfig(dir);
     expect(sourcePath).toBe(join(dir, '.github/juror.yml'));
-    expect(config.budget.max_cost_usd_per_pr).toBe(5);
+    expect(config.budget.target_cost_usd_per_pr).toBe(5);
+  });
+
+  it('parses trusted base-revision text without reading the working tree', () => {
+    const loaded = loadConfigText('preset: fast\nreview:\n  publish_mode: consensus\n', '.juror.yml@base');
+    expect(loaded.sourcePath).toBe('.juror.yml@base');
+    expect(loaded.config.preset).toBe('fast');
+    expect(loaded.config.review.publish_mode).toBe('consensus');
+  });
+
+  it('never forwards GitHub control-plane credentials to a model', () => {
+    const loaded = loadConfigText(
+      'models:\n  - id: custom\n    harness: generic-openai\n    secret: GITHUB_TOKEN\n',
+      '.juror.yml@base',
+    );
+    expect(loaded.config.models[0]?.secret).toBe('OPENAI_API_KEY');
+    expect(loaded.problems.join('\n')).toContain('not permitted for a model process');
   });
 
   it('falls back to the default and reports a problem for a bad enum', () => {

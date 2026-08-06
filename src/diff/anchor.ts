@@ -53,19 +53,23 @@ function anchorOne(
   const file = findFile(finding.path, index);
 
   if (!file) return attribute(finding, sourceId, modelId, modelLabel, line, 'unknown-file', 0);
+  // Downstream clustering and GitHub publishing key by the post-image path. A model may
+  // cite a subdirectory-relative, workspace-prefixed, or pre-rename path; once resolved,
+  // retain the canonical diff path instead of the raw spelling.
+  const canonical = { ...finding, path: file.path };
 
   // A binary or pure-deletion file has no post-image line to anchor to at all.
   const nearest = nearestChangedLine(file.changedLines, line);
   if (nearest === null) {
-    return attribute(finding, sourceId, modelId, modelLabel, line, 'outside-diff', 0);
+    return attribute(canonical, sourceId, modelId, modelLabel, line, 'outside-diff', 0);
   }
-  if (nearest === line) return attribute(finding, sourceId, modelId, modelLabel, line, 'exact', 0);
+  if (nearest === line) return attribute(canonical, sourceId, modelId, modelLabel, line, 'exact', 0);
 
   const drift = Math.abs(nearest - line);
   if (drift <= tolerance) {
-    return attribute(finding, sourceId, modelId, modelLabel, nearest, 'snapped', drift);
+    return attribute(canonical, sourceId, modelId, modelLabel, nearest, 'snapped', drift);
   }
-  return attribute(finding, sourceId, modelId, modelLabel, line, 'outside-diff', drift);
+  return attribute(canonical, sourceId, modelId, modelLabel, line, 'outside-diff', drift);
 }
 
 function attribute(

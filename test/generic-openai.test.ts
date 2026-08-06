@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -19,7 +19,8 @@ afterEach(() => {
 function context(maxTurns: number): RunContext {
   const repoDir = mkdtempSync(join(tmpdir(), 'juror-generic-repo-'));
   dirs.push(repoDir);
-  const scratchDir = join(repoDir, '.juror-run', 'generic');
+  const scratchDir = mkdtempSync(join(tmpdir(), 'juror-generic-scratch-'));
+  dirs.push(scratchDir);
   mkdirSync(scratchDir, { recursive: true });
   return {
     repoDir,
@@ -111,5 +112,90 @@ describe('generic OpenAI turn budget', () => {
     expect(result.diagnostics).toContain(
       'generic-openai stopped at the 1-turn limit with tool calls pending',
     );
+  });
+});
+
+describe('generic OpenAI filesystem boundary', () => {
+  it('refuses writes anywhere except the exact findings file', async () => {
+    const ctx = context(0);
+    const victim = join(ctx.repoDir, 'dirty.ts');
+    writeFileSync(victim, 'user work', 'utf8');
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        completion({
+          role: 'assistant',
+          content: null,
+          tool_calls: [{
+            id: 'call-1',
+            type: 'function',
+            function: {
+              name: 'write_file',
+              arguments: JSON.stringify({ path: victim, content: 'overwritten' }),
+            },
+          }],
+        }),
+      )
+      .mockResolvedValueOnce(completion({ role: 'assistant', content: JSON.stringify(REPORT) }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await runGenericOpenAI(ctx);
+
+    expect(readFileSync(victim, 'utf8')).toBe('user work');
+    expect(String(fetchMock.mock.calls[1]?.[1]?.body)).toContain('write_file may only write');
+  });
+
+  it('does not follow repository symlinks outside the read root', async () => {
+    const ctx = context(0);
+    const outside = mkdtempSync(join(tmpdir(), 'juror-generic-secret-'));
+    dirs.push(outside);
+    const secret = join(outside, 'secret.txt');
+    writeFileSync(secret, 'NEVER_EXPOSE_THIS', 'utf8');
+    symlinkSync(secret, join(ctx.repoDir, 'leak.txt'));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        completion({
+          role: 'assistant',
+          content: null,
+          tool_calls: [{
+            id: 'call-1',
+            type: 'function',
+            function: { name: 'read_file', arguments: JSON.stringify({ path: 'leak.txt' }) },
+          }],
+        }),
+      )
+      .mockResolvedValueOnce(completion({ role: 'assistant', content: JSON.stringify(REPORT) }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await runGenericOpenAI(ctx);
+
+    const secondRequest = String(fetchMock.mock.calls[1]?.[1]?.body);
+    expect(secondRequest).toContain('refused');
+    expect(secondRequest).not.toContain('NEVER_EXPOSE_THIS');
+  });
+
+  it('treats grep patterns literally instead of evaluating untrusted regular expressions', async () => {
+    const ctx = context(0);
+    writeFileSync(join(ctx.repoDir, 'long.txt'), `${'a'.repeat(100_000)}!`, 'utf8');
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        completion({
+          role: 'assistant',
+          content: null,
+          tool_calls: [{
+            id: 'call-1',
+            type: 'function',
+            function: { name: 'grep', arguments: JSON.stringify({ pattern: '(a+)+$' }) },
+          }],
+        }),
+      )
+      .mockResolvedValueOnce(completion({ role: 'assistant', content: JSON.stringify(REPORT) }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await runGenericOpenAI(ctx);
+
+    expect(String(fetchMock.mock.calls[1]?.[1]?.body)).toContain('no matches');
   });
 });

@@ -14,7 +14,7 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, resolve, sep } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import type {
   CanonicalUsage,
   Harness,
@@ -35,13 +35,8 @@ import { run, which } from '../util/proc.js';
 /**
  * Written to the scratch dir and handed over via `OPENCODE_CONFIG`.
  *
- * `edit: "allow"` is deliberate and load-bearing. Expressing the restriction the obvious
- * way — an object-form `edit` rule with a `"*": "deny"` catch-all and a single allowed
- * path — makes opencode drop the write tool from the model's toolset entirely; the model
- * then answers "I don't have a write tool available" and never produces findings.json.
- * So we allow edit outright and contain the blast radius three other ways instead:
- * the disabled tools below (no bash, no patch), opencode's own `--dir` confinement, and
- * the caller's post-run workspace guard.
+ * Reviewers return their JSON in the final response, so no edit capability is needed.
+ * This keeps concurrent jurors independent even when one is prompt-injected.
  */
 const OPENCODE_CONFIG = {
   $schema: 'https://opencode.ai/config.json',
@@ -52,13 +47,13 @@ const OPENCODE_CONFIG = {
   // monorepo that is the single most expensive thing in the run.
   snapshot: false,
   instructions: [],
-  tools: { bash: false, webfetch: false, task: false, todowrite: false, patch: false },
+  tools: { bash: false, edit: false, webfetch: false, task: false, todowrite: false, patch: false },
   permission: {
     read: 'allow',
     glob: 'allow',
     grep: 'allow',
     list: 'allow',
-    edit: 'allow',
+    edit: 'deny',
     bash: 'deny',
     webfetch: 'deny',
     websearch: 'deny',
@@ -87,12 +82,6 @@ function realOrSelf(p: string): string {
     if (parent === absolute) return absolute;
     return join(realOrSelf(parent), basename(absolute));
   }
-}
-
-function isInside(child: string, parent: string): boolean {
-  const c = realOrSelf(child);
-  const p = realOrSelf(parent);
-  return c === p || c.startsWith(p.endsWith(sep) ? p : p + sep);
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -144,14 +133,14 @@ export const opencodeHarness = {
   id: 'opencode',
   label: 'opencode',
 
-  async locate(): Promise<HarnessLocation> {
+  async locate(env?: Record<string, string | undefined>): Promise<HarnessLocation> {
     const binPath = await which('opencode');
     if (!binPath) {
       throw new Error(
         'opencode not found on PATH — install it (npm i -g opencode-ai) or disable the model in .juror.yml',
       );
     }
-    const io = await run([binPath, '--version'], { timeoutMs: 15_000 });
+    const io = await run([binPath, '--version'], { timeoutMs: 15_000, ...(env ? { env } : {}) });
     const version = (io.stdout.trim() || io.stderr.trim()).split('\n')[0]?.trim() ?? '';
     const warnings: string[] = [];
     if (io.exitCode !== 0) warnings.push(`opencode --version exited ${io.exitCode}`);
@@ -160,17 +149,7 @@ export const opencodeHarness = {
   },
 
   command(ctx: RunContext): HarnessCommand {
-    // Writing outside `--dir` raises an `external_directory` permission prompt that headless
-    // opencode auto-rejects, which looks like a silent no-op. Fail here instead of burning a
-    // full model run on a report the agent was never allowed to write.
-    if (!isInside(ctx.findingsPath, ctx.repoDir)) {
-      throw new Error(
-        `opencode auto-rejects writes outside --dir: findings path ${ctx.findingsPath} must live inside ${ctx.repoDir}`,
-      );
-    }
-
-    // The scratch dir holds OUR run artifacts and may legitimately sit outside the repo —
-    // only the agent-written findings file is constrained by --dir.
+    // The scratch dir holds Juror-owned run artifacts outside the reviewed repository.
     mkdirSync(ctx.scratchDir, { recursive: true });
     const configPath = resolve(ctx.scratchDir, 'opencode.json');
     writeFileSync(configPath, `${JSON.stringify(OPENCODE_CONFIG, null, 2)}\n`, 'utf8');

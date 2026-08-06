@@ -93,13 +93,13 @@ export const claudeHarness: Harness = {
   id: 'claude-code',
   label: 'Claude Code',
 
-  async locate(): Promise<HarnessLocation> {
+  async locate(env?: Record<string, string | undefined>): Promise<HarnessLocation> {
     const binPath = await which('claude');
     if (!binPath) {
       throw new Error('claude not found on PATH — install @anthropic-ai/claude-code');
     }
     const warnings: string[] = [];
-    const io = await run([binPath, '--version'], { timeoutMs: 15_000 });
+    const io = await run([binPath, '--version'], { timeoutMs: 15_000, ...(env ? { env } : {}) });
     const raw = `${io.stdout} ${io.stderr}`.trim();
     const m = /(\d+\.\d+\.\d+)/.exec(raw);
     const version = m?.[1] ?? 'unknown';
@@ -112,19 +112,22 @@ export const claudeHarness: Harness = {
   },
 
   command(ctx: RunContext): HarnessCommand {
-    // `--tools` REMOVES everything not listed; `--allowedTools` would only auto-approve.
+    // `--bare` disables project/user hooks, settings, MCP, skills, and instruction
+    // discovery. `--tools` then removes every mutating capability from the model.
     const argv = [
       'claude',
+      '--bare',
       '-p',
       ctx.prompt,
       '--model',
       ctx.model,
       '--output-format',
       'json',
+      '--no-session-persistence',
       '--tools',
-      'Read,Grep,Glob,Write',
+      'Read,Grep,Glob',
       '--add-dir',
-      ctx.scratchDir,
+      ctx.repoDir,
     ];
     // Omitting the flag is Claude Code's unlimited mode. Keep positive values as an
     // opt-in cap for custom configurations; zero leaves the wall-clock timeout in charge.
@@ -132,7 +135,7 @@ export const claudeHarness: Harness = {
     if (ctx.budgetUsd !== null && ctx.budgetUsd > 0) {
       argv.push('--max-budget-usd', String(ctx.budgetUsd));
     }
-    return { argv, env: ctx.env, stdin: '', cwd: ctx.repoDir };
+    return { argv, env: ctx.env, stdin: '', cwd: ctx.scratchDir };
   },
 
   parse(io: HarnessIO, ctx: RunContext): HarnessResult {

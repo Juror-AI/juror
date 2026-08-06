@@ -2,6 +2,7 @@ import {
   existsSync,
   mkdtempSync,
   mkdirSync,
+  readFileSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -21,7 +22,8 @@ afterEach(() => {
 });
 
 function context(repoDir: string): RunContext {
-  const scratchDir = join(repoDir, '.juror-run', 'deepseek');
+  const scratchDir = mkdtempSync(join(tmpdir(), 'juror-opencode-scratch-'));
+  cleanup.push(scratchDir);
   return {
     repoDir,
     scratchDir,
@@ -73,7 +75,7 @@ describe('opencode command path confinement', () => {
     expect(existsSync(join(home, 'state'))).toBe(true);
   });
 
-  it('rejects a findings path in a sibling with the same lexical prefix', () => {
+  it('accepts external report paths because the model has no edit capability', () => {
     const root = mkdtempSync(join(tmpdir(), 'juror-opencode-boundary-'));
     cleanup.push(root);
     const repoDir = join(root, 'repo');
@@ -82,7 +84,16 @@ describe('opencode command path confinement', () => {
     const ctx = context(repoDir);
     ctx.findingsPath = join(root, 'repo-elsewhere', 'findings.json');
 
-    expect(() => opencodeHarness.command(ctx)).toThrow('must live inside');
+    const command = opencodeHarness.command(ctx);
+    const home = opencodeHome(command);
+    if (home) cleanup.push(home);
+    expect(command.cwd).toBe(realpathSync(repoDir));
+    const configPath = command.env['OPENCODE_CONFIG'];
+    expect(configPath).toBeTruthy();
+    const config = JSON.parse(readFileSync(configPath as string, 'utf8')) as {
+      permission: { edit: string };
+    };
+    expect(config.permission.edit).toBe('deny');
   });
 });
 

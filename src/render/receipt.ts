@@ -90,7 +90,9 @@ export function renderReceipt(totals: CostTotals, o: ReceiptOptions): string {
   );
 
   if (totals.partial) {
-    const unknown = totals.rows.filter((r) => r.cost.source === 'unknown').map((r) => code(r.label));
+    const unknown = totals.rows
+      .filter((r) => r.cost.source === 'unknown' || r.cost.partial === true)
+      .map((r) => code(r.label));
     lines.push('');
     lines.push(
       unknown.length

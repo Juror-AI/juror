@@ -284,7 +284,7 @@ export function totalCost(
       knownRows++;
     }
     // One unknown row turns the total into a documented lower bound rather than a lie.
-    if (row.cost.source === 'unknown') partial = true;
+    if (row.cost.source === 'unknown' || row.cost.partial === true) partial = true;
   }
 
   // With nothing priced at all there is no lower bound worth printing — say unknown.

@@ -56,6 +56,16 @@ function io(stdout: string, over: Partial<HarnessIO> = {}): HarnessIO {
 }
 
 describe('codex parse() — canonical usage', () => {
+  it('runs read-only outside the repo so PR-side AGENTS.md is not auto-discovered', () => {
+    const context = ctx();
+    const command = codexHarness.command(context);
+    expect(command.cwd).toBe(context.scratchDir);
+    expect(command.argv[command.argv.indexOf('--sandbox') + 1]).toBe('read-only');
+    expect(command.argv).toContain('--ephemeral');
+    expect(command.argv[command.argv.indexOf('--add-dir') + 1]).toBe(context.repoDir);
+    expect(command.argv.join(' ')).not.toContain('writable_roots');
+  });
+
   it('subtracts cached tokens from the reported input total', () => {
     const r = codexHarness.parse(io(jsonl([TURN_COMPLETED])), ctx());
 

@@ -20,6 +20,11 @@ function context(args: Record<string, unknown>, maxTurns = 0): RunContext {
 }
 
 describe('Grok Build command', () => {
+  it('exposes read-only tools', () => {
+    const argv = grokHarness.command(context({})).argv;
+    expect(argv[argv.indexOf('--tools') + 1]).toBe('read_file,grep,list_dir');
+  });
+
   it('omits the turn flag in unlimited mode', () => {
     expect(grokHarness.command(context({})).argv).not.toContain('--max-turns');
   });

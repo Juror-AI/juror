@@ -387,8 +387,9 @@ function sumCosts(parts: CostBreakdown[]): CostBreakdown {
     longContext = longContext || p.longContext;
   }
   if (known === 0) return { usd: null, source: 'unknown', longContext };
+  const partial = known < parts.length || parts.some((p) => p.partial === true);
   const source = parts.every((p) => p.source === 'reported') ? 'reported' : 'estimated';
-  const cost: CostBreakdown = { usd, source, longContext };
+  const cost: CostBreakdown = { usd, source, longContext, ...(partial ? { partial: true } : {}) };
   if (known < parts.length) cost.note = `${parts.length - known} referee call(s) reported no usage`;
   return cost;
 }

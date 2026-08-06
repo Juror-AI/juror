@@ -4,7 +4,7 @@
  * The inputs are deliberately the three things that stay put when a model rewords itself:
  * file, severity, and the shape of the title. Line number is excluded on purpose — the same
  * bug drifts by a few lines every push, and a fingerprint that changes on every push is
- * useless for deduplication or for `@juror ignore`.
+ * useless for stable deduplication across reruns.
  */
 
 import { createHash } from 'node:crypto';

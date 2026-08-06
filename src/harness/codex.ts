@@ -91,7 +91,7 @@ export const codexHarness: Harness = {
   id: 'codex',
   label: 'Codex',
 
-  async locate(): Promise<HarnessLocation> {
+  async locate(env?: Record<string, string | undefined>): Promise<HarnessLocation> {
     const binPath = await which('codex');
     if (!binPath) {
       throw new Error('codex not found on PATH — install @openai/codex');
@@ -101,7 +101,7 @@ export const codexHarness: Harness = {
     log.info(`codex binary: ${binPath}`);
 
     const warnings: string[] = [];
-    const io = await run([binPath, '--version'], { timeoutMs: 15_000 });
+    const io = await run([binPath, '--version'], { timeoutMs: 15_000, ...(env ? { env } : {}) });
     const raw = `${io.stdout} ${io.stderr}`.trim();
     const m = /(\d+\.\d+\.\d+)/.exec(raw);
     const version = m?.[1] ?? 'unknown';
@@ -132,9 +132,10 @@ export const codexHarness: Harness = {
       'exec',
       '--json',
       '--sandbox',
-      'workspace-write',
-      '-c',
-      `sandbox_workspace_write.writable_roots=["${ctx.scratchDir}"]`,
+      'read-only',
+      '--ephemeral',
+      '--add-dir',
+      ctx.repoDir,
       '-m',
       ctx.model,
       '-c',
@@ -146,7 +147,9 @@ export const codexHarness: Harness = {
 
     // `exec` reads stdin even when given a positional prompt; a job that leaves stdin
     // open hangs until the timeout, so the prompt is delivered there instead.
-    return { argv, env: ctx.env, stdin: ctx.prompt, cwd: ctx.repoDir };
+    // Starting outside the repository prevents Codex from auto-loading a PR-side
+    // AGENTS.md. Juror already injected the trusted base-revision instructions.
+    return { argv, env: ctx.env, stdin: ctx.prompt, cwd: ctx.scratchDir };
   },
 
   parse(io: HarnessIO, ctx: RunContext): HarnessResult {

@@ -250,12 +250,11 @@ review:
   publish_mode: all              # all (higher recall) | consensus (higher precision)
   severity_floor: P3             # include every severity by default
   max_inline_comments: 15
-  incremental: true              # re-review only new commits
   paths_ignore: ["**/*.lock", "dist/**", "**/*.generated.*"]
 
 budget:
-  max_cost_usd_per_pr: 5.00      # split evenly across the models that have a key
-  on_exceed: partial             # partial | skip
+  target_cost_usd_per_pr: 5.00   # planning target; actual spend remains in the receipt
+  on_exceed: partial             # affordable subset | skip
 
 output:
   sequence_diagram: true
@@ -342,6 +341,12 @@ The differentiator, and the thing that must never be wrong.
 
 `src/cost/pricing.json` is versioned, dated, and every entry carries a source URL.
 
+`budget.target_cost_usd_per_pr` is deliberately a planning target, not a promise that every
+provider can enforce a hard cap. Juror estimates only models whose keys are present and, in
+`partial` mode, runs the subset estimated to fit. Claude also receives a native spend limit.
+Actual usage can still cross the target on providers without that facility; the receipt and
+review warnings report the overage instead of relabeling the estimate as a ceiling.
+
 ---
 
 ## Security
@@ -349,17 +354,16 @@ The differentiator, and the thing that must never be wrong.
 This is a bot that pipes attacker-controlled text into an agent and then writes to your PR.
 It is designed for that.
 
-1. **No model process ever sees `GITHUB_TOKEN`.** Agents write JSON to a scratch directory; a
-   separate step with no model in the loop reads it and calls the GitHub API. Prompt injection
-   can at worst produce a bad review comment — never a push, a merge, or an exfiltration.
+1. **No model process ever sees `GITHUB_TOKEN`.** Every child environment is rebuilt from an
+   allowlist with exactly one provider credential. Publishing starts only after all jurors exit.
+   Prompt injection can at worst produce a bad review comment — never a push or merge.
 2. **Default trigger is `pull_request`, not `pull_request_target`.** Fork PRs get no secrets
    and no review, by design.
-3. **Sandbox where the harness supports it.** Codex and Grok Build get kernel-enforced
-   sandboxes. Claude Code, opencode, and Kimi Code get tool removal (no shell or network
-   tools), plus a post-run **workspace guard** that reverts any file an agent modified that
-   was clean before the run — and never touches a file that was already dirty. Kimi also
-   starts outside the repository with a private home, so a PR-controlled MCP config cannot
-   spawn during startup.
+3. **The repository is read-only to every juror.** Codex uses its read-only kernel sandbox;
+   Claude, Grok Build, opencode, and Kimi receive read/search tools only. Generic OpenAI
+   resolves symlinks and may write only one exact report path outside the repository. Claude,
+   Codex, and Kimi start from private temporary directories so PR-controlled hooks, MCP,
+   settings, and `AGENTS.md` are not auto-loaded. A workspace guard remains as defense in depth.
 4. **Keys are passed per harness**, never to all of them. Each model process gets an
    environment containing only its own provider key.
 5. **Injection is a finding.** Each model is told the diff is untrusted data and to report
@@ -370,7 +374,10 @@ It is designed for that.
    update those files for future work, but cannot rewrite the policy used to review itself.
    If the base object is unavailable locally, Juror warns and only uses a workspace copy the
    visible diff does not change.
-7. **Everything posted is redacted** for secret-shaped strings first.
+7. **Execution configuration also comes from the base revision.** A pull request cannot
+   redirect a provider endpoint, select `GITHUB_TOKEN` as a model secret, or enable a new
+   harness while it is being reviewed. If the base object is unavailable, secure defaults win.
+8. **Everything posted is redacted** for secret-shaped strings first.
 
 ---
 
@@ -386,6 +393,8 @@ It is designed for that.
   receipt, but there is no cross-model precision signal.
 - Findings anchored outside the diff are surfaced in the summary but not posted inline,
   because GitHub can't attach them.
+- The spend target is estimate-based for providers without native budget enforcement. Actual
+  spend is always shown and can be slightly higher than the target.
 
 ---
 

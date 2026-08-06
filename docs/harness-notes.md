@@ -20,8 +20,8 @@ section below names that distinction rather than presenting inferred usage as me
 ## Claude Code — `claude -p --output-format json`
 
 ```
-claude -p "<prompt>" --model claude-opus-5 --output-format json \
-  --tools "Read,Grep,Glob,Write" --add-dir "$SCRATCH" \
+claude --bare -p "<prompt>" --model claude-opus-5 --output-format json \
+  --no-session-persistence --tools "Read,Grep,Glob" --add-dir "$REPO" \
   --max-budget-usd 1.00
 ```
 
@@ -38,18 +38,20 @@ permission_denials`.
   it where you meant `--tools` leaves the agent holding a shell.
 - Juror omits `--max-turns` by default, leaving the per-model wall-clock timeout as the
   termination boundary. A positive custom `max_turns` restores the CLI flag.
-- It is the only harness that can enforce a spend ceiling. When `--max-budget-usd` trips it
+- It is the only harness that can enforce its per-model spend allocation. When `--max-budget-usd` trips it
   exits **1** with `subtype: "error_max_budget_usd"`, `terminal_reason: "budget_exhausted"`
   and a null result. Measured: one review of a 240-line diff in a large monorepo cost
-  **$0.69**, which is why the default per-PR budget is not $2.
+  **$0.69**, which is why the default planning target is not $2.
+- `--bare` disables project/user hooks, settings, MCP, skills, and instruction discovery.
+  Juror starts Claude outside the repository; the repo is attached read-only through its
+  tool list.
 - Writes a harmless stderr warning about claude.ai connectors whenever `ANTHROPIC_API_KEY`
   is set. Collect it as a diagnostic; it is not a failure.
 
 ## Codex CLI — `codex exec --json`
 
 ```
-codex exec --json --sandbox workspace-write \
-  -c sandbox_workspace_write.writable_roots="[\"$SCRATCH\"]" \
+codex exec --json --sandbox read-only --ephemeral --add-dir "$REPO" \
   -m gpt-5.6-sol -c model_reasoning_effort=high \
   --ignore-user-config --skip-git-repo-check < prompt.md
 ```
@@ -77,6 +79,8 @@ JSONL on stdout: `thread.started`, `turn.started`, `item.started`, `item.complet
 - `exec` reads stdin even when given a positional prompt. A job that leaves stdin open hangs
   until its timeout.
 - `-s` is not global across subcommands — use `--sandbox` after `exec`.
+- Juror starts Codex in a private directory outside the repository so project `AGENTS.md`
+  is not auto-discovered; trusted base-revision rules are already embedded in the prompt.
 - Resolve the binary's absolute path and assert `--version`: multiple installs shadowing each
   other by PATH order is a real, observed failure (0.132.0 in one prefix, 0.146.1 in another).
 
@@ -98,20 +102,14 @@ JSONL on stdout: `step_start`, `tool_use`, `text`, `step_finish`.
   "cache":{"write":0,"read":14680}},"cost":0.00043792}`.
 - Provider keys come from the environment via models.dev metadata. `FIREWORKS_API_KEY` alone
   enables every `fireworks-ai/...` model with no login step.
-- Five behaviours that each cost a debugging session:
-  1. **Writes outside `--dir` are auto-rejected** in headless mode
-     (`! permission requested: external_directory ...; auto-rejecting`), and the rejection
-     appears only on stderr. The findings file must live inside the project dir.
-  2. **Restricting `edit` by glob removes the write tool entirely.** An object-form rule with
-     a `"*": "deny"` catch-all makes the model answer "I don't have a write tool available".
-     Allow `edit` and constrain the blast radius by disabling tools instead.
-  3. **Concurrent runs sharing a data dir die instantly** with `Error: database is locked`
+- Three behaviours that each cost a debugging session:
+  1. **Concurrent runs sharing a data dir die instantly** with `Error: database is locked`
      and empty stdout — its sessions live in SQLite. Give each invocation its own
      `XDG_DATA_HOME`.
-  4. **It snapshots the project into its data dir.** Put that dir inside the repo and the run
+  2. **It snapshots the project into its data dir.** Put that dir inside the repo and the run
      dies in about a second and leaves a tree that will not delete. `"snapshot": false` also
      avoids copying a full git object store on every review of a large repo.
-  5. **`OPENCODE_CONFIG` does not isolate ambient configuration by itself.** Run with
+  3. **`OPENCODE_CONFIG` does not isolate ambient configuration by itself.** Run with
      `--pure`, a private `HOME`/XDG tree, `OPENCODE_DISABLE_PROJECT_CONFIG=true`, and the
      corresponding external-skills, Claude-prompt/skills, and default-plugin disable flags.
      Otherwise a developer's global setup changes the review, while a PR-controlled project
@@ -120,9 +118,9 @@ JSONL on stdout: `step_start`, `tool_use`, `text`, `step_finish`.
   ```json
   { "$schema": "https://opencode.ai/config.json", "autoupdate": false, "share": "disabled",
     "snapshot": false, "instructions": [],
-    "tools": { "bash": false, "webfetch": false, "task": false, "todowrite": false, "patch": false },
+    "tools": { "bash": false, "edit": false, "webfetch": false, "task": false, "todowrite": false, "patch": false },
     "permission": { "read": "allow", "glob": "allow", "grep": "allow", "list": "allow",
-                    "edit": "allow", "bash": "deny", "webfetch": "deny", "websearch": "deny" } }
+                    "edit": "deny", "bash": "deny", "webfetch": "deny", "websearch": "deny" } }
   ```
 
 ## Kimi Code — `kimi -p --output-format stream-json`
@@ -148,7 +146,7 @@ page is the source of truth for the model id, 1.04M context window, and current
   no cap; a positive custom `max_turns` value opts back into a step limit.
 - Print mode creates/resumes the session with `permission: "auto"` and installs an approval
   handler that approves every call. Juror therefore supplies an explicit agent file whose
-  complete tool list is `Read, Write, Grep, Glob`; shell, web, MCP, and subagents never enter
+  complete tool list is `Read, Grep, Glob`; write, shell, web, MCP, and subagents never enter
   the model's tool set.
 - Run from a private directory outside the repository and attach the repo with `--add-dir`.
   Otherwise Kimi discovers project `.mcp.json` before the model starts, which could launch a

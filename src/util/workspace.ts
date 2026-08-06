@@ -1,16 +1,10 @@
 /**
  * Workspace guard.
  *
- * Several harnesses cannot be pinned to a read-only filesystem: opencode drops its write
- * tool entirely if you deny edits by glob (measured — see docs/harness-notes.md), while
- * Claude Code and Kimi Code sandbox by tool removal rather than by kernel. Since a reviewer
- * must be able to write its findings file, "the agent can write" is a property we have to
- * live with.
- *
- * So we make it observable instead: snapshot which tracked files are clean before fan-out,
- * and afterwards restore exactly those that the run dirtied. A file that was ALREADY dirty
- * before the run is never touched — restoring it would destroy the operator's uncommitted
- * work, which is a far worse failure than a stray agent edit.
+ * Every shipped harness is configured read-only and generic-openai can write only its exact
+ * report path outside the repository. This guard is defense in depth for a future CLI or
+ * provider regression: snapshot clean tracked paths and restore any unexpected drift.
+ * Pre-existing user changes are never touched.
  */
 
 import { realpath } from 'node:fs/promises';
@@ -25,8 +19,8 @@ export interface WorkspaceSnapshot {
   dirtyBefore: Set<string>;
   /** Untracked paths that existed before the run — off limits. */
   untrackedBefore: Set<string>;
-  /** Path prefix that the run is allowed to create freely. */
-  scratchPrefix: string;
+  /** Repo-relative scratch directory, or null when scratch lives outside the repository. */
+  scratchPrefix: string | null;
 }
 
 export interface WorkspaceDrift {
@@ -54,7 +48,7 @@ function parsePorcelain(out: string): { dirty: Set<string>; untracked: Set<strin
 
 export async function snapshotWorkspace(
   repoDir: string,
-  scratchPrefix: string,
+  scratchPrefix: string | null,
 ): Promise<WorkspaceSnapshot | null> {
   const io = await run(['git', 'status', '--porcelain', '--untracked-files=all'], {
     cwd: repoDir,
@@ -83,7 +77,7 @@ export async function restoreWorkspace(snap: WorkspaceSnapshot | null): Promise<
 
   const toRestore: string[] = [];
   for (const p of dirty) {
-    if (p.startsWith(snap.scratchPrefix)) continue;
+    if (isScratchPath(p, snap.scratchPrefix)) continue;
     if (snap.dirtyBefore.has(p)) {
       drift.left.push({ path: p, reason: 'already modified before the review started' });
       continue;
@@ -93,7 +87,7 @@ export async function restoreWorkspace(snap: WorkspaceSnapshot | null): Promise<
 
   const toRemove: string[] = [];
   for (const p of untracked) {
-    if (p.startsWith(snap.scratchPrefix)) continue;
+    if (isScratchPath(p, snap.scratchPrefix)) continue;
     if (snap.untrackedBefore.has(p)) continue;
     toRemove.push(p);
   }
@@ -116,6 +110,12 @@ export async function restoreWorkspace(snap: WorkspaceSnapshot | null): Promise<
   }
 
   return drift;
+}
+
+function isScratchPath(candidate: string, prefix: string | null): boolean {
+  if (!prefix) return false;
+  const normalized = prefix.replace(/\/+$/, '');
+  return candidate === normalized || candidate.startsWith(`${normalized}/`);
 }
 
 /** Resolve the repository root, so a run started in a subdirectory still anchors correctly. */

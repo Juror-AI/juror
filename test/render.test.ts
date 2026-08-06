@@ -58,7 +58,6 @@ function config(over: Partial<JurorConfig['output']> = {}, review: Partial<Juror
       publish_mode: 'all',
       severity_floor: 'P2',
       max_inline_comments: 15,
-      incremental: true,
       paths_ignore: [],
       anchor_tolerance: 3,
       max_diff_bytes: 400_000,
@@ -66,7 +65,7 @@ function config(over: Partial<JurorConfig['output']> = {}, review: Partial<Juror
       max_turns: 30,
       ...review,
     },
-    budget: { max_cost_usd_per_pr: 2, on_exceed: 'partial' },
+    budget: { target_cost_usd_per_pr: 2, on_exceed: 'partial' },
     output: { sequence_diagram: true, cost_receipt: true, suppressed_findings: 'collapsed', ...over },
   };
 }
@@ -409,7 +408,7 @@ describe('renderSummaryComment', () => {
     expect(md).toContain('<sub>Model votes: Opus 5 `3` · GPT-5.6 Sol `2` → median **3**, capped at **4** by 1 confirmed P1.</sub>');
     expect(md).toContain('### Merge Confidence: 3/5');
     expect(md).toContain('Juror v0.4.1 · reviewed `a1b2c3d`');
-    expect(md).toContain('`@juror ignore`');
+    expect(md).not.toContain('@juror ignore');
   });
 
   it('names skipped models even when the receipt is switched off', () => {

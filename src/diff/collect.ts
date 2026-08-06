@@ -31,12 +31,13 @@ export async function collectLocalDiff(o: CollectOptions): Promise<DiffContext> 
   const baseRef = o.base ?? (await defaultBaseRef(o.repoDir));
   const baseSha = await resolveBaseSha(o.repoDir, baseRef, headSha);
 
+  const comparison = o.head ? `${baseSha}..${headSha}` : baseSha;
   const raw = await git(o.repoDir, [
     'diff',
     '--unified=3',
     '--no-color',
     '--find-renames',
-    `${baseSha}..${headSha}`,
+    comparison,
   ]);
 
   const sinceSha = o.sinceSha ?? null;

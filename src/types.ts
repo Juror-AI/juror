@@ -140,6 +140,8 @@ export type CostSource = 'reported' | 'estimated' | 'unknown';
 export interface CostBreakdown {
   usd: number | null;
   source: CostSource;
+  /** True when this amount is only a known subtotal because one or more calls were unpriced. */
+  partial?: boolean;
   /** True when the long-context tier repriced the request. */
   longContext: boolean;
   /** Human-readable note, surfaced in the receipt when something is unusual. */
@@ -224,7 +226,7 @@ export interface Harness {
   /** Human label for the receipt table. */
   label: string;
   /** Resolve the binary, assert its version, and return the absolute path. */
-  locate(): Promise<HarnessLocation>;
+  locate(env?: Record<string, string | undefined>): Promise<HarnessLocation>;
   /** Build the child process invocation. */
   command(ctx: RunContext): HarnessCommand;
   /** Turn raw child output into a normalized result. */
@@ -431,7 +433,6 @@ export interface JurorConfig {
     publish_mode: PublishMode;
     severity_floor: Severity;
     max_inline_comments: number;
-    incremental: boolean;
     paths_ignore: string[];
     anchor_tolerance: number;
     max_diff_bytes: number;
@@ -440,7 +441,8 @@ export interface JurorConfig {
     max_turns: number;
   };
   budget: {
-    max_cost_usd_per_pr: number;
+    /** Planning target, not a provider-enforced hard ceiling. */
+    target_cost_usd_per_pr: number;
     on_exceed: 'partial' | 'skip';
   };
   output: {

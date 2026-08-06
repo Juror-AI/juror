@@ -394,7 +394,7 @@ function footer(o: RenderOptions): string {
   const sha = o.repo
     ? `[\`${short}\`](https://github.com/${o.repo}/commit/${o.headSha})`
     : `\`${short}\``;
-  return `<sub>Juror ${displayVersion(o.version)} · reviewed ${sha} · reply \`@juror ignore\` to any finding · [docs](https://github.com/${REPO_SLUG})</sub>`;
+  return `<sub>Juror ${displayVersion(o.version)} · reviewed ${sha} · [docs](https://github.com/${REPO_SLUG})</sub>`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

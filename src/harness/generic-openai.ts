@@ -12,8 +12,16 @@
  * `id === 'generic-openai'` and calls `runGenericOpenAI()` instead of command/parse.
  */
 
-import { type Dirent, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, relative, resolve, sep } from 'node:path';
+import {
+  type Dirent,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import type {
   CanonicalUsage,
   Harness,
@@ -107,7 +115,7 @@ const TOOLS = [
     type: 'function',
     function: {
       name: 'grep',
-      description: 'Search file contents for a JavaScript regular expression.',
+      description: 'Search file contents for a literal, case-sensitive substring.',
       parameters: {
         type: 'object',
         properties: {
@@ -177,9 +185,20 @@ function parseTextSafely(text: string): { report: ModelReport | null; problems: 
   }
 }
 
+function realOrNearest(p: string): string {
+  const absolute = resolve(p);
+  try {
+    return realpathSync(absolute);
+  } catch {
+    const parent = dirname(absolute);
+    if (parent === absolute) return absolute;
+    return join(realOrNearest(parent), basename(absolute));
+  }
+}
+
 function isInside(child: string, parent: string): boolean {
-  const c = resolve(child);
-  const p = resolve(parent);
+  const c = realOrNearest(child);
+  const p = realOrNearest(parent);
   return c === p || c.startsWith(p.endsWith(sep) ? p : p + sep);
 }
 
@@ -189,14 +208,15 @@ function sleep(ms: number): Promise<void> {
 
 /**
  * Every path a model hands us is untrusted text — `../../.ssh/id_rsa` is one hallucination
- * away. Resolve first, then prefix-check against the two roots the run is allowed to touch.
+ * away. Resolve symlinks (or the nearest existing parent), then prefix-check against the
+ * roots the run is allowed to read.
  * Rejection is a tool-result string, never a throw: a refused path should teach the model to
  * pick a different one, not abort the review.
  */
 function confine(p: unknown, roots: string[], base: string): { abs: string } | { error: string } {
   const raw = typeof p === 'string' ? p : '';
   if (!raw.trim()) return { error: 'error: "path" is required and must be a non-empty string' };
-  const abs = resolve(base, raw);
+  const abs = realOrNearest(resolve(base, raw));
   if (!roots.some((root) => isInside(abs, root))) {
     return { error: `error: refused — "${raw}" resolves outside the review workspace` };
   }
@@ -264,14 +284,6 @@ function toolGrep(args: Record<string, unknown>, roots: string[], base: string):
   const pattern = readString(args['pattern']);
   if (!pattern) return 'error: "pattern" is required';
 
-  let re: RegExp;
-  try {
-    re = new RegExp(pattern);
-  } catch {
-    // A model writing a shell-style pattern should get results, not a syntax lecture.
-    re = new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-  }
-
   const dirArg = typeof args['path'] === 'string' && args['path'].trim() ? args['path'] : base;
   const c = confine(dirArg, roots, base);
   if ('error' in c) return c.error;
@@ -297,7 +309,7 @@ function toolGrep(args: Record<string, unknown>, roots: string[], base: string):
     const lines = content.split('\n');
     for (let i = 0; i < lines.length; i += 1) {
       const line = lines[i];
-      if (line === undefined || !re.test(line)) continue;
+      if (line === undefined || !line.includes(pattern)) continue;
       hits.push(`${relative(base, file) || file}:${i + 1}: ${line.trim().slice(0, 300)}`);
       if (hits.length >= MAX_GREP_MATCHES) break;
     }
@@ -325,20 +337,29 @@ function toolListDir(args: Record<string, unknown>, roots: string[], base: strin
   return (rows.join('\n') || '(empty directory)') + more;
 }
 
-function toolWriteFile(args: Record<string, unknown>, roots: string[], base: string): string {
-  const c = confine(args['path'], roots, base);
-  if ('error' in c) return c.error;
+function toolWriteFile(args: Record<string, unknown>, findingsPath: string, base: string): string {
+  const raw = readString(args['path']);
+  if (!raw) return 'error: "path" is required and must be a non-empty string';
+  const abs = realOrNearest(resolve(base, raw));
+  const expected = realOrNearest(findingsPath);
+  if (abs !== expected) return `error: refused — write_file may only write ${findingsPath}`;
   const content = typeof args['content'] === 'string' ? args['content'] : '';
   try {
-    mkdirSync(dirname(c.abs), { recursive: true });
-    writeFileSync(c.abs, content, 'utf8');
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, content, 'utf8');
   } catch (e) {
-    return `error: cannot write ${relative(base, c.abs) || c.abs}: ${(e as Error).message}`;
+    return `error: cannot write ${relative(base, abs) || abs}: ${(e as Error).message}`;
   }
-  return `wrote ${content.length} bytes to ${relative(base, c.abs) || c.abs}`;
+  return `wrote ${content.length} bytes to ${relative(base, abs) || abs}`;
 }
 
-function dispatchTool(name: string, rawArgs: string, roots: string[], base: string): string {
+function dispatchTool(
+  name: string,
+  rawArgs: string,
+  readRoots: string[],
+  findingsPath: string,
+  base: string,
+): string {
   let args: Record<string, unknown> = {};
   if (rawArgs.trim()) {
     try {
@@ -351,13 +372,13 @@ function dispatchTool(name: string, rawArgs: string, roots: string[], base: stri
   }
   switch (name) {
     case 'read_file':
-      return toolReadFile(args, roots, base);
+      return toolReadFile(args, readRoots, base);
     case 'grep':
-      return toolGrep(args, roots, base);
+      return toolGrep(args, readRoots, base);
     case 'list_dir':
-      return toolListDir(args, roots, base);
+      return toolListDir(args, readRoots, base);
     case 'write_file':
-      return toolWriteFile(args, roots, base);
+      return toolWriteFile(args, findingsPath, base);
     default:
       return `error: unknown tool "${name}"`;
   }
@@ -443,14 +464,14 @@ export async function runGenericOpenAI(ctx: RunContext): Promise<HarnessResult> 
   }
 
   const url = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
-  const roots = [resolve(ctx.repoDir), resolve(ctx.scratchDir)];
+  const readRoots = [realOrNearest(ctx.repoDir)];
   mkdirSync(ctx.scratchDir, { recursive: true });
 
   const messages: ChatMessage[] = [
     {
       role: 'system',
       content: [
-        'You are a code review agent. You have read-only tools over a repository plus one writable scratch area.',
+        'You are a code review agent. You have read-only tools over a repository and one exact writable findings file.',
         `Relative paths resolve against ${ctx.repoDir}. Paths outside the workspace are refused.`,
         `When you are finished, call write_file to write your JSON report to ${ctx.findingsPath}, then reply with a one-line confirmation and no further tool calls.`,
       ].join(' '),
@@ -515,7 +536,13 @@ export async function runGenericOpenAI(ctx: RunContext): Promise<HarnessResult> 
     if (toolCalls.length === 0) break;
 
     for (const call of toolCalls) {
-      const result = dispatchTool(call.function.name, call.function.arguments, roots, ctx.repoDir);
+      const result = dispatchTool(
+        call.function.name,
+        call.function.arguments,
+        readRoots,
+        ctx.findingsPath,
+        ctx.repoDir,
+      );
       if (result.startsWith('error: refused')) diagnostics.push(result);
       log.debug(`generic-openai tool ${call.function.name} → ${result.length} bytes`);
       messages.push({ role: 'tool', tool_call_id: call.id, content: result });
@@ -564,7 +591,7 @@ export const genericOpenAIHarness = {
   label: 'Generic OpenAI',
 
   // Nothing to find on PATH: this adapter runs in-process against global fetch.
-  async locate(): Promise<HarnessLocation> {
+  async locate(_env?: Record<string, string | undefined>): Promise<HarnessLocation> {
     return { binPath: process.execPath, version: process.version, warnings: [] };
   },
 

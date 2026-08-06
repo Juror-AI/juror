@@ -20,6 +20,16 @@ function context(maxTurns = 0): RunContext {
 }
 
 describe('Claude Code command', () => {
+  it('runs outside the repo with customizations disabled and no write tool', () => {
+    const ctx = context();
+    const command = claudeHarness.command(ctx);
+    expect(command.cwd).toBe(ctx.scratchDir);
+    expect(command.argv).toContain('--bare');
+    expect(command.argv).toContain('--no-session-persistence');
+    expect(command.argv[command.argv.indexOf('--tools') + 1]).toBe('Read,Grep,Glob');
+    expect(command.argv[command.argv.indexOf('--add-dir') + 1]).toBe(ctx.repoDir);
+  });
+
   it('omits the turn flag in unlimited mode', () => {
     expect(claudeHarness.command(context()).argv).not.toContain('--max-turns');
   });

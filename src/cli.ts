@@ -12,12 +12,15 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 
-import { runOrThrow } from './util/proc.js';
+import { run, runOrThrow } from './util/proc.js';
 
 import type { DiffContext, JurorConfig, ReviewPreset } from './types.js';
 import {
   applyReviewPreset,
+  CONFIG_FILENAMES,
+  defaultConfig,
   loadConfig,
+  loadConfigText,
   parseReviewPreset,
   resolveModelRuntime,
   REVIEW_PRESETS,
@@ -26,7 +29,7 @@ import { collectFromPatch, collectLocalDiff } from './diff/collect.js';
 import { runReview } from './review.js';
 import { renderTerminalReport } from './render/terminal.js';
 import { renderSummaryComment } from './render/summary.js';
-import { GitHubClient } from './github/client.js';
+import { GitHubClient, type PullMeta } from './github/client.js';
 import { publishFailureComment, publishReview, publishWorkingComment } from './github/publish.js';
 import { loadRolling, recordSpend } from './cost/rolling.js';
 import { log, redact, setLogLevel } from './util/log.js';
@@ -59,8 +62,8 @@ Options
   --dry-run              With --post, render everything but perform no writes
   --json [path]          Emit the full ReviewResult as JSON (stdout, or a file)
   --markdown <path>      Write the rendered summary comment to a file
-  --max-cost <usd>       Override budget.max_cost_usd_per_pr
-  --keep-scratch         Leave .juror-run/ in place for debugging
+  --cost-target <usd>    Override budget.target_cost_usd_per_pr (planning target, not a hard cap)
+  --keep-scratch         Keep the unique temporary run directory for debugging
   --env-file <path>      Load KEY=VALUE pairs before running (default: ./.env if present)
   --file <path>          Adjudicated corpus for the benchmark command
   -v, --verbose          Debug logging
@@ -88,7 +91,7 @@ interface Args {
   dryRun: boolean;
   json: string | boolean;
   markdown: string | null;
-  maxCost: number | null;
+  costTarget: number | null;
   keepScratch: boolean;
   envFile: string | null;
   file: string | null;
@@ -110,7 +113,7 @@ function parseArgs(argv: string[]): Args {
     dryRun: false,
     json: false,
     markdown: null,
-    maxCost: null,
+    costTarget: null,
     keepScratch: false,
     envFile: null,
     file: null,
@@ -149,7 +152,7 @@ function parseArgs(argv: string[]): Args {
       case '--no-post': a.post = false; break;
       case '--dry-run': a.dryRun = true; break;
       case '--markdown': a.markdown = path.resolve(next(i)); i++; break;
-      case '--max-cost': a.maxCost = Number(next(i)); i++; break;
+      case '--cost-target': a.costTarget = Number(next(i)); i++; break;
       case '--keep-scratch': a.keepScratch = true; break;
       case '--env-file': a.envFile = path.resolve(next(i)); i++; break;
       case '--file': a.file = path.resolve(next(i)); i++; break;
@@ -218,43 +221,57 @@ async function main(): Promise<number> {
 
   const loaded = loadEnvFile(args.envFile ?? path.join(process.cwd(), '.env'));
   if (loaded) log.debug(`loaded ${loaded} variable(s) from the env file`);
-
-  const repoDir = await repoRoot(args.repoDir);
-  const { config: baseConfig, problems, sourcePath } = loadConfig(repoDir, args.config ?? undefined);
-  for (const p of problems) log.warn(`config: ${p}`);
-  if (sourcePath) log.debug(`config from ${sourcePath}`);
-
-  let config: JurorConfig = args.preset ? applyReviewPreset(baseConfig, args.preset) : baseConfig;
-  if (args.maxCost !== null) {
-    config = { ...config, budget: { ...config.budget, max_cost_usd_per_pr: args.maxCost } };
+  if (args.costTarget !== null && (!Number.isFinite(args.costTarget) || args.costTarget < 0)) {
+    throw new Error('--cost-target must be a finite number greater than or equal to zero');
   }
 
-  // ── Collect the diff ───────────────────────────────────────────────────────
+  const repoDir = await repoRoot(args.repoDir);
   const repo = args.repo ?? (await inferRepo(repoDir));
-  let diff: DiffContext;
-  let headSha: string;
   const prNumber: number | null = args.pr;
   let githubClient: GitHubClient | null = null;
-  let checkout: EphemeralCheckout = { dir: repoDir, ephemeral: false, cleanup: async () => {} };
+  let pull: PullMeta | null = null;
 
-  if (args.pr !== null) {
+  if (prNumber !== null) {
     if (!repo) throw new Error('--pr needs a repository: pass --repo owner/name');
     const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
     if (!token) throw new Error('--pr needs GITHUB_TOKEN (read access is enough without --post)');
     githubClient = new GitHubClient({ token, repo, version: VERSION });
-    const meta = await githubClient.getPull(args.pr);
-    log.step(`PR #${meta.number} — ${meta.title}`);
-    const patch = await githubClient.getPullDiff(args.pr);
+    pull = await githubClient.getPull(prNumber);
+    log.step(`PR #${pull.number} — ${pull.title}`);
+  }
+
+  // In PR mode, repository configuration is untrusted until read from the base revision.
+  // An explicit path inside the repo is also read from base; only an external operator-owned
+  // config file is read directly.
+  const loadedConfig = pull
+    ? await loadConfigFromBase(repoDir, pull.baseSha, args.config)
+    : loadConfig(repoDir, args.config ?? undefined);
+  const { config: baseConfig, problems, sourcePath } = loadedConfig;
+  for (const p of problems) log.warn(`config: ${p}`);
+  if (sourcePath) log.debug(`config from ${sourcePath}`);
+
+  let config: JurorConfig = args.preset ? applyReviewPreset(baseConfig, args.preset) : baseConfig;
+  if (args.costTarget !== null) {
+    config = { ...config, budget: { ...config.budget, target_cost_usd_per_pr: args.costTarget } };
+  }
+
+  // ── Collect the diff ───────────────────────────────────────────────────────
+  let diff: DiffContext;
+  let headSha: string;
+  let checkout: EphemeralCheckout = { dir: repoDir, ephemeral: false, cleanup: async () => {} };
+
+  if (pull && githubClient && prNumber !== null) {
+    const patch = await githubClient.getPullDiff(prNumber);
     diff = collectFromPatch(patch, {
-      baseSha: meta.baseSha,
-      headSha: meta.headSha,
+      baseSha: pull.baseSha,
+      headSha: pull.headSha,
       pathsIgnore: config.review.paths_ignore,
       maxDiffBytes: config.review.max_diff_bytes,
     });
-    headSha = meta.headSha;
+    headSha = pull.headSha;
     // Reviewing a PR means grepping the PR's code, not whatever branch happens to be
     // checked out. Falls back to the current tree with a warning when the SHA is unreachable.
-    checkout = await checkoutAt(repoDir, meta.headSha, { prNumber: args.pr });
+    checkout = await checkoutAt(repoDir, pull.headSha, { prNumber });
   } else {
     diff = await collectLocalDiff({
       repoDir,
@@ -269,6 +286,7 @@ async function main(): Promise<number> {
   const reviewable = diff.files.filter((f) => !f.ignored);
   if (reviewable.length === 0) {
     log.warn('Nothing to review: the diff is empty after path filters.');
+    await checkout.cleanup();
     return 0;
   }
   log.step(
@@ -345,7 +363,7 @@ async function main(): Promise<number> {
   const prKey = `${repo ?? 'local'}#${prNumber ?? 'wt'}@${headSha.slice(0, 12)}`;
   const rolling = safeRecordSpend(stateDir, result.totals.usd, prKey);
 
-  process.stdout.write(renderTerminalReport(result, { version: VERSION }));
+  if (args.json !== true) process.stdout.write(renderTerminalReport(result, { version: VERSION }));
 
   if (args.post) {
     if (prNumber === null || !repo || !githubClient) {
@@ -411,13 +429,55 @@ async function runBenchmarkCommand(args: Args): Promise<number> {
   }
 
   const result = evaluateBenchmark(parseBenchmarkCorpus(raw));
-  process.stdout.write(renderBenchmark(result));
+  if (args.json !== true) process.stdout.write(renderBenchmark(result));
   if (args.json) {
     const payload = `${JSON.stringify(result, null, 2)}\n`;
     if (typeof args.json === 'string') await writeFile(args.json, payload, 'utf8');
     else process.stdout.write(payload);
   }
   return 0;
+}
+
+type LoadedConfig = ReturnType<typeof loadConfig>;
+
+async function loadConfigFromBase(
+  repoDir: string,
+  baseSha: string,
+  overridePath: string | null,
+): Promise<LoadedConfig> {
+  if (overridePath) {
+    const relative = path.relative(repoDir, overridePath).replaceAll(path.sep, '/');
+    const insideRepo = relative !== '' && relative !== '..' && !relative.startsWith('../');
+    if (!insideRepo) return loadConfig(repoDir, overridePath);
+    const io = await run(['git', 'show', `${baseSha}:${relative}`], {
+      cwd: repoDir,
+      timeoutMs: 30_000,
+    });
+    if (io.exitCode === 0) return loadConfigText(io.stdout, `${relative}@${baseSha.slice(0, 12)}`);
+    return {
+      config: defaultConfig(),
+      problems: [`trusted config ${relative} does not exist at the PR base; using defaults`],
+      sourcePath: null,
+    };
+  }
+
+  for (const name of CONFIG_FILENAMES) {
+    const io = await run(['git', 'show', `${baseSha}:${name}`], { cwd: repoDir, timeoutMs: 30_000 });
+    if (io.exitCode === 0) return loadConfigText(io.stdout, `${name}@${baseSha.slice(0, 12)}`);
+  }
+
+  const base = await run(['git', 'cat-file', '-e', `${baseSha}^{commit}`], {
+    cwd: repoDir,
+    timeoutMs: 30_000,
+  });
+  return {
+    config: defaultConfig(),
+    problems:
+      base.exitCode === 0
+        ? []
+        : [`base revision ${baseSha.slice(0, 12)} is unavailable locally; using secure defaults`],
+    sourcePath: null,
+  };
 }
 
 function safeRecordSpend(stateDir: string, usd: number | null, prKey: string) {

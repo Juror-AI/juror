@@ -119,12 +119,12 @@ describe('anchorFindings', () => {
 
   it('resolves a path the model emitted relative to a subdirectory', () => {
     const [a] = anchor([finding({ path: 'app.ts', line: 3 })]);
-    expect(a).toMatchObject({ anchor: 'exact', anchoredLine: 3 });
+    expect(a).toMatchObject({ anchor: 'exact', anchoredLine: 3, path: 'src/app.ts' });
   });
 
   it('resolves a path the model prefixed with a workspace root', () => {
     const [a] = anchor([finding({ path: '/home/runner/work/repo/src/app.ts', line: 24 })]);
-    expect(a).toMatchObject({ anchor: 'exact', anchoredLine: 24 });
+    expect(a).toMatchObject({ anchor: 'exact', anchoredLine: 24, path: 'src/app.ts' });
   });
 
   it('treats a file with no post-image changes as outside-diff, not unknown-file', () => {
@@ -145,7 +145,7 @@ describe('anchorFindings', () => {
       '',
     ].join('\n');
     const [a] = anchor([finding({ path: 'src/old.ts', line: 1 })], 3, context(patch));
-    expect(a).toMatchObject({ anchor: 'exact', anchoredLine: 1, path: 'src/old.ts' });
+    expect(a).toMatchObject({ anchor: 'exact', anchoredLine: 1, path: 'src/new.ts' });
   });
 
   it('never drops a finding, whatever the anchor', () => {

@@ -426,6 +426,23 @@ describe('totalCost', () => {
     expect(totals.usd).toBe(0.6);
   });
 
+  it('keeps an auxiliary known subtotal marked as partial', () => {
+    const totals = totalCost([opus], [{
+      label: 'verify',
+      harnessLabel: 'Codex',
+      usage: null,
+      cost: {
+        usd: 0.04,
+        source: 'estimated',
+        longContext: false,
+        partial: true,
+        note: 'one verification reported no usage',
+      },
+    }]);
+    expect(totals.usd).toBe(0.64);
+    expect(totals.partial).toBe(true);
+  });
+
   it('keeps skipped models as rows without poisoning the total', () => {
     const skipped = run({
       modelId: 'grok-4.5',

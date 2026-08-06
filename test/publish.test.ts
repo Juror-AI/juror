@@ -226,6 +226,17 @@ describe('live sticky status', () => {
     expect(fake.createIssueComment).not.toHaveBeenCalled();
     expect(fake.updateIssueComment).not.toHaveBeenCalled();
   });
+
+  it('ignores a user-authored marker and creates a bot-owned sticky', async () => {
+    const fake = makeFake();
+    fake.store.push({ id: 9, body: `${MARKER}\nspoof`, user: { login: 'pull-request-author' } });
+
+    const id = await publishWorkingComment(statusOptions(fake.client));
+
+    expect(id).toBe(100);
+    expect(fake.updateIssueComment).not.toHaveBeenCalled();
+    expect(fake.createIssueComment).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

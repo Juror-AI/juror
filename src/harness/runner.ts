@@ -104,9 +104,14 @@ export async function runHarness(
   signal?: AbortSignal,
 ): Promise<HarnessResult> {
   try {
+    const location = await h.locate(isolate(ctx.env));
     // The escape-hatch adapter drives an OpenAI-compatible endpoint from inside this
     // process — it has no CLI to spawn, so `command()` deliberately throws for it.
-    if (h.id === 'generic-openai') return await runGenericOpenAI(ctx);
+    if (h.id === 'generic-openai') {
+      const result = await runGenericOpenAI(ctx);
+      result.diagnostics.unshift(...location.warnings);
+      return result;
+    }
 
     const cmd = h.command(ctx);
     const io = await run(cmd.argv, {
@@ -121,6 +126,7 @@ export async function runHarness(
     await dumpIo(ctx.scratchDir, io);
 
     const result = h.parse(io, ctx);
+    result.diagnostics.unshift(...location.warnings);
     if (io.timedOut) {
       result.diagnostics.push(`timed out after ${Math.round(ctx.timeoutMs / 1000)}s`);
     } else if (io.exitCode !== 0) {
@@ -149,10 +155,10 @@ function hasKey(v: string | undefined): v is string {
   return typeof v === 'string' && v.trim().length > 0;
 }
 
-/** The PR budget split evenly across the models that will actually run. */
-function perModelBudget(maxUsdPerPr: number, runnable: number): number | null {
-  if (!Number.isFinite(maxUsdPerPr) || maxUsdPerPr <= 0 || runnable <= 0) return null;
-  return Math.round((maxUsdPerPr / runnable) * 10_000) / 10_000;
+/** Split the planning target for harnesses (currently Claude) that can enforce a limit. */
+function perModelTarget(targetUsdPerPr: number, runnable: number): number | null {
+  if (!Number.isFinite(targetUsdPerPr) || targetUsdPerPr <= 0 || runnable <= 0) return null;
+  return Math.round((targetUsdPerPr / runnable) * 10_000) / 10_000;
 }
 
 function childEnv(
@@ -176,14 +182,19 @@ function childEnv(
 function envPassthrough(m: ModelConfig): string[] {
   const raw = m.args?.['env_passthrough'];
   if (!Array.isArray(raw)) return [];
-  return raw.filter((v): v is string => typeof v === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(v));
+  return raw.filter(
+    (v): v is string =>
+      typeof v === 'string' &&
+      /^[A-Za-z_][A-Za-z0-9_]*$/.test(v) &&
+      !/(?:TOKEN|SECRET|PASSWORD|API_KEY|PRIVATE_KEY|CREDENTIAL)/i.test(v),
+  );
 }
 
 export async function fanOut(o: FanOutOptions): Promise<ModelRun[]> {
   const ambient: Record<string, string | undefined> = process.env;
   const enabled = o.config.models.filter((m) => m.enabled);
   const runnable = enabled.filter((m) => hasKey(o.secrets[m.secret]));
-  const budgetUsd = perModelBudget(o.config.budget.max_cost_usd_per_pr, runnable.length);
+  const budgetUsd = perModelTarget(o.config.budget.target_cost_usd_per_pr, runnable.length);
 
   log.debug(
     `fan-out: ${runnable.length} runnable, ${enabled.length - runnable.length} without a key, ` +
@@ -232,6 +243,8 @@ async function runOne(
       };
     }
 
+    const modelEnv = childEnv(ambient, m.secret, key, envPassthrough(m));
+
     const scratchDir = harnessScratch(o.scratchRoot, m.id);
     await mkdir(scratchDir, { recursive: true });
     const findingsPath = join(scratchDir, 'findings.json');
@@ -256,7 +269,7 @@ async function runOne(
       model: rt.harnessModel,
       ...(m.base_url ? { baseUrl: m.base_url } : {}),
       args: m.args ?? {},
-      env: childEnv(ambient, m.secret, key, envPassthrough(m)),
+      env: modelEnv,
       providerKey: key,
       timeoutMs: (m.timeout_seconds ?? o.config.review.per_model_timeout_seconds) * 1000,
       budgetUsd,

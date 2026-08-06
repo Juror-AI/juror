@@ -159,7 +159,9 @@ async function upsertSticky(
   const safe = clamp(redact(body), warnings);
 
   const existing = await o.client.listIssueComments(o.prNumber);
-  const sticky = existing.find((c) => c.body.includes(STICKY_MARKER));
+  const sticky = existing.find(
+    (c) => c.user.login.endsWith('[bot]') && c.body.includes(STICKY_MARKER),
+  );
 
   if (sticky) {
     try {
@@ -167,10 +169,10 @@ async function upsertSticky(
       log.info(`updated the juror sticky comment (#${sticky.id})`);
       return sticky.id;
     } catch (e) {
-      // Someone deleted the sticky between the list and the update — create a fresh one
-      // rather than losing the whole review to a race.
-      if (!isGitHubApiError(e) || e.status !== 404) throw e;
-      warnings.push('the previous summary comment disappeared mid-run; posted a new one');
+      // A different bot can carry the marker, or the comment can disappear between list
+      // and update. In either case, create our own instead of losing publication.
+      if (!isGitHubApiError(e) || (e.status !== 403 && e.status !== 404)) throw e;
+      warnings.push('the previous bot summary was not editable; posted a new one');
     }
   }
 

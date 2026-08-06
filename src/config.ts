@@ -18,7 +18,7 @@ import { SEVERITIES } from './types.js';
 // Defaults
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CONFIG_FILENAMES = ['.juror.yml', '.juror.yaml', '.github/juror.yml', '.github/juror.yaml'];
+export const CONFIG_FILENAMES = ['.juror.yml', '.juror.yaml', '.github/juror.yml', '.github/juror.yaml'] as const;
 
 const HARNESS_IDS: readonly HarnessId[] = [
   'claude-code',
@@ -42,6 +42,15 @@ const DEFAULT_SECRET: Record<HarnessId, string> = {
   opencode: 'FIREWORKS_API_KEY',
   'generic-openai': 'OPENAI_API_KEY',
 };
+
+/** Credentials that are privileged control-plane tokens, never model-provider inputs. */
+const RESERVED_MODEL_SECRETS = new Set([
+  'GITHUB_TOKEN',
+  'GH_TOKEN',
+  'ACTIONS_RUNTIME_TOKEN',
+  'ACTIONS_ID_TOKEN_REQUEST_TOKEN',
+  'ACTIONS_ID_TOKEN_REQUEST_URL',
+]);
 
 const SUPPRESSED_MODES = ['collapsed', 'hidden', 'inline'] as const;
 const ON_EXCEED_MODES = ['partial', 'skip'] as const;
@@ -200,7 +209,6 @@ export function defaultConfig(): JurorConfig {
       publish_mode: 'all',
       severity_floor: 'P3',
       max_inline_comments: 15,
-      incremental: true,
       paths_ignore: [
         '**/*.lock',
         '**/package-lock.json',
@@ -219,12 +227,9 @@ export function defaultConfig(): JurorConfig {
       max_turns: 0,
     },
     budget: {
-      // The ceiling is split evenly across the models that actually have a key, because an
-      // even split is the only allocation that can honour a hard per-PR cap. That makes the
-      // number less generous than it looks: at $2.00 with three models, each gets $0.67 —
-      // and a single Opus 5 run over a 240-line diff in a large monorepo measured $0.69,
-      // so the documented default would have killed the strongest juror mid-review.
-      max_cost_usd_per_pr: 5.0,
+      // This is a planning target. Claude can enforce its allocation natively; other
+      // harnesses are admitted using estimates and the receipt always shows actual spend.
+      target_cost_usd_per_pr: 5.0,
       on_exceed: 'partial',
     },
     output: {
@@ -260,22 +265,32 @@ export function loadConfig(
     return { config, problems, sourcePath: null };
   }
 
+  return loadConfigText(text, found.path);
+}
+
+/** Parse trusted config text, used for PR mode where the bytes come from the base revision. */
+export function loadConfigText(
+  text: string,
+  sourcePath: string,
+): { config: JurorConfig; problems: string[]; sourcePath: string } {
+  const config = defaultConfig();
+  const problems: string[] = [];
   let parsed: unknown;
   try {
     parsed = parseYaml(text);
   } catch (e) {
-    problems.push(`${found.path} is not valid YAML: ${errText(e)} — using defaults`);
-    return { config, problems, sourcePath: found.path };
+    problems.push(`${sourcePath} is not valid YAML: ${errText(e)} — using defaults`);
+    return { config, problems, sourcePath };
   }
 
-  if (parsed === null || parsed === undefined) return { config, problems, sourcePath: found.path };
+  if (parsed === null || parsed === undefined) return { config, problems, sourcePath };
   if (!isRecord(parsed)) {
-    problems.push(`${found.path} must be a YAML mapping at the top level — using defaults`);
-    return { config, problems, sourcePath: found.path };
+    problems.push(`${sourcePath} must be a YAML mapping at the top level — using defaults`);
+    return { config, problems, sourcePath };
   }
 
   applyConfig(config, parsed, problems);
-  return { config, problems, sourcePath: found.path };
+  return { config, problems, sourcePath };
 }
 
 function findConfigFile(repoDir: string, overridePath?: string): { path: string | null } {
@@ -406,9 +421,14 @@ function coerceModel(raw: unknown, index: number, problems: string[]): ModelConf
     else enabled = b;
   }
 
-  const secret = asString(raw['secret']) ?? DEFAULT_SECRET[harness];
+  let secret = asString(raw['secret']) ?? DEFAULT_SECRET[harness];
   if ('secret' in raw && !asString(raw['secret'])) {
     problems.push(`${at} (${id}): secret must be an env var NAME — using ${secret}`);
+  } else if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(secret) || RESERVED_MODEL_SECRETS.has(secret)) {
+    problems.push(
+      `${at} (${id}): secret ${JSON.stringify(secret)} is not permitted for a model process — using ${DEFAULT_SECRET[harness]}`,
+    );
+    secret = DEFAULT_SECRET[harness];
   }
 
   const model: ModelConfig = { id, harness, enabled, secret };
@@ -488,7 +508,6 @@ const REVIEW_KEYS = [
   'publish_mode',
   'severity_floor',
   'max_inline_comments',
-  'incremental',
   'paths_ignore',
   'anchor_tolerance',
   'max_diff_bytes',
@@ -525,9 +544,6 @@ function applyReview(config: JurorConfig, raw: unknown, problems: string[]): voi
   const maxInline = numberIn(section['max_inline_comments'], 'review.max_inline_comments', 0, 200, problems);
   if (maxInline !== null) r.max_inline_comments = Math.round(maxInline);
 
-  const incremental = boolean(section['incremental'], 'review.incremental', problems);
-  if (incremental !== null) r.incremental = incremental;
-
   if ('paths_ignore' in section) {
     const globs = asStringArray(section['paths_ignore']);
     if (globs) r.paths_ignore = globs;
@@ -550,10 +566,10 @@ function applyReview(config: JurorConfig, raw: unknown, problems: string[]): voi
 function applyBudget(config: JurorConfig, raw: unknown, problems: string[]): void {
   const section = sectionOf(raw, 'budget', problems);
   if (!section) return;
-  reportUnknown(section, ['max_cost_usd_per_pr', 'on_exceed'], 'budget', problems);
+  reportUnknown(section, ['target_cost_usd_per_pr', 'on_exceed'], 'budget', problems);
 
-  const max = numberIn(section['max_cost_usd_per_pr'], 'budget.max_cost_usd_per_pr', 0, 10_000, problems);
-  if (max !== null) config.budget.max_cost_usd_per_pr = max;
+  const target = numberIn(section['target_cost_usd_per_pr'], 'budget.target_cost_usd_per_pr', 0, 10_000, problems);
+  if (target !== null) config.budget.target_cost_usd_per_pr = target;
 
   if ('on_exceed' in section) {
     const s = asString(section['on_exceed']);

@@ -49,7 +49,6 @@ review:
 
   severity_floor: P3 # show every model-reported severity in the default high-recall mode
   max_inline_comments: 15 # the rest stay in the summary table
-  incremental: true # on a re-review, only look at commits pushed since the last one
 
   # Files Juror will not read or comment on. Generated and vendored code is noise.
   paths_ignore:
@@ -71,12 +70,10 @@ review:
   max_turns: 0 # no step cap; per_model_timeout_seconds remains the hard boundary
 
 budget:
-  # Split evenly across the models that have a key — the only allocation that can honour a
-  # hard per-PR cap. Measured: one Opus 5 run over a 240-line diff in a large monorepo cost
-  # $0.69, so allow roughly $1/model on a big repo. Too low and the strongest juror is the
-  # one that gets cut off.
-  max_cost_usd_per_pr: 5.00
-  on_exceed: partial # partial = post what we have and say so | skip = post nothing
+  # Planning target based on the versioned price table. Claude can enforce its allocation
+  # natively; other providers may exceed an estimate, which the receipt reports honestly.
+  target_cost_usd_per_pr: 5.00
+  on_exceed: partial # partial = run the subset estimated to fit | skip = post nothing
 
 output:
   sequence_diagram: true # mermaid diagram of the changed flow, when there is one

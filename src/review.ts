@@ -9,7 +9,8 @@
  * it is the reason prompt injection cannot escalate past a bad review comment.
  */
 
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import type {
@@ -35,9 +36,6 @@ import { loadAgentInstructions } from './instructions.js';
 import { log } from './util/log.js';
 import { restoreWorkspace, snapshotWorkspace } from './util/workspace.js';
 
-/** Scratch lives inside the repo: opencode auto-rejects any write outside its `--dir`. */
-export const SCRATCH_DIRNAME = '.juror-run';
-
 export interface ReviewOptions {
   repoDir: string;
   config: JurorConfig;
@@ -55,13 +53,14 @@ export async function runReview(o: ReviewOptions): Promise<ReviewResult> {
   const warnings: string[] = [];
   const pricing = loadPricing();
 
-  const config = o.onlyModels?.length ? restrictModels(o.config, o.onlyModels, warnings) : o.config;
+  const requestedConfig = o.onlyModels?.length
+    ? restrictModels(o.config, o.onlyModels, warnings)
+    : o.config;
 
-  const scratchRoot = path.join(o.repoDir, SCRATCH_DIRNAME);
-  await rm(scratchRoot, { recursive: true, force: true });
-  await mkdir(scratchRoot, { recursive: true });
-
-  const guard = await snapshotWorkspace(o.repoDir, SCRATCH_DIRNAME);
+  // Never reuse or delete a consumer-owned path. A unique OS temp directory also keeps
+  // agent startup discovery away from PR-controlled settings in the repository.
+  const scratchRoot = await mkdtemp(path.join(tmpdir(), 'juror-review-'));
+  const guard = await snapshotWorkspace(o.repoDir, null);
 
   try {
     // ── 1. Prompt ────────────────────────────────────────────────────────────
@@ -78,17 +77,22 @@ export async function runReview(o: ReviewOptions): Promise<ReviewResult> {
     const promptVars = reviewPromptVars(o.diff, o.repoDir, instructions.rendered);
 
     // ── 2. Budget precheck ───────────────────────────────────────────────────
+    const plan = planModelsWithinTarget(requestedConfig, o.diff, o.secrets, pricing, warnings);
+    if (!plan) {
+      return emptyResult(o.diff, started, [...warnings, 'Review skipped: estimated spend is over target.']);
+    }
+    const config = plan.config;
     const enabled = config.models.filter((m) => m.enabled);
-    const estimate = estimateReviewCost(o.diff, enabled, pricing);
-    if (estimate > config.budget.max_cost_usd_per_pr) {
+    if (plan.estimate > config.budget.target_cost_usd_per_pr) {
       const msg =
-        `Estimated cost $${estimate.toFixed(2)} exceeds budget ` +
-        `$${config.budget.max_cost_usd_per_pr.toFixed(2)} (${config.budget.on_exceed}).`;
+        `Estimated cost $${plan.estimate.toFixed(2)} exceeds planning target ` +
+        `$${config.budget.target_cost_usd_per_pr.toFixed(2)} (${config.budget.on_exceed}).`;
       warnings.push(msg);
       log.warn(msg);
-      if (config.budget.on_exceed === 'skip') {
-        return emptyResult(o.diff, started, [...warnings, 'Review skipped: over budget.']);
-      }
+    }
+
+    if (!enabled.some((model) => hasSecret(o.secrets[model.secret]))) {
+      return emptyResult(o.diff, started, [...warnings, 'No runnable model fits the spend target.']);
     }
 
     // ── 3. Fan out ───────────────────────────────────────────────────────────
@@ -219,6 +223,13 @@ export async function runReview(o: ReviewOptions): Promise<ReviewResult> {
     }
 
     const totals = totalCost(runs, extras);
+    if (totals.usd !== null && totals.usd > config.budget.target_cost_usd_per_pr) {
+      warnings.push(
+        `Actual spend ${totals.usd.toFixed(4)} USD exceeded the ` +
+          `${config.budget.target_cost_usd_per_pr.toFixed(2)} USD planning target; ` +
+          'this provider does not expose a hard per-request spend limit.',
+      );
+    }
     const summary = synthesizeSummary(runs, o.diff);
 
     log.step(
@@ -247,6 +258,7 @@ export async function runReview(o: ReviewOptions): Promise<ReviewResult> {
     }
     for (const l of drift.left) log.debug(`workspace guard left ${l.path}: ${l.reason}`);
     if (!o.keepScratch) await removeScratch(scratchRoot);
+    else log.info(`scratch artifacts kept at ${scratchRoot}`);
   }
 }
 
@@ -328,6 +340,45 @@ function estimateReviewCost(
   return total;
 }
 
+function hasSecret(value: string | undefined): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function planModelsWithinTarget(
+  config: JurorConfig,
+  diff: DiffContext,
+  secrets: Record<string, string | undefined>,
+  pricing: ReturnType<typeof loadPricing>,
+  warnings: string[],
+): { config: JurorConfig; estimate: number } | null {
+  const runnable = config.models.filter((m) => m.enabled && hasSecret(secrets[m.secret]));
+  const estimate = estimateReviewCost(diff, runnable, pricing);
+  const target = config.budget.target_cost_usd_per_pr;
+  if (estimate <= target) return { config, estimate };
+  if (config.budget.on_exceed === 'skip') {
+    warnings.push(
+      `Estimated runnable-model spend $${estimate.toFixed(2)} exceeds the $${target.toFixed(2)} planning target.`,
+    );
+    return null;
+  }
+
+  let planned = 0;
+  const selected = new Set<string>();
+  for (const model of runnable) {
+    const modelEstimate = estimateReviewCost(diff, [model], pricing);
+    if (planned + modelEstimate > target) continue;
+    selected.add(model.id);
+    planned += modelEstimate;
+  }
+
+  const models = config.models.map((model) => {
+    if (!model.enabled || !hasSecret(secrets[model.secret]) || selected.has(model.id)) return model;
+    warnings.push(`${model.label ?? model.id} omitted because its estimate does not fit the spend target.`);
+    return { ...model, enabled: false };
+  });
+  return { config: { ...config, models }, estimate };
+}
+
 function restrictModels(config: JurorConfig, only: string[], warnings: string[]): JurorConfig {
   const wanted = new Set(only.map((s) => s.trim()).filter(Boolean));
   const models = config.models.map((m) => ({ ...m, enabled: wanted.has(m.id) }));
@@ -339,7 +390,7 @@ function restrictModels(config: JurorConfig, only: string[], warnings: string[])
 
 function findModel(config: JurorConfig, id: string | null): ModelConfig | null {
   if (!id) return null;
-  return config.models.find((m) => m.id === id) ?? null;
+  return config.models.find((m) => m.id === id && m.enabled) ?? null;
 }
 
 function harnessLabelOf(m: ModelConfig): string {
