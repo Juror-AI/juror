@@ -15,13 +15,16 @@ concurrency:
 
 jobs:
   review:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - uses: ./
+      # Never execute action code from the pull request while provider secrets are present.
+      # Dependabot can deliberately update this immutable revision after the reviewed code lands.
+      - uses: cderinbogaz/juror@8e01b7c35e0ea82a0ef6dd31487ea5c0f5909366
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
         env:
