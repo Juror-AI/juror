@@ -134,7 +134,8 @@ JSONL on stdout: `step_start`, `tool_use`, `text`, `step_finish`.
     "snapshot": false, "instructions": [],
     "tools": { "bash": false, "edit": false, "webfetch": false, "task": false, "todowrite": false, "patch": false },
     "permission": { "read": "allow", "glob": "allow", "grep": "allow", "list": "allow",
-                    "edit": "deny", "bash": "deny", "webfetch": "deny", "websearch": "deny" } }
+                    "edit": "deny", "bash": "deny", "webfetch": "deny", "websearch": "deny",
+                    "external_directory": { "*": "deny", "$REPO/**": "allow", "$SCRATCH/**": "allow" } } }
   ```
 
 ## Kimi Code — `kimi -p --output-format stream-json`

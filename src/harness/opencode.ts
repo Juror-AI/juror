@@ -26,6 +26,7 @@ import type {
   RunContext,
 } from '../types.js';
 import { parseModelReport, readReportFile } from '../report.js';
+import { redact } from '../util/log.js';
 import { run, which } from '../util/proc.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -59,6 +60,7 @@ const OPENCODE_CONFIG = {
     websearch: 'deny',
   },
 };
+const MAX_STDERR_DIAGNOSTICS = 20;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -157,7 +159,23 @@ export const opencodeHarness = {
     // The scratch dir holds Juror-owned run artifacts outside the reviewed repository.
     mkdirSync(ctx.scratchDir, { recursive: true });
     const configPath = resolve(ctx.scratchDir, 'opencode.json');
-    writeFileSync(configPath, `${JSON.stringify(OPENCODE_CONFIG, null, 2)}\n`, 'utf8');
+    const repoDir = realOrSelf(ctx.repoDir);
+    const scratchDir = realOrSelf(ctx.scratchDir);
+    const config = {
+      ...OPENCODE_CONFIG,
+      permission: {
+        ...OPENCODE_CONFIG.permission,
+        // opencode can classify an explicitly selected `--dir` as external after Juror
+        // removes the checkout's `.git` pointer. Deny external paths by default, then allow
+        // only the sealed source tree and this run's scratch. Last match wins in its rules.
+        external_directory: {
+          '*': 'deny',
+          [`${repoDir}/**`]: 'allow',
+          [`${scratchDir}/**`]: 'allow',
+        },
+      },
+    };
+    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
 
     // Two things force the data dir to be private AND outside the repo.
     //
@@ -200,7 +218,7 @@ export const opencodeHarness = {
       '--dir',
       // Symlink-resolved: opencode resolves the files it reads, so an unresolved --dir
       // makes it treat the repo's own files as an external directory and refuse them.
-      realOrSelf(ctx.repoDir),
+      repoDir,
       '-m',
       ctx.model,
       'Read the attached review prompt completely, follow it exactly, and return the requested JSON report.',
@@ -237,7 +255,7 @@ export const opencodeHarness = {
       },
       // opencode blocks on an open stdin pipe; an unclosed stdin costs a full timeout.
       stdin: '',
-      cwd: realOrSelf(ctx.repoDir),
+      cwd: repoDir,
     };
   },
 
@@ -292,17 +310,15 @@ export const opencodeHarness = {
       .join('');
 
     const diagnostics: string[] = [];
-    // A blocked write surfaces on stderr as an auto-rejected permission prompt and nowhere
-    // else — without this the run just looks like a model that forgot to write its report.
-    for (const line of io.stderr.split('\n')) {
-      const trimmed = line.trim();
-      const lower = trimmed.toLowerCase();
-      if (lower.includes('permission requested')) diagnostics.push(trimmed);
-      // Should be impossible now that every run gets its own XDG_DATA_HOME, but if it ever
-      // reappears it is worth naming precisely rather than reading as "the model said nothing".
-      if (lower.includes('database is locked')) {
-        diagnostics.push('opencode session database was locked — data dir isolation failed');
-      }
+    // Provider failures and blocked reads often surface only on stderr. Keep a bounded,
+    // redacted sample so an empty report says "billing suspended" or "permission denied"
+    // instead of looking like the model silently forgot its contract.
+    const stderr = io.stderr.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    for (const line of stderr.slice(0, MAX_STDERR_DIAGNOSTICS)) {
+      diagnostics.push(redact(line));
+    }
+    if (stderr.length > MAX_STDERR_DIAGNOSTICS) {
+      diagnostics.push(`… ${stderr.length - MAX_STDERR_DIAGNOSTICS} more stderr line(s)`);
     }
     if (events.length === 0) diagnostics.push('opencode emitted no JSON events on stdout');
 
@@ -333,7 +349,7 @@ export const opencodeHarness = {
       usage: turns > 0 ? totals : null,
       reportedCostUsd: sawCost ? costUsd : null,
       turns,
-      truncated: io.timedOut,
+      truncated: io.timedOut || io.exitCode !== 0,
       rawText,
       diagnostics,
     };

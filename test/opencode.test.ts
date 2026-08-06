@@ -103,9 +103,14 @@ describe('opencode command path confinement', () => {
     const configPath = command.env['OPENCODE_CONFIG'];
     expect(configPath).toBeTruthy();
     const config = JSON.parse(readFileSync(configPath as string, 'utf8')) as {
-      permission: { edit: string };
+      permission: { edit: string; external_directory: Record<string, string> };
     };
     expect(config.permission.edit).toBe('deny');
+    expect(config.permission.external_directory['*']).toBe('deny');
+    expect(config.permission.external_directory[`${realpathSync(repoDir)}/**`]).toBe('allow');
+    expect(config.permission.external_directory[`${realpathSync(ctx.scratchDir)}/**`]).toBe(
+      'allow',
+    );
   });
 });
 
@@ -139,5 +144,23 @@ describe('opencode custom task parsing', () => {
     expect(result.diagnostics).toEqual([]);
     expect(result.usage).toEqual({ uncachedIn: 10, cacheRead: 5, cacheWrite: 0, out: 2 });
     expect(result.reportedCostUsd).toBe(0.0001);
+  });
+
+  it('surfaces provider stderr and marks a nonzero result partial', () => {
+    const repoDir = mkdtempSync(join(tmpdir(), 'juror-opencode-provider-error-'));
+    cleanup.push(repoDir);
+    const ctx = context(repoDir);
+    const io: HarnessIO = {
+      stdout: '',
+      stderr: 'provider error: account suspended\n',
+      exitCode: 1,
+      signal: null,
+      durationMs: 100,
+      timedOut: false,
+    };
+
+    const result = opencodeHarness.parse(io, ctx);
+    expect(result.diagnostics).toContain('provider error: account suspended');
+    expect(result.truncated).toBe(true);
   });
 });
