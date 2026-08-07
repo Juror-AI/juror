@@ -38,7 +38,7 @@ import { checkoutAt, type EphemeralCheckout } from './util/worktree.js';
 import { evaluateBenchmark, parseBenchmarkCorpus, renderBenchmark } from './benchmark.js';
 import { loadAgentInstructions } from './instructions.js';
 
-export const VERSION = '1.0.0';
+export const VERSION = '1.1.0';
 
 const USAGE = `
 juror ${VERSION} — multi-model PR review that shows you the bill
@@ -56,7 +56,7 @@ Options
   --repo-dir <path>      Repository checkout to read (default: cwd)
   --head <ref>           Head ref for local mode (default: HEAD)
   --config <path>        Config file (default: .juror.yml in the repo)
-  --preset <name>        Jury preset: fast, balanced (default), high, or ultra
+  --preset <name>        Jury preset: fast (default), balanced, high, or ultra
   --mode <name>          Alias for --preset
   --models <a,b,c>       Only run these model ids
   --post                 Post the review to the pull request (requires --pr and GITHUB_TOKEN)

@@ -34,43 +34,55 @@ afterEach(() => {
 });
 
 describe('defaultConfig', () => {
-  it('defaults to the balanced three-model jury', () => {
+  it('defaults to the fast two-model jury', () => {
     const c = defaultConfig();
-    expect(c.preset).toBe('balanced');
+    expect(c.preset).toBe('fast');
     expect(c.review.publish_mode).toBe('all');
     expect(c.review.max_turns).toBe(0);
     expect(c.consensus.min_agreement).toBe('all');
-    expect(c.models.map((m) => m.id)).toEqual(['gpt-5.6-terra', 'grok-4.5', 'kimi-k3']);
-    expect(c.models[0]?.args?.['reasoning_effort']).toBe('max');
-    expect(c.models[1]?.args?.['reasoning_effort']).toBe('high');
-    expect(c.models[2]?.harness).toBe('kimi-code');
-    expect(c.models[2]?.secret).toBe('FIREWORKS_API_KEY');
-    expect(c.models[2]?.harness_model).toBe('accounts/fireworks/models/kimi-k3');
-    expect(c.models[2]?.pricing_key).toBe('accounts/fireworks/models/kimi-k3');
-    expect(c.consensus.verify_model).toBe('kimi-k3');
-    expect(c.consensus.referee_model).toBe('kimi-k3');
+    expect(c.models.map((m) => m.id)).toEqual(['gpt-5.6-luna', 'deepseek-v4-flash-0731']);
+    expect(c.models[0]?.harness).toBe('codex');
+    expect(c.models[0]?.secret).toBe('OPENAI_API_KEY');
+    expect(c.models[0]?.args?.['reasoning_effort']).toBe('low');
+    expect(c.models[1]?.harness).toBe('opencode');
+    expect(c.models[1]?.secret).toBe('FIREWORKS_API_KEY');
+    expect(c.models[1]?.harness_model).toBe(
+      'fireworks-ai/accounts/fireworks/models/deepseek-v4-flash-0731',
+    );
+    expect(c.models[1]?.pricing_key).toBe('accounts/fireworks/models/deepseek-v4-flash-0731');
+    // The preset's `low` overrides this model's built-in `variant: high`.
+    expect(c.models[1]?.args?.['variant']).toBe('low');
+    expect(c.consensus.verify_model).toBe('deepseek-v4-flash-0731');
+    expect(c.consensus.referee_model).toBe('deepseek-v4-flash-0731');
   });
 
   it('hands out an independent copy each call', () => {
     const a = defaultConfig();
     a.review.severity_floor = 'P0';
     a.review.paths_ignore.push('mutated/**');
-    if (a.models[0]?.args) a.models[0].args['reasoning_effort'] = 'low';
+    // Must differ from the default, or a shared reference would still read back as default.
+    if (a.models[0]?.args) a.models[0].args['reasoning_effort'] = 'max';
     const b = defaultConfig();
     expect(b.review.severity_floor).toBe('P3');
     expect(b.review.paths_ignore).not.toContain('mutated/**');
-    expect(b.models[0]?.args?.['reasoning_effort']).toBe('max');
+    expect(b.models[0]?.args?.['reasoning_effort']).toBe('low');
   });
 
-  it('ships the requested fast, high, and ultra preset memberships', () => {
+  it('ships the requested fast, balanced, high, and ultra preset memberships', () => {
     const base = defaultConfig();
     const fast = applyReviewPreset(base, 'fast');
+    const balanced = applyReviewPreset(base, 'balanced');
     const high = applyReviewPreset(base, 'high');
     const ultra = applyReviewPreset(base, 'ultra');
 
     expect(fast.models.map((m) => m.id)).toEqual(['gpt-5.6-luna', 'deepseek-v4-flash-0731']);
     expect(fast.models.map((m) => m.args?.['reasoning_effort'] ?? m.args?.['variant'])).toEqual(['low', 'low']);
     expect(fast.consensus.referee_model).toBe('deepseek-v4-flash-0731');
+    // No longer the default, so this is the only place its membership is pinned.
+    expect(balanced.models.map((m) => m.id)).toEqual(['gpt-5.6-terra', 'grok-4.5', 'kimi-k3']);
+    expect(balanced.models[0]?.args?.['reasoning_effort']).toBe('max');
+    expect(balanced.models[1]?.args?.['reasoning_effort']).toBe('high');
+    expect(balanced.consensus.referee_model).toBe('kimi-k3');
     expect(high.models.map((m) => m.id)).toEqual(['gpt-5.6-sol', 'claude-opus-5', 'grok-4.5']);
     expect(high.consensus.referee_model).toBe('grok-4.5');
     expect(ultra.models.map((m) => m.id)).toEqual([
@@ -196,7 +208,7 @@ describe('loadConfig', () => {
     expect(config.consensus.referee_model).toBe('claude-opus-5');
   });
 
-  it('keeps balanced and reports an unknown preset', () => {
+  it('keeps the default preset and reports an unknown one', () => {
     const dir = repoWith({ '.juror.yml': 'preset: enormous\n' });
     const { config, problems } = loadConfig(dir);
     expect(config).toEqual(defaultConfig());

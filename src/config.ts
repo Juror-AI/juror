@@ -199,7 +199,7 @@ export function applyReviewPreset(config: JurorConfig, preset: ReviewPreset): Ju
 }
 
 export function defaultConfig(): JurorConfig {
-  const preset: ReviewPreset = 'balanced';
+  const preset: ReviewPreset = 'fast';
   const consensusModel = PRESET_DEFINITIONS[preset].consensusModel;
   return {
     version: 1,
