@@ -80,6 +80,17 @@ describe('codex parse() — canonical usage', () => {
     rmSync(context.scratchDir, { recursive: true, force: true });
   });
 
+  // Codex only authenticates from `$CODEX_HOME/auth.json`; it ignores OPENAI_API_KEY in the
+  // environment. The private home starts empty, so without this every turn 401s.
+  it('provisions api-key auth inside the private CODEX_HOME', () => {
+    const context = { ...ctx(), providerKey: 'sk-test-key' };
+    const command = codexHarness.command(context);
+    const home = command.env['CODEX_HOME'] as string;
+    const auth = JSON.parse(readFileSync(join(home, 'auth.json'), 'utf8'));
+    expect(auth).toEqual({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-test-key' });
+    rmSync(context.scratchDir, { recursive: true, force: true });
+  });
+
   it('subtracts cached tokens from the reported input total', () => {
     const r = codexHarness.parse(io(jsonl([TURN_COMPLETED])), ctx());
 
