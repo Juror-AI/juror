@@ -48,19 +48,24 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
         env:
-          OPENAI_API_KEY:    ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          XAI_API_KEY:       ${{ secrets.XAI_API_KEY }}
-          FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
+          JUROR_OPENAI_API_KEY:    ${{ secrets.JUROR_OPENAI_API_KEY }}
+          JUROR_ANTHROPIC_API_KEY: ${{ secrets.JUROR_ANTHROPIC_API_KEY }}
+          JUROR_XAI_API_KEY:       ${{ secrets.JUROR_XAI_API_KEY }}
+          JUROR_FIREWORKS_API_KEY: ${{ secrets.JUROR_FIREWORKS_API_KEY }}
 ```
 
 **2 — Add at least one provider key.** *Settings → Secrets and variables → Actions*, or from
 your terminal:
 
 ```bash
-gh secret set OPENAI_API_KEY      # one key is enough to start
-gh secret set ANTHROPIC_API_KEY   # every extra key adds another juror
+gh secret set JUROR_OPENAI_API_KEY      # one key is enough to start
+gh secret set JUROR_ANTHROPIC_API_KEY   # every extra key adds another juror
 ```
+
+Issue Juror its **own** provider key rather than reusing an existing one. Review spend then
+appears as its own line in provider billing, and you can rotate or cap it without touching
+anything else you run. The unprefixed names (`OPENAI_API_KEY`, …) still work as a fallback,
+so an existing install keeps running; a prefixed key wins when both are set.
 
 Any key you leave out is skipped with a note in the receipt. One key gets you a working
 single-model review; four gets you the full jury. Degrade, never fail.
@@ -76,7 +81,7 @@ That's the whole setup — `.juror.yml` is optional, and every default is listed
 Same binary, same code path, nothing posted unless you ask:
 
 ```bash
-export OPENAI_API_KEY=…
+export JUROR_OPENAI_API_KEY=…
 npx juror-ai review --pr 1234 --repo owner/name          # prints to your terminal
 npx juror-ai review --pr 1234 --repo owner/name --post   # ...and posts it
 ```
@@ -218,10 +223,10 @@ Juror copies only committed/staged/tracked working changes into a detached model
 so this untracked file is not inside any reviewer read root:
 
 ```
-ANTHROPIC_API_KEY=…
-OPENAI_API_KEY=…
-FIREWORKS_API_KEY=…
-XAI_API_KEY=…
+JUROR_ANTHROPIC_API_KEY=…
+JUROR_OPENAI_API_KEY=…
+JUROR_FIREWORKS_API_KEY=…
+JUROR_XAI_API_KEY=…
 ```
 
 ---
@@ -249,7 +254,7 @@ models:
     harness: opencode
     harness_model: fireworks-ai/accounts/fireworks/models/deepseek-v4-flash-0731
     pricing_key: accounts/fireworks/models/deepseek-v4-flash-0731
-    secret: FIREWORKS_API_KEY
+    secret: JUROR_FIREWORKS_API_KEY
     args: { variant: high }
 ```
 

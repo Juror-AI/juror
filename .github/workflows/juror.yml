@@ -28,7 +28,7 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
-          FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
+          JUROR_ANTHROPIC_API_KEY: ${{ secrets.JUROR_ANTHROPIC_API_KEY || secrets.ANTHROPIC_API_KEY }}
+          JUROR_OPENAI_API_KEY: ${{ secrets.JUROR_OPENAI_API_KEY || secrets.OPENAI_API_KEY }}
+          JUROR_XAI_API_KEY: ${{ secrets.JUROR_XAI_API_KEY || secrets.XAI_API_KEY }}
+          JUROR_FIREWORKS_API_KEY: ${{ secrets.JUROR_FIREWORKS_API_KEY || secrets.FIREWORKS_API_KEY }}

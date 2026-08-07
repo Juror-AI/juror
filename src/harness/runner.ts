@@ -23,7 +23,7 @@ import type {
 } from '../types.js';
 import { log } from '../util/log.js';
 import { run } from '../util/proc.js';
-import { renderTemplate, resolveModelRuntime } from '../config.js';
+import { providerEnvFor, readSecret, renderTemplate, resolveModelRuntime } from '../config.js';
 import { computeCost } from '../cost/compute.js';
 import { getHarness } from './registry.js';
 import { runGenericOpenAI } from './generic-openai.js';
@@ -225,7 +225,7 @@ function envPassthrough(m: ModelConfig): string[] {
 export async function fanOut(o: FanOutOptions): Promise<ModelRun[]> {
   const ambient: Record<string, string | undefined> = process.env;
   const enabled = o.config.models.filter((m) => m.enabled);
-  const runnable = enabled.filter((m) => hasKey(o.secrets[m.secret]));
+  const runnable = enabled.filter((m) => hasKey(readSecret(o.secrets, m.secret).value));
   const budgetUsd = perModelTarget(o.config.budget.target_cost_usd_per_pr, runnable.length);
 
   log.debug(
@@ -257,7 +257,7 @@ async function runOne(
     const h = getHarness(m.harness);
     harnessLabel = h.label;
 
-    const key = o.secrets[m.secret];
+    const { value: key } = readSecret(o.secrets, m.secret);
     if (!hasKey(key)) {
       log.info(`${modelLabel}: skipped (no ${m.secret})`);
       return {
@@ -276,7 +276,10 @@ async function runOne(
       };
     }
 
-    const modelEnv = childEnv(ambient, m.secret, key, envPassthrough(m));
+    // The child is handed the VENDOR variable, never the `JUROR_`-prefixed one Juror read
+    // it from: Claude Code, opencode, and Grok authenticate from their own environment, so
+    // a prefixed name here would leave them unauthenticated with no visible auth error.
+    const modelEnv = childEnv(ambient, providerEnvFor(m.harness), key, envPassthrough(m));
 
     const scratchDir = harnessScratch(o.scratchRoot, m.id, ordinal);
     await mkdir(scratchDir, { recursive: true });
