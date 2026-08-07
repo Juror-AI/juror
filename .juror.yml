@@ -12,7 +12,7 @@ version: 1
 #
 # balanced (default): GPT-5.6 Terra max + Grok 4.5 high + Kimi K3
 # high:               GPT-5.6 Sol + Opus 5 + Grok 4.5
-# fast:               DeepSeek V4 Flash + Kimi K3, both at low reasoning effort
+# fast:               GPT-5.6 Luna + DeepSeek V4 Flash, both at low reasoning effort
 # ultra:              every model above, using the higher reasoning settings
 preset: balanced
 

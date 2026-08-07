@@ -68,7 +68,7 @@ describe('defaultConfig', () => {
     const high = applyReviewPreset(base, 'high');
     const ultra = applyReviewPreset(base, 'ultra');
 
-    expect(fast.models.map((m) => m.id)).toEqual(['deepseek-v4-flash-0731', 'kimi-k3']);
+    expect(fast.models.map((m) => m.id)).toEqual(['gpt-5.6-luna', 'deepseek-v4-flash-0731']);
     expect(fast.models.map((m) => m.args?.['reasoning_effort'] ?? m.args?.['variant'])).toEqual(['low', 'low']);
     expect(fast.consensus.referee_model).toBe('deepseek-v4-flash-0731');
     expect(high.models.map((m) => m.id)).toEqual(['gpt-5.6-sol', 'claude-opus-5', 'grok-4.5']);
@@ -76,6 +76,7 @@ describe('defaultConfig', () => {
     expect(ultra.models.map((m) => m.id)).toEqual([
       'gpt-5.6-terra',
       'gpt-5.6-sol',
+      'gpt-5.6-luna',
       'claude-opus-5',
       'grok-4.5',
       'kimi-k3',

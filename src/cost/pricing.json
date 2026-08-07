@@ -58,6 +58,24 @@
       "source": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
       "updated": "2026-08-06"
     },
+    "gpt-5.6-luna": {
+      "input_per_mtok": 0.2,
+      "output_per_mtok": 1.2,
+      "cache_read_per_mtok": 0.02,
+      "cache_write_per_mtok": 0.25,
+      "cache_min_prefix_tokens": 1024,
+      "context_window": 1050000,
+      "long_context": {
+        "threshold_input_tokens": 272000,
+        "applies_to": "entire_request",
+        "input_per_mtok": 0.4,
+        "output_per_mtok": 1.8,
+        "cache_read_per_mtok": 0.04,
+        "cache_write_per_mtok": 0.5
+      },
+      "source": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+      "updated": "2026-08-07"
+    },
     "grok-4.5": {
       "input_per_mtok": 2.0,
       "output_per_mtok": 6.0,

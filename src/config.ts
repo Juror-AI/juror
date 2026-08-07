@@ -82,6 +82,14 @@ const BUILTIN_MODELS: Record<string, ModelConfig> = {
     label: 'GPT-5.6 Terra',
     args: { reasoning_effort: 'max' },
   },
+  'gpt-5.6-luna': {
+    id: 'gpt-5.6-luna',
+    harness: 'codex',
+    enabled: true,
+    secret: 'OPENAI_API_KEY',
+    label: 'GPT-5.6 Luna',
+    args: { reasoning_effort: 'low' },
+  },
   'grok-4.5': {
     id: 'grok-4.5',
     harness: 'grok-build',
@@ -121,11 +129,11 @@ interface PresetDefinition {
 
 const PRESET_DEFINITIONS: Record<ReviewPreset, PresetDefinition> = {
   fast: {
-    modelIds: ['deepseek-v4-flash-0731', 'kimi-k3'],
+    modelIds: ['gpt-5.6-luna', 'deepseek-v4-flash-0731'],
     consensusModel: 'deepseek-v4-flash-0731',
     args: {
+      'gpt-5.6-luna': { reasoning_effort: 'low' },
       'deepseek-v4-flash-0731': { variant: 'low' },
-      'kimi-k3': { reasoning_effort: 'low', context_window: 1_040_000 },
     },
   },
   balanced: {
@@ -140,6 +148,7 @@ const PRESET_DEFINITIONS: Record<ReviewPreset, PresetDefinition> = {
     modelIds: [
       'gpt-5.6-terra',
       'gpt-5.6-sol',
+      'gpt-5.6-luna',
       'claude-opus-5',
       'grok-4.5',
       'kimi-k3',
