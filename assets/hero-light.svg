@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     viewBox="0 0 1280 440" width="1280" height="440" role="img"
+     aria-label="Juror — frontier models review your pull request in parallel">
+  <title>Juror — frontier models review your pull request in parallel</title>
+  <defs>
+    <clipPath id="hl-round"><rect width="1280" height="440" rx="24"/></clipPath>
+
+    <linearGradient id="hl-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#F4F6FA"/>
+    </linearGradient>
+    <radialGradient id="hl-glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#F2B33D" stop-opacity="0.18"/>
+      <stop offset="0.55" stop-color="#7C6BF0" stop-opacity="0.07"/>
+      <stop offset="1" stop-color="#7C6BF0" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="hl-fade" cx="0.5" cy="0.34" r="0.62">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+    <mask id="hl-mask"><rect width="1280" height="440" fill="url(#hl-fade)"/></mask>
+    <pattern id="hl-grid" width="26" height="26" patternUnits="userSpaceOnUse">
+      <circle cx="1.2" cy="1.2" r="1.2" fill="#C9D1DC"/>
+    </pattern>
+
+    <linearGradient id="hl-a" gradientUnits="userSpaceOnUse" x1="22" y1="20" x2="54.3" y2="34.2">
+      <stop offset="0" stop-color="#0284C7"/><stop offset="1" stop-color="#B4780A"/>
+    </linearGradient>
+    <linearGradient id="hl-b" gradientUnits="userSpaceOnUse" x1="22" y1="48" x2="50" y2="48">
+      <stop offset="0" stop-color="#7C3AED"/><stop offset="1" stop-color="#B4780A"/>
+    </linearGradient>
+    <linearGradient id="hl-c" gradientUnits="userSpaceOnUse" x1="22" y1="76" x2="54.3" y2="61.8">
+      <stop offset="0" stop-color="#DB2777"/><stop offset="1" stop-color="#B4780A"/>
+    </linearGradient>
+    <linearGradient id="hl-rule" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#B4780A" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#B4780A" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#B4780A" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <g clip-path="url(#hl-round)">
+    <rect width="1280" height="440" fill="url(#hl-bg)"/>
+    <rect width="1280" height="440" fill="url(#hl-grid)" mask="url(#hl-mask)"/>
+    <ellipse cx="640" cy="150" rx="540" ry="240" fill="url(#hl-glow)"/>
+
+    <g transform="translate(429.7 58.2) scale(1.6)">
+      <g transform="translate(-10.5 12)">
+        <g fill="none" stroke-width="5.5" stroke-linecap="round">
+          <path id="hl-p1" d="M22 20C42 20 46.9 29 54.3 34.2" stroke="url(#hl-a)"/>
+          <path id="hl-p2" d="M22 48H50" stroke="url(#hl-b)"/>
+          <path id="hl-p3" d="M22 76C42 76 46.9 67 54.3 61.8" stroke="url(#hl-c)"/>
+        </g>
+        <circle cx="22" cy="20" r="6.5" fill="#0284C7"/>
+        <circle cx="22" cy="48" r="6.5" fill="#7C3AED"/>
+        <circle cx="22" cy="76" r="6.5" fill="#DB2777"/>
+        <circle cx="74" cy="48" r="15.5" fill="none" stroke="#B4780A" stroke-width="5"/>
+
+        <!-- Ambient: findings travelling to the verdict. Starts hidden, so a renderer
+             that strips SMIL shows the static mark rather than three stray dots. -->
+        <circle cx="74" cy="48" r="15.5" fill="none" stroke="#B4780A" stroke-width="2.5" opacity="0">
+          <animate attributeName="r" values="15.5;29" dur="2.8s" begin="1.5s" repeatCount="indefinite"/>
+          <animate attributeName="opacity" values="0;0.45;0" dur="2.8s" begin="1.5s" repeatCount="indefinite"/>
+        </circle>
+        <circle r="3.4" fill="#8A5B05" opacity="0">
+          <animateMotion dur="2.8s" begin="0s" repeatCount="indefinite"><mpath href="#hl-p1" xlink:href="#hl-p1"/></animateMotion>
+          <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.8;1" dur="2.8s" begin="0s" repeatCount="indefinite"/>
+        </circle>
+        <circle r="3.4" fill="#8A5B05" opacity="0">
+          <animateMotion dur="2.8s" begin="0.45s" repeatCount="indefinite"><mpath href="#hl-p2" xlink:href="#hl-p2"/></animateMotion>
+          <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.8;1" dur="2.8s" begin="0.45s" repeatCount="indefinite"/>
+        </circle>
+        <circle r="3.4" fill="#8A5B05" opacity="0">
+          <animateMotion dur="2.8s" begin="0.9s" repeatCount="indefinite"><mpath href="#hl-p3" xlink:href="#hl-p3"/></animateMotion>
+          <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.8;1" dur="2.8s" begin="0.9s" repeatCount="indefinite"/>
+        </circle>
+      </g>
+
+      <g transform="translate(105 37) scale(0.42)">
+        <g fill="none" stroke="#0D1117" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M30 8V110a22 22 0 0 1-22 22"/>
+          <path d="M64 8v54a30 30 0 0 0 60 0V8"/>
+          <path d="M156 92V8m0 26a26 26 0 0 1 26-26"/>
+          <path d="M330 92V8m0 26a26 26 0 0 1 26-26"/>
+        </g>
+        <circle cx="30" cy="-24" r="7" fill="#0D1117"/>
+        <circle cx="256" cy="50" r="42" fill="none" stroke="#B4780A" stroke-width="14"/>
+      </g>
+    </g>
+
+    <g text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif">
+      <text x="640" y="284" font-size="28" fill="#1F2933">Frontier models review your pull request in parallel.</text>
+      <text x="640" y="322" font-size="18" fill="#5B6673">Duplicate findings collapse into one. Every review prints its own receipt.</text>
+    </g>
+    <rect x="530" y="350" width="220" height="1" fill="url(#hl-rule)"/>
+    <text x="640" y="386" text-anchor="middle" font-size="13" letter-spacing="3.2" fill="#8A94A2"
+          font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace">CODEX · CLAUDE CODE · OPENCODE · GROK BUILD · KIMI CODE</text>
+    <rect x="0.5" y="0.5" width="1279" height="439" rx="23.5" fill="none" stroke="#D8DEE6"/>
+  </g>
+</svg>

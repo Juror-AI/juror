@@ -1,0 +1,81 @@
+# Juror — multi-model PR review. Every knob below is shown at its default value.
+# Delete anything you do not want to change; an empty file is a valid config.
+#
+# This file is committed to the repo, so it holds NO keys — only the NAMES of the
+# environment variables the runner will read. A model whose secret is missing or empty at
+# run time is skipped with a note in the cost receipt, never failed: one key still gets you
+# a working single-model review.
+version: 1
+
+# Built-in jury selection: fast | balanced | high | ultra. Missing provider keys simply
+# skip their models. `models:` can replace the selected preset with a fully custom jury.
+#
+# balanced (default): GPT-5.6 Terra max + Grok 4.5 high + Kimi K3
+# high:               GPT-5.6 Sol + Opus 5 + Grok 4.5
+# fast:               GPT-5.6 Luna + DeepSeek V4 Flash, both at low reasoning effort
+# ultra:              every model above, using the higher reasoning settings
+preset: balanced
+
+# How independent findings are deduplicated and, optionally, agreement-filtered.
+consensus:
+  # Used only when review.publish_mode is consensus. `all` means literal unanimity.
+  # `majority` or a number enables the looser P0/P1 safety rules described in the docs.
+  min_agreement: all
+
+  # In consensus mode, adversarially refute eligible findings raised by only one model.
+  # Findings already below a strict unanimity bar are skipped, as is all verification in
+  # all-findings mode.
+  verify_solo_findings: true
+
+  # The preset selects an included verifier/referee automatically. Override either with a
+  # configured model id, or set it to null to disable that pass entirely.
+  # verify_model: kimi-k3
+  # referee_model: kimi-k3
+
+  # Code-aware similarity nominates possible duplicates for the referee; it never merges
+  # semantic reports by itself. Exact structured claims collapse locally. `distinct` is
+  # the referee routing floor; `merge` caps how strongly a matching title can contribute.
+  jaccard_merge_threshold: 0.55
+  jaccard_distinct_threshold: 0.30
+
+  # Ordinary comparison window. Strong semantic candidates may be routed to the referee
+  # up to 3x farther away (capped at 80 lines) when models anchor different parts of a flow.
+  line_window: 8
+
+review:
+  # all = publish every unique finding after similarity deduplication (higher recall)
+  # consensus = apply consensus.min_agreement and adversarial verification (higher precision)
+  publish_mode: all
+
+  severity_floor: P3 # show every model-reported severity in the default high-recall mode
+  max_inline_comments: 15 # the rest stay in the summary table
+
+  # Files Juror will not read or comment on. Generated and vendored code is noise.
+  paths_ignore:
+    - "**/*.lock"
+    - "**/package-lock.json"
+    - "**/uv.lock"
+    - "dist/**"
+    - "build/**"
+    - "**/*.generated.*"
+    - "**/*.min.js"
+    - "**/__snapshots__/**"
+
+  # A finding must land on a line the diff adds or modifies. Within this many lines, snap
+  # it to the nearest one; beyond it, the finding is reported but not posted inline.
+  anchor_tolerance: 3
+
+  max_diff_bytes: 400000 # larger diffs are truncated, and the summary says so
+  per_model_timeout_seconds: 900 # hard wall-clock kill per model
+  max_turns: 0 # no step cap; per_model_timeout_seconds remains the hard boundary
+
+budget:
+  # Planning target based on the versioned price table. Claude can enforce its allocation
+  # natively; other providers may exceed an estimate, which the receipt reports honestly.
+  target_cost_usd_per_pr: 5.00
+  on_exceed: partial # partial = run the subset estimated to fit | skip = post nothing
+
+output:
+  sequence_diagram: true # mermaid diagram of the changed flow, when there is one
+  cost_receipt: true # the per-model cost table — the whole point, keep it on
+  suppressed_findings: collapsed # collapsed | hidden | inline

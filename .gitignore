@@ -1,0 +1,31 @@
+# --- secrets: never commit ---
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets/
+.juror-secrets*
+
+# --- build output ---
+dist/
+build/
+*.tsbuildinfo
+
+# --- deps ---
+node_modules/
+
+# --- runtime scratch ---
+.juror/
+.juror-run/
+scratch/
+tmp/
+*.log
+
+# --- os / editor ---
+.DS_Store
+.idea/
+*.swp
+
+# --- conductor workspace scratch ---
+.context/

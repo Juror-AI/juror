@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 380" width="1240" height="380" role="img" aria-label="Juror pipeline: the diff fans out to a jury of models, their findings are merged, and one comment is posted">
+<title>How Juror works</title>
+<defs><radialGradient id="pl-glow" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#B4780A" stop-opacity="0.22"/><stop offset="1" stop-color="#B4780A" stop-opacity="0"/></radialGradient></defs>
+<rect width="1240" height="380" rx="16" fill="#FFFFFF"/>
+<rect x="0.5" y="0.5" width="1239" height="379" rx="15.5" fill="none" stroke="#D8DEE6"/>
+<text x="40" y="44" font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace" font-size="12" fill="#8A94A2" text-anchor="start" letter-spacing="2.4">THE DIFF</text>
+<text x="280" y="44" font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace" font-size="12" fill="#8A94A2" text-anchor="start" letter-spacing="2.4">THE JURY</text>
+<text x="650" y="44" font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace" font-size="12" fill="#8A94A2" text-anchor="start" letter-spacing="2.4">MERGE</text>
+<text x="1000" y="44" font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace" font-size="12" fill="#8A94A2" text-anchor="start" letter-spacing="2.4">VERDICT</text>
+<rect x="40" y="158" width="150" height="64" rx="10" fill="#F6F8FA" stroke="#D9E0E8"/>
+<text x="115" y="184" font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace" font-size="15" fill="#1F2933" text-anchor="middle">your diff</text>
+<text x="115" y="205" font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace" font-size="12" fill="#8A94A2" text-anchor="middle">untrusted</text>
+<path d="M190 190C238 190 246 90 296 90" stroke="#0284C7" stroke-width="1.75" fill="none" opacity="0.85"/>
+<path d="M190 190C238 190 246 190 296 190" stroke="#7C3AED" stroke-width="1.75" fill="none" opacity="0.85"/>
+<path d="M190 190C238 190 246 290 296 290" stroke="#DB2777" stroke-width="1.75" fill="none" opacity="0.85"/>
+<rect x="296" y="58" width="264" height="64" rx="10" fill="#F6F8FA" stroke="#D9E0E8"/>
+<circle cx="322" cy="90" r="5" fill="#0284C7"/>
+<text x="342" y="87" font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace" font-size="14" fill="#1F2933" text-anchor="start">GPT-5.6 Terra</text>
+<text x="342" y="106" font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace" font-size="11.5" fill="#8A94A2" text-anchor="start">codex · own sandbox</text>
+<path d="M560 90C602 90 608 190 644 190" stroke="#0284C7" stroke-width="1.75" fill="none" opacity="0.6"/>
+<rect x="296" y="158" width="264" height="64" rx="10" fill="#F6F8FA" stroke="#D9E0E8"/>
+<circle cx="322" cy="190" r="5" fill="#7C3AED"/>
+<text x="342" y="187" font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace" font-size="14" fill="#1F2933" text-anchor="start">Grok 4.5</text>
+<text x="342" y="206" font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace" font-size="11.5" fill="#8A94A2" text-anchor="start">grok build · own sandbox</text>
+<path d="M560 190C602 190 608 190 644 190" stroke="#7C3AED" stroke-width="1.75" fill="none" opacity="0.6"/>
+<rect x="296" y="258" width="264" height="64" rx="10" fill="#F6F8FA" stroke="#D9E0E8"/>
+<circle cx="322" cy="290" r="5" fill="#DB2777"/>
+<text x="342" y="287" font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace" font-size="14" fill="#1F2933" text-anchor="start">Kimi K3</text>
+<text x="342" y="306" font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace" font-size="11.5" fill="#8A94A2" text-anchor="start">kimi code · own sandbox</text>
+<path d="M560 290C602 290 608 190 644 190" stroke="#DB2777" stroke-width="1.75" fill="none" opacity="0.6"/>
+<text x="296" y="352" font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace" font-size="11.5" fill="#8A94A2" text-anchor="start">+ any model on models.dev, via the opencode harness</text>
+<rect x="650" y="75" width="300" height="230" rx="10" fill="#F6F8FA" stroke="#D9E0E8"/>
+<text x="674" y="106" font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace" font-size="12" fill="#5B6673" text-anchor="start">cheap methods first</text>
+<path d="M674 120H926" stroke="#E4E9EF" stroke-width="1"/>
+<text x="674" y="152" font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace" font-size="13.5" fill="#1F2933" text-anchor="start">anchor</text>
+<text x="674" y="168" font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace" font-size="11" fill="#8A94A2" text-anchor="start">snap to a changed line</text>
+<text x="926" y="152" font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace" font-size="11.5" fill="#5B6673" text-anchor="end">free</text>
+<text x="674" y="194" font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace" font-size="13.5" fill="#1F2933" text-anchor="start">block</text>
+<text x="674" y="210" font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace" font-size="11" fill="#8A94A2" text-anchor="start">file + line window</text>
+<text x="926" y="194" font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace" font-size="11.5" fill="#5B6673" text-anchor="end">free</text>
+<text x="674" y="236" font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace" font-size="13.5" fill="#1F2933" text-anchor="start">jaccard</text>
+<text x="674" y="252" font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace" font-size="11" fill="#8A94A2" text-anchor="start">token similarity</text>
+<text x="926" y="236" font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace" font-size="11.5" fill="#5B6673" text-anchor="end">free</text>
+<text x="674" y="278" font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace" font-size="13.5" fill="#B4780A" text-anchor="start">referee</text>
+<text x="674" y="294" font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace" font-size="11" fill="#8A94A2" text-anchor="start">only when ambiguous</text>
+<text x="926" y="278" font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace" font-size="11.5" fill="#B4780A" text-anchor="end">0–2 calls</text>
+<path d="M950 190H991" stroke="#8A94A2" stroke-width="1.5" fill="none"/><path d="M990 185.5L998 190L990 194.5Z" fill="#8A94A2"/>
+<rect x="1000" y="105" width="200" height="170" rx="10" fill="#F6F8FA" stroke="#D9E0E8"/>
+<circle cx="1100" cy="163" r="46" fill="url(#pl-glow)"/>
+<circle cx="1100" cy="163" r="21" fill="none" stroke="#B4780A" stroke-width="6"/>
+<text x="1100" y="216" font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace" font-size="14" fill="#1F2933" text-anchor="middle">one comment</text>
+<text x="1100" y="238" font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace" font-size="11.5" fill="#8A94A2" text-anchor="middle">one notification</text>
+<text x="1100" y="260" font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace" font-size="12" fill="#B4780A" text-anchor="middle">$0.91 · 2m14s</text>
+</svg>

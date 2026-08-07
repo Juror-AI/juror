@@ -1,0 +1,155 @@
+name: Juror
+description: Multi-model PR review that shows you the bill — duplicate findings collapse into one, with optional agreement filtering.
+author: juror-dev
+branding:
+  icon: check-circle
+  color: purple
+
+inputs:
+  github-token:
+    description: Token used to post the review. Needs pull-requests:write. Never reaches a model process.
+    required: true
+    default: ${{ github.token }}
+  config:
+    description: Path to the Juror config file. Defaults to .juror.yml at the repo root.
+    required: false
+  preset:
+    description: Jury preset (fast, balanced, high, or ultra). Defaults to balanced unless config overrides it.
+    required: false
+  models:
+    description: Comma-separated model ids to run, overriding the config's enabled set.
+    required: false
+  cost-target-usd:
+    description: Per-PR planning target. Overrides budget.target_cost_usd_per_pr; not every provider exposes a hard limit.
+    required: false
+  post:
+    description: Post the review to the pull request. Set to "false" for a dry run.
+    required: false
+    default: 'true'
+  pr-number:
+    description: Pull request number. Defaults to the triggering PR.
+    required: false
+  claude-code-version:
+    description: npm version spec for Claude Code. Pinned for reproducible cost accounting.
+    required: false
+    default: '@anthropic-ai/claude-code@2.1.223'
+  codex-version:
+    description: npm version spec for Codex CLI. Must be >= 0.146.0 for cache-write accounting.
+    required: false
+    default: '@openai/codex@0.146.1'
+  opencode-version:
+    description: npm version spec for opencode.
+    required: false
+    default: 'opencode-ai@1.17.20'
+  kimi-code-version:
+    description: npm version spec for Kimi Code CLI.
+    required: false
+    default: '@moonshot-ai/kimi-code@0.34.0'
+
+outputs:
+  score:
+    description: Merge confidence, 1-5.
+    value: ${{ steps.review.outputs.score }}
+  findings:
+    description: Number of published findings.
+    value: ${{ steps.review.outputs.findings }}
+  cost-usd:
+    description: Total cost of this review, or "unknown" if any harness reported neither cost nor tokens.
+    value: ${{ steps.review.outputs.cost-usd }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Node
+      uses: actions/setup-node@v4
+      env:
+        ANTHROPIC_API_KEY: ''
+        OPENAI_API_KEY: ''
+        FIREWORKS_API_KEY: ''
+        XAI_API_KEY: ''
+        GITHUB_TOKEN: ''
+        GH_TOKEN: ''
+      with:
+        node-version: '22'
+
+    - name: Build Juror
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      env:
+        ANTHROPIC_API_KEY: ''
+        OPENAI_API_KEY: ''
+        FIREWORKS_API_KEY: ''
+        XAI_API_KEY: ''
+        GITHUB_TOKEN: ''
+        GH_TOKEN: ''
+      run: |
+        npm ci --ignore-scripts --no-audit --no-fund
+        npm run build
+
+    # Only harnesses backed by an available provider are installed. Fireworks supplies
+    # both the opencode models and Kimi K3 through Kimi Code.
+    - name: Install harnesses
+      shell: bash
+      env:
+        CLAUDE_CODE_SPEC: ${{ inputs.claude-code-version }}
+        CODEX_SPEC: ${{ inputs.codex-version }}
+        OPENCODE_SPEC: ${{ inputs.opencode-version }}
+        KIMI_CODE_SPEC: ${{ inputs.kimi-code-version }}
+      run: |
+        set -euo pipefail
+        CLEAN_ENV=(env -u ANTHROPIC_API_KEY -u OPENAI_API_KEY -u FIREWORKS_API_KEY -u XAI_API_KEY -u GITHUB_TOKEN -u GH_TOKEN)
+        [ -n "${ANTHROPIC_API_KEY:-}" ] && "${CLEAN_ENV[@]}" npm i -g "$CLAUDE_CODE_SPEC" || true
+        [ -n "${OPENAI_API_KEY:-}"    ] && "${CLEAN_ENV[@]}" npm i -g "$CODEX_SPEC"       || true
+        [ -n "${FIREWORKS_API_KEY:-}" ] && "${CLEAN_ENV[@]}" npm i -g "$OPENCODE_SPEC"    || true
+        [ -n "${FIREWORKS_API_KEY:-}" ] && "${CLEAN_ENV[@]}" npm i -g "$KIMI_CODE_SPEC"   || true
+        if [ -n "${XAI_API_KEY:-}" ]; then
+          "${CLEAN_ENV[@]}" curl -fsSL https://grok.com/install.sh | "${CLEAN_ENV[@]}" bash || true
+        fi
+        echo "$HOME/.grok/bin" >> "$GITHUB_PATH"
+
+    - name: Review
+      id: review
+      shell: bash
+      env:
+        # The model processes below never see this — the CLI only loads it for the publish step,
+        # which runs after every model process has exited. See design §11.
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        JUROR_ACTION_PATH: ${{ github.action_path }}
+        INPUT_CONFIG: ${{ inputs.config }}
+        INPUT_PRESET: ${{ inputs.preset }}
+        INPUT_MODELS: ${{ inputs.models }}
+        INPUT_COST_TARGET: ${{ inputs.cost-target-usd }}
+        INPUT_POST: ${{ inputs.post }}
+        INPUT_PR_NUMBER: ${{ inputs.pr-number }}
+        EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
+        EVENT_FORK: ${{ github.event.pull_request.head.repo.fork }}
+        TARGET_REPOSITORY: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+        if [ "$EVENT_FORK" = "true" ]; then
+          echo "Skipping fork pull request: GitHub withholds provider secrets and the token cannot publish comments."
+          {
+            echo "score=3"
+            echo "findings=0"
+            echo "cost-usd=0"
+          } >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        PR="$INPUT_PR_NUMBER"
+        if [ -z "$PR" ]; then PR="$EVENT_PR_NUMBER"; fi
+        ARGS=(review --pr "$PR" --repo "$TARGET_REPOSITORY" --repo-dir "$GITHUB_WORKSPACE" --json "$RUNNER_TEMP/juror.json")
+        if [ "$INPUT_POST" = "true" ]; then ARGS+=(--post); else ARGS+=(--dry-run --post); fi
+        if [ -n "$INPUT_CONFIG" ]; then ARGS+=(--config "$INPUT_CONFIG"); fi
+        if [ -n "$INPUT_PRESET" ]; then ARGS+=(--preset "$INPUT_PRESET"); fi
+        if [ -n "$INPUT_MODELS" ]; then ARGS+=(--models "$INPUT_MODELS"); fi
+        if [ -n "$INPUT_COST_TARGET" ]; then ARGS+=(--cost-target "$INPUT_COST_TARGET"); fi
+        node "${{ github.action_path }}/dist/cli.js" "${ARGS[@]}"
+
+        node -e '
+          const r = JSON.parse(require("fs").readFileSync(process.env.RUNNER_TEMP + "/juror.json", "utf8"));
+          const out = require("fs");
+          out.appendFileSync(process.env.GITHUB_OUTPUT, `score=${r.verdict.score}\n`);
+          out.appendFileSync(process.env.GITHUB_OUTPUT, `findings=${r.published.length}\n`);
+          const cost = r.totals.usd == null || r.totals.partial ? "unknown" : r.totals.usd;
+          out.appendFileSync(process.env.GITHUB_OUTPUT, `cost-usd=${cost}\n`);
+        '

@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 263 120" width="263" height="120" role="img" aria-label="Juror">
+  <title>Juror</title>
+  <defs>
+    <linearGradient id="jl-a" gradientUnits="userSpaceOnUse" x1="22" y1="20" x2="54.3" y2="34.2">
+      <stop offset="0" stop-color="#0284C7"/><stop offset="1" stop-color="#B4780A"/>
+    </linearGradient>
+    <linearGradient id="jl-b" gradientUnits="userSpaceOnUse" x1="22" y1="48" x2="50" y2="48">
+      <stop offset="0" stop-color="#7C3AED"/><stop offset="1" stop-color="#B4780A"/>
+    </linearGradient>
+    <linearGradient id="jl-c" gradientUnits="userSpaceOnUse" x1="22" y1="76" x2="54.3" y2="61.8">
+      <stop offset="0" stop-color="#DB2777"/><stop offset="1" stop-color="#B4780A"/>
+    </linearGradient>
+  </defs>
+
+  <!-- mark — three jurors, one verdict -->
+  <g transform="translate(-10.5 12)">
+    <g fill="none" stroke-width="5.5" stroke-linecap="round">
+      <path d="M22 20C42 20 46.9 29 54.3 34.2" stroke="url(#jl-a)"/>
+      <path d="M22 48H50" stroke="url(#jl-b)"/>
+      <path d="M22 76C42 76 46.9 67 54.3 61.8" stroke="url(#jl-c)"/>
+    </g>
+    <circle cx="22" cy="20" r="6.5" fill="#0284C7"/>
+    <circle cx="22" cy="48" r="6.5" fill="#7C3AED"/>
+    <circle cx="22" cy="76" r="6.5" fill="#DB2777"/>
+    <circle cx="74" cy="48" r="15.5" fill="none" stroke="#B4780A" stroke-width="5"/>
+  </g>
+
+  <!-- wordmark — the verdict node is the 'o' -->
+  <g transform="translate(105 37) scale(0.42)">
+    <g fill="none" stroke="#0D1117" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M30 8V110a22 22 0 0 1-22 22"/>
+      <path d="M64 8v54a30 30 0 0 0 60 0V8"/>
+      <path d="M156 92V8m0 26a26 26 0 0 1 26-26"/>
+      <path d="M330 92V8m0 26a26 26 0 0 1 26-26"/>
+    </g>
+    <circle cx="30" cy="-24" r="7" fill="#0D1117"/>
+    <circle cx="256" cy="50" r="42" fill="none" stroke="#B4780A" stroke-width="14"/>
+  </g>
+</svg>

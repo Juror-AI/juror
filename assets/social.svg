@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640" role="img"
+     aria-label="Juror — frontier models review your pull request in parallel">
+  <title>Juror — frontier models review your pull request in parallel</title>
+  <defs>
+    <linearGradient id="sc-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#10151F"/><stop offset="1" stop-color="#080B11"/>
+    </linearGradient>
+    <radialGradient id="sc-glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#F2B33D" stop-opacity="0.17"/>
+      <stop offset="0.55" stop-color="#7C6BF0" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#7C6BF0" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="sc-fade" cx="0.5" cy="0.4" r="0.62">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.85"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+    <mask id="sc-mask"><rect width="1280" height="640" fill="url(#sc-fade)"/></mask>
+    <pattern id="sc-grid" width="26" height="26" patternUnits="userSpaceOnUse">
+      <circle cx="1.2" cy="1.2" r="1.2" fill="#2A3446"/>
+    </pattern>
+    <linearGradient id="sc-a" gradientUnits="userSpaceOnUse" x1="22" y1="20" x2="54.3" y2="34.2">
+      <stop offset="0" stop-color="#38BDF8"/><stop offset="1" stop-color="#F2B33D"/>
+    </linearGradient>
+    <linearGradient id="sc-b" gradientUnits="userSpaceOnUse" x1="22" y1="48" x2="50" y2="48">
+      <stop offset="0" stop-color="#A78BFA"/><stop offset="1" stop-color="#F2B33D"/>
+    </linearGradient>
+    <linearGradient id="sc-c" gradientUnits="userSpaceOnUse" x1="22" y1="76" x2="54.3" y2="61.8">
+      <stop offset="0" stop-color="#F472B6"/><stop offset="1" stop-color="#F2B33D"/>
+    </linearGradient>
+    <linearGradient id="sc-rule" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#F2B33D" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#F2B33D" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#F2B33D" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#sc-bg)"/>
+  <rect width="1280" height="640" fill="url(#sc-grid)" mask="url(#sc-mask)"/>
+  <ellipse cx="640" cy="260" rx="560" ry="300" fill="url(#sc-glow)"/>
+
+  <g transform="translate(377.1 122.8) scale(2)">
+    <g transform="translate(-10.5 12)">
+      <g fill="none" stroke-width="5.5" stroke-linecap="round">
+        <path d="M22 20C42 20 46.9 29 54.3 34.2" stroke="url(#sc-a)"/>
+        <path d="M22 48H50" stroke="url(#sc-b)"/>
+        <path d="M22 76C42 76 46.9 67 54.3 61.8" stroke="url(#sc-c)"/>
+      </g>
+      <circle cx="22" cy="20" r="6.5" fill="#38BDF8"/>
+      <circle cx="22" cy="48" r="6.5" fill="#A78BFA"/>
+      <circle cx="22" cy="76" r="6.5" fill="#F472B6"/>
+      <circle cx="74" cy="48" r="15.5" fill="none" stroke="#F2B33D" stroke-width="5"/>
+    </g>
+    <g transform="translate(105 37) scale(0.42)">
+      <g fill="none" stroke="#E9EFF6" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M30 8V110a22 22 0 0 1-22 22"/>
+        <path d="M64 8v54a30 30 0 0 0 60 0V8"/>
+        <path d="M156 92V8m0 26a26 26 0 0 1 26-26"/>
+        <path d="M330 92V8m0 26a26 26 0 0 1 26-26"/>
+      </g>
+      <circle cx="30" cy="-24" r="7" fill="#E9EFF6"/>
+      <circle cx="256" cy="50" r="42" fill="none" stroke="#F2B33D" stroke-width="14"/>
+    </g>
+  </g>
+
+  <g text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif">
+    <text x="640" y="400" font-size="32" fill="#C8D4E4">Frontier models review your pull request in parallel.</text>
+    <text x="640" y="442" font-size="20" fill="#7B889D">Duplicate findings collapse into one. Every review prints its own receipt.</text>
+  </g>
+  <rect x="520" y="480" width="240" height="1" fill="url(#sc-rule)"/>
+  <text x="640" y="524" text-anchor="middle" font-size="14" letter-spacing="3.4" fill="#5A6779"
+        font-family="ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,monospace">CODEX · CLAUDE CODE · OPENCODE · GROK BUILD · KIMI CODE</text>
+</svg>

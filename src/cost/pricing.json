@@ -1,0 +1,119 @@
+{
+  "$meta": {
+    "updated": "2026-08-06",
+    "note": "USD per million tokens (Mtok). Rates live under \"models\"; every top-level key starting with \"$\" is metadata and is ignored by loadPricing(), which also accepts a flat table so a hand-written override file need not know about the wrapper. Every entry carries the page it was read from and the date it was checked — a weekly CI job diffs this file against those pages and opens a PR on drift, because stale prices are the obvious failure mode for a tool whose pitch is cost honesty. Two things that are easy to get wrong and are deliberate here: (1) long_context is a cliff, not a slope — crossing threshold_input_tokens reprices the ENTIRE request, so a 199k-token Grok review costs half what a 201k one does; (2) cache writes are NOT free (OpenAI bills them at 1.25x uncached input for GPT-5.6 and later, Anthropic bills them too), so a missing cache_write_per_mtok means the provider publishes no separate write rate — grok-4.5 and the Fireworks models — and computeCost() falls back to that tier's input rate and says so in the receipt note. Omit a rate you do not know rather than inventing one: an absent entry makes computeCost() print \"unknown\", which is the only honest answer."
+  },
+  "models": {
+    "claude-opus-5": {
+      "input_per_mtok": 5.0,
+      "output_per_mtok": 25.0,
+      "cache_read_per_mtok": 0.5,
+      "cache_write_per_mtok": 6.25,
+      "context_window": 1000000,
+      "source": "https://www.anthropic.com/pricing#api",
+      "updated": "2026-08-06"
+    },
+    "claude-sonnet-5": {
+      "input_per_mtok": 3.0,
+      "output_per_mtok": 15.0,
+      "cache_read_per_mtok": 0.3,
+      "cache_write_per_mtok": 3.75,
+      "context_window": 1000000,
+      "source": "https://www.anthropic.com/pricing#api",
+      "updated": "2026-08-06"
+    },
+    "gpt-5.6-sol": {
+      "input_per_mtok": 5.0,
+      "output_per_mtok": 30.0,
+      "cache_read_per_mtok": 0.5,
+      "cache_write_per_mtok": 6.25,
+      "cache_min_prefix_tokens": 1024,
+      "context_window": 1050000,
+      "long_context": {
+        "threshold_input_tokens": 272000,
+        "applies_to": "entire_request",
+        "input_per_mtok": 10.0,
+        "output_per_mtok": 45.0,
+        "cache_read_per_mtok": 1.0,
+        "cache_write_per_mtok": 12.5
+      },
+      "source": "https://openai.com/api/pricing/",
+      "updated": "2026-08-06"
+    },
+    "gpt-5.6-terra": {
+      "input_per_mtok": 2.5,
+      "output_per_mtok": 15.0,
+      "cache_read_per_mtok": 0.25,
+      "cache_write_per_mtok": 3.125,
+      "cache_min_prefix_tokens": 1024,
+      "context_window": 1050000,
+      "long_context": {
+        "threshold_input_tokens": 272000,
+        "applies_to": "entire_request",
+        "input_per_mtok": 5.0,
+        "output_per_mtok": 22.5,
+        "cache_read_per_mtok": 0.5,
+        "cache_write_per_mtok": 6.25
+      },
+      "source": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+      "updated": "2026-08-06"
+    },
+    "gpt-5.6-luna": {
+      "input_per_mtok": 0.2,
+      "output_per_mtok": 1.2,
+      "cache_read_per_mtok": 0.02,
+      "cache_write_per_mtok": 0.25,
+      "cache_min_prefix_tokens": 1024,
+      "context_window": 1050000,
+      "long_context": {
+        "threshold_input_tokens": 272000,
+        "applies_to": "entire_request",
+        "input_per_mtok": 0.4,
+        "output_per_mtok": 1.8,
+        "cache_read_per_mtok": 0.04,
+        "cache_write_per_mtok": 0.5
+      },
+      "source": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+      "updated": "2026-08-07"
+    },
+    "grok-4.5": {
+      "input_per_mtok": 2.0,
+      "output_per_mtok": 6.0,
+      "cache_read_per_mtok": 0.3,
+      "context_window": 500000,
+      "long_context": {
+        "threshold_input_tokens": 200000,
+        "applies_to": "entire_request",
+        "input_per_mtok": 4.0,
+        "output_per_mtok": 12.0,
+        "cache_read_per_mtok": 0.6
+      },
+      "source": "https://docs.x.ai/docs/models",
+      "updated": "2026-08-06"
+    },
+    "accounts/fireworks/models/deepseek-v4-flash-0731": {
+      "input_per_mtok": 0.14,
+      "output_per_mtok": 0.28,
+      "cache_read_per_mtok": 0.028,
+      "context_window": 1000000,
+      "source": "https://models.dev",
+      "updated": "2026-08-06"
+    },
+    "accounts/fireworks/models/deepseek-v4-flash": {
+      "input_per_mtok": 0.14,
+      "output_per_mtok": 0.28,
+      "cache_read_per_mtok": 0.028,
+      "context_window": 1000000,
+      "source": "https://models.dev",
+      "updated": "2026-08-06"
+    },
+    "accounts/fireworks/models/kimi-k3": {
+      "input_per_mtok": 3.0,
+      "output_per_mtok": 15.0,
+      "cache_read_per_mtok": 0.3,
+      "context_window": 1040000,
+      "source": "https://fireworks.ai/models/fireworks/kimi-k3",
+      "updated": "2026-08-06"
+    }
+  }
+}
