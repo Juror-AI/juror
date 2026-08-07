@@ -66,7 +66,7 @@ review:
   anchor_tolerance: 3
 
   max_diff_bytes: 400000 # larger diffs are truncated, and the summary says so
-  per_model_timeout_seconds: 900 # hard wall-clock kill per model
+  per_model_timeout_seconds: 1800 # hard wall-clock kill per model, not a latency target
   max_turns: 0 # no step cap; per_model_timeout_seconds remains the hard boundary
 
 budget:

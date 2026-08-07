@@ -54,6 +54,9 @@ describe('defaultConfig', () => {
     expect(c.models[1]?.args?.['variant']).toBe('high');
     expect(c.consensus.verify_model).toBe('deepseek-v4-flash-0731');
     expect(c.consensus.referee_model).toBe('deepseek-v4-flash-0731');
+    // Luna at `max` was measured at 750–900s on large diffs. The wall must clear that with
+    // room to spare, or the default jury loses a model mid-review on big PRs.
+    expect(c.review.per_model_timeout_seconds).toBe(1800);
   });
 
   it('hands out an independent copy each call', () => {
