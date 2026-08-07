@@ -132,8 +132,8 @@ const PRESET_DEFINITIONS: Record<ReviewPreset, PresetDefinition> = {
     modelIds: ['gpt-5.6-luna', 'deepseek-v4-flash-0731'],
     consensusModel: 'deepseek-v4-flash-0731',
     args: {
-      'gpt-5.6-luna': { reasoning_effort: 'low' },
-      'deepseek-v4-flash-0731': { variant: 'low' },
+      'gpt-5.6-luna': { reasoning_effort: 'max' },
+      'deepseek-v4-flash-0731': { variant: 'high' },
     },
   },
   balanced: {
