@@ -8,12 +8,12 @@
 
 <br>
 
-[![CI](https://img.shields.io/github/actions/workflow/status/cderinbogaz/juror/ci.yml?branch=main&style=flat-square&label=ci&labelColor=1b1f24&color=3fb950)](https://github.com/cderinbogaz/juror/actions/workflows/ci.yml) [![Juror reviews Juror](https://img.shields.io/badge/dogfooded-juror%20reviews%20juror-F2B33D?style=flat-square&labelColor=1b1f24)](.github/workflows/juror.yml) [![Node](https://img.shields.io/badge/node-%E2%89%A520-8593a8?style=flat-square&labelColor=1b1f24)](package.json) [![License](https://img.shields.io/badge/license-MIT-8593a8?style=flat-square&labelColor=1b1f24)](LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/juror-ai/juror/ci.yml?branch=main&style=flat-square&label=ci&labelColor=1b1f24&color=3fb950)](https://github.com/juror-ai/juror/actions/workflows/ci.yml) [![Juror reviews Juror](https://img.shields.io/badge/dogfooded-juror%20reviews%20juror-F2B33D?style=flat-square&labelColor=1b1f24)](.github/workflows/juror.yml) [![Node](https://img.shields.io/badge/node-%E2%89%A520-8593a8?style=flat-square&labelColor=1b1f24)](package.json) [![License](https://img.shields.io/badge/license-MIT-8593a8?style=flat-square&labelColor=1b1f24)](LICENSE)
 
 </div>
 
 ```
-npx juror review --pr 1234
+npx juror-ai review --pr 1234
 ```
 
 **N frontier models review your PR in parallel, each through its own native agent
@@ -44,7 +44,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }   # full history: review policy is read from the base revision
-      - uses: juror-dev/juror@v1
+      - uses: juror-ai/juror@v1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
         env:
@@ -77,8 +77,8 @@ Same binary, same code path, nothing posted unless you ask:
 
 ```bash
 export OPENAI_API_KEY=…
-npx juror review --pr 1234 --repo owner/name          # prints to your terminal
-npx juror review --pr 1234 --repo owner/name --post   # ...and posts it
+npx juror-ai review --pr 1234 --repo owner/name          # prints to your terminal
+npx juror-ai review --pr 1234 --repo owner/name --post   # ...and posts it
 ```
 
 </details>
@@ -206,7 +206,7 @@ with their defaults in [`action.yml`](action.yml).
 The same binary, the same code path, no CI-only surprises:
 
 ```bash
-npm i -g @juror/cli
+npm i -g juror-ai
 
 juror review --base main                         # review your working branch
 juror review --pr 1234 --repo owner/name         # review a PR, print to the terminal
@@ -275,7 +275,7 @@ juror review --mode ultra --pr 1234 --repo owner/name
 ```
 
 ```yaml
-- uses: juror-dev/juror@v1
+- uses: juror-ai/juror@v1
   with:
     preset: high
 ```

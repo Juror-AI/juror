@@ -136,7 +136,7 @@ function makeFake(createReviewImpl?: () => Promise<void>): Fake {
   const createReview = vi.fn(createReviewImpl ?? (async () => {}));
 
   const client = {
-    repo: 'juror-dev/juror',
+    repo: 'juror-ai/juror',
     request: vi.fn(async () => {
       throw new Error('publish must not reach for a raw request');
     }),
@@ -172,8 +172,8 @@ function unprocessable(body: unknown): GitHubApiError {
   const raw = JSON.stringify(body);
   return new GitHubApiError(
     422,
-    '/repos/juror-dev/juror/pulls/7/reviews',
-    'GitHub API 422 on POST /repos/juror-dev/juror/pulls/7/reviews: Validation Failed',
+    '/repos/juror-ai/juror/pulls/7/reviews',
+    'GitHub API 422 on POST /repos/juror-ai/juror/pulls/7/reviews: Validation Failed',
     body,
     raw,
   );
@@ -194,7 +194,7 @@ describe('live sticky status', () => {
     headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
     version: '0.1.0',
     modelLabels: ['DeepSeek V4 Flash', 'Sonnet 5'],
-    jobUrl: 'https://github.com/juror-dev/juror/actions/runs/123',
+    jobUrl: 'https://github.com/juror-ai/juror/actions/runs/123',
     dryRun,
   });
 

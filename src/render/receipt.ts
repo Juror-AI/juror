@@ -167,7 +167,7 @@ function noteText(n: ReceiptNote): string {
 }
 
 /** Our own repo, pinned: the receipt links must not drift with `main`. */
-export const REPO_SLUG = 'juror-dev/juror';
+export const REPO_SLUG = 'juror-ai/juror';
 
 /**
  * `v1` is the action's floating major tag — the only ref we can name when the caller

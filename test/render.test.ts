@@ -551,7 +551,7 @@ describe('renderInlineComment', () => {
     );
 
     expect(body).toContain(
-      '<img alt="P1" src="https://raw.githubusercontent.com/juror-dev/juror/v0.4.1/assets/badges/p1.svg" align="top">',
+      '<img alt="P1" src="https://raw.githubusercontent.com/juror-ai/juror/v0.4.1/assets/badges/p1.svg" align="top">',
     );
     expect(body).toContain('**Clipboard write loses transient activation**');
     expect(body).toContain('`●●●○` **3/4 models** — Opus 5, GPT-5.6 Sol, Kimi K3 · verified · convention: `apps/AGENTS.md`');
