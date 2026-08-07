@@ -230,7 +230,11 @@ export function defaultConfig(): JurorConfig {
       ],
       anchor_tolerance: 3,
       max_diff_bytes: 400_000,
-      per_model_timeout_seconds: 900,
+      // Measured against the default `fast` jury: Luna at `max` reasoning needs 750–900s on
+      // a large diff, so the old 900s wall killed roughly one review in ten mid-flight and
+      // published nothing from that model. This is a kill switch for a hung harness, not a
+      // latency target — set it above the slowest legitimate run, not near it.
+      per_model_timeout_seconds: 1800,
       // Zero means unlimited. The wall-clock timeout remains the hard safety boundary;
       // positive values are still accepted for users who want an explicit agent-step cap.
       max_turns: 0,
