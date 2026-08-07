@@ -14,7 +14,7 @@ inputs:
     description: Path to the Juror config file. Defaults to .juror.yml at the repo root.
     required: false
   preset:
-    description: Jury preset (fast, balanced, high, or ultra). Defaults to balanced unless config overrides it.
+    description: Jury preset (fast, balanced, high, or ultra). Defaults to fast unless config overrides it.
     required: false
   models:
     description: Comma-separated model ids to run, overriding the config's enabled set.
