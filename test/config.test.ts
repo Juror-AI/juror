@@ -9,6 +9,8 @@ import {
   loadConfig,
   loadConfigText,
   loadPromptTemplate,
+  providerEnvFor,
+  readSecret,
   renderTemplate,
   resolveModelRuntime,
 } from '../src/config.js';
@@ -42,10 +44,10 @@ describe('defaultConfig', () => {
     expect(c.consensus.min_agreement).toBe('all');
     expect(c.models.map((m) => m.id)).toEqual(['gpt-5.6-luna', 'deepseek-v4-flash-0731']);
     expect(c.models[0]?.harness).toBe('codex');
-    expect(c.models[0]?.secret).toBe('OPENAI_API_KEY');
+    expect(c.models[0]?.secret).toBe('JUROR_OPENAI_API_KEY');
     expect(c.models[0]?.args?.['reasoning_effort']).toBe('max');
     expect(c.models[1]?.harness).toBe('opencode');
-    expect(c.models[1]?.secret).toBe('FIREWORKS_API_KEY');
+    expect(c.models[1]?.secret).toBe('JUROR_FIREWORKS_API_KEY');
     expect(c.models[1]?.harness_model).toBe(
       'fireworks-ai/accounts/fireworks/models/deepseek-v4-flash-0731',
     );
@@ -101,6 +103,52 @@ describe('defaultConfig', () => {
   });
 });
 
+describe('provider credentials', () => {
+  it('prefers the prefixed name so Juror spend can be billed separately', () => {
+    const env = { JUROR_OPENAI_API_KEY: 'dedicated', OPENAI_API_KEY: 'shared' };
+    expect(readSecret(env, 'JUROR_OPENAI_API_KEY')).toEqual({
+      value: 'dedicated',
+      source: 'JUROR_OPENAI_API_KEY',
+    });
+  });
+
+  // Without this every pre-1.3 install silently loses its whole jury on upgrade.
+  it('falls back to the bare vendor name, and reports which one it read', () => {
+    expect(readSecret({ OPENAI_API_KEY: 'shared' }, 'JUROR_OPENAI_API_KEY')).toEqual({
+      value: 'shared',
+      source: 'OPENAI_API_KEY',
+    });
+  });
+
+  it('treats a blank or missing key as absent rather than as a value', () => {
+    expect(readSecret({ JUROR_OPENAI_API_KEY: '   ' }, 'JUROR_OPENAI_API_KEY').value).toBeUndefined();
+    expect(readSecret({}, 'JUROR_OPENAI_API_KEY').value).toBeUndefined();
+    // A blank prefixed key must not shadow a real bare one.
+    expect(readSecret({ JUROR_OPENAI_API_KEY: '', OPENAI_API_KEY: 'shared' }, 'JUROR_OPENAI_API_KEY').value).toBe(
+      'shared',
+    );
+  });
+
+  it('does not invent a fallback for a custom secret name', () => {
+    expect(readSecret({ MY_KEY: 'k' }, 'MY_KEY').value).toBe('k');
+    expect(readSecret({ KEY: 'k' }, 'MY_KEY').value).toBeUndefined();
+  });
+
+  // Claude Code, opencode and Grok read their own environment, so the name handed to the
+  // child is fixed by the vendor. Renaming it there is an invisible 401, not a config error.
+  it('hands every harness the vendor variable, never the prefixed one', () => {
+    expect(providerEnvFor('claude-code')).toBe('ANTHROPIC_API_KEY');
+    expect(providerEnvFor('codex')).toBe('OPENAI_API_KEY');
+    expect(providerEnvFor('grok-build')).toBe('XAI_API_KEY');
+    expect(providerEnvFor('kimi-code')).toBe('FIREWORKS_API_KEY');
+    expect(providerEnvFor('opencode')).toBe('FIREWORKS_API_KEY');
+    expect(providerEnvFor('generic-openai')).toBe('OPENAI_API_KEY');
+    for (const harness of ['claude-code', 'codex', 'grok-build', 'kimi-code', 'opencode', 'generic-openai'] as const) {
+      expect(providerEnvFor(harness).startsWith('JUROR_')).toBe(false);
+    }
+  });
+});
+
 describe('loadConfig', () => {
   it('returns the defaults with no problems when there is no config file', () => {
     const { config, problems, sourcePath } = loadConfig(repoWith({}));
@@ -141,7 +189,7 @@ describe('loadConfig', () => {
       'models:\n  - id: custom\n    harness: generic-openai\n    secret: GITHUB_TOKEN\n',
       '.juror.yml@base',
     );
-    expect(loaded.config.models[0]?.secret).toBe('OPENAI_API_KEY');
+    expect(loaded.config.models[0]?.secret).toBe('JUROR_OPENAI_API_KEY');
     expect(loaded.problems.join('\n')).toContain('not permitted for a model process');
   });
 
@@ -260,7 +308,7 @@ describe('loadConfig', () => {
     expect(config.consensus.referee_model).toBe('claude-opus-5');
     // `enabled` and `secret` come from the per-harness default so they can be omitted.
     expect(config.models[0]?.enabled).toBe(true);
-    expect(config.models[0]?.secret).toBe('ANTHROPIC_API_KEY');
+    expect(config.models[0]?.secret).toBe('JUROR_ANTHROPIC_API_KEY');
   });
 
   it('defaults every Kimi Code model to the Fireworks credential', () => {
@@ -269,7 +317,7 @@ describe('loadConfig', () => {
     });
     const { config, problems } = loadConfig(dir);
     expect(problems).toEqual([]);
-    expect(config.models[0]?.secret).toBe('FIREWORKS_API_KEY');
+    expect(config.models[0]?.secret).toBe('JUROR_FIREWORKS_API_KEY');
   });
 
   it('drops a model with an unknown harness and keeps its siblings', () => {

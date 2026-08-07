@@ -22,6 +22,7 @@ import {
   loadConfig,
   loadConfigText,
   parseReviewPreset,
+  readSecret,
   resolveModelRuntime,
   REVIEW_PRESETS,
 } from './config.js';
@@ -38,7 +39,7 @@ import { checkoutAt, type EphemeralCheckout } from './util/worktree.js';
 import { evaluateBenchmark, parseBenchmarkCorpus, renderBenchmark } from './benchmark.js';
 import { loadAgentInstructions } from './instructions.js';
 
-export const VERSION = '1.2.1';
+export const VERSION = '1.3.0';
 
 const USAGE = `
 juror ${VERSION} — multi-model PR review that shows you the bill
@@ -72,7 +73,10 @@ Options
   -h, --help             This message
 
 Environment
-  ANTHROPIC_API_KEY  OPENAI_API_KEY  XAI_API_KEY  FIREWORKS_API_KEY
+  JUROR_ANTHROPIC_API_KEY  JUROR_OPENAI_API_KEY  JUROR_XAI_API_KEY  JUROR_FIREWORKS_API_KEY
+  The unprefixed names (ANTHROPIC_API_KEY, …) still work as a fallback. Prefer the
+  prefixed ones and give Juror its own provider key, so review spend is billed and
+  tracked separately from everything else that account does.
   GITHUB_TOKEN
   Any model whose key is absent is skipped with a note in the receipt — a repo with one
   key still gets a working review.
@@ -569,7 +573,7 @@ function runnableModelLabels(
   const wanted = new Set(onlyModels.map((id) => id.trim()).filter(Boolean));
   return config.models
     .filter((model) => model.enabled && (wanted.size === 0 || wanted.has(model.id)))
-    .filter((model) => Boolean(secrets[model.secret]?.trim()))
+    .filter((model) => Boolean(readSecret(secrets, model.secret).value))
     .map((model) => resolveModelRuntime(model).label);
 }
 

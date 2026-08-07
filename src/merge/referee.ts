@@ -18,7 +18,7 @@ import type {
   PricingTable,
   RunContext,
 } from '../types.js';
-import { renderTemplate, resolveModelRuntime } from '../config.js';
+import { providerEnvFor, readSecret, renderTemplate, resolveModelRuntime } from '../config.js';
 import { computeCost } from '../cost/compute.js';
 import { getHarness } from '../harness/registry.js';
 import { runHarness } from '../harness/runner.js';
@@ -258,7 +258,7 @@ function childEnv(m: ModelConfig, secret: string): Record<string, string> {
     if (typeof v === 'string') env[name] = v;
   }
   // Exactly one provider key, same rule as fan-out.
-  env[m.secret] = secret;
+  env[providerEnvFor(m.harness)] = secret;
   return env;
 }
 
@@ -501,7 +501,7 @@ export async function refereeClusters(
     return { clusters, cost: { ...ZERO_COST }, calls: 0 };
   }
 
-  const key = o.secrets[m.secret];
+  const { value: key } = readSecret(o.secrets, m.secret);
   if (!hasKey(key)) {
     log.info(`referee: skipped (no ${m.secret})`);
     return { clusters, cost: { ...ZERO_COST }, calls: 0 };

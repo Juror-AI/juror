@@ -20,7 +20,7 @@ import type {
   RunContext,
   Verification,
 } from '../types.js';
-import { renderTemplate, resolveModelRuntime } from '../config.js';
+import { providerEnvFor, readSecret, renderTemplate, resolveModelRuntime } from '../config.js';
 import { computeCost } from '../cost/compute.js';
 import { getHarness } from '../harness/registry.js';
 import { runHarness } from '../harness/runner.js';
@@ -227,7 +227,7 @@ function childEnv(m: ModelConfig, secret: string): Record<string, string> {
     const v = process.env[name];
     if (typeof v === 'string') env[name] = v;
   }
-  env[m.secret] = secret;
+  env[providerEnvFor(m.harness)] = secret;
   return env;
 }
 
@@ -427,7 +427,7 @@ export async function verifyClusters(clusters: Cluster[], o: VerifyOptions): Pro
   const m = o.modelRun;
   if (!m) return { clusters, cost: { ...ZERO_COST }, calls: 0 };
 
-  const key = o.secrets[m.secret];
+  const { value: key } = readSecret(o.secrets, m.secret);
   if (!hasKey(key)) {
     log.info(`verify: skipped (no ${m.secret})`);
     return { clusters, cost: { ...ZERO_COST }, calls: 0 };

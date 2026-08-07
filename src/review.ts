@@ -31,7 +31,7 @@ import { applyPublishRules, requiredAgreement, scoreReview } from './merge/score
 import { loadPricing, totalCost } from './cost/compute.js';
 import { fanOut } from './harness/runner.js';
 import { synthesizeSummary } from './render/summary.js';
-import { loadPromptTemplate, renderTemplate, resolveModelRuntime } from './config.js';
+import { loadPromptTemplate, readSecret, renderTemplate, resolveModelRuntime } from './config.js';
 import { loadAgentInstructions } from './instructions.js';
 import type { LoadedAgentInstructions } from './instructions.js';
 import { log } from './util/log.js';
@@ -114,7 +114,7 @@ export async function runReview(o: ReviewOptions): Promise<ReviewResult> {
       log.warn(msg);
     }
 
-    if (!enabled.some((model) => hasSecret(o.secrets[model.secret]))) {
+    if (!enabled.some((model) => hasSecret(readSecret(o.secrets, model.secret).value))) {
       return emptyResult(o.diff, started, [...warnings, 'No runnable model fits the spend target.']);
     }
 
@@ -394,7 +394,7 @@ function planModelsWithinTarget(
   pricing: ReturnType<typeof loadPricing>,
   warnings: string[],
 ): { config: JurorConfig; estimate: number } | null {
-  const runnable = config.models.filter((m) => m.enabled && hasSecret(secrets[m.secret]));
+  const runnable = config.models.filter((m) => m.enabled && hasSecret(readSecret(secrets, m.secret).value));
   const estimate = estimateReviewCost(diff, runnable, pricing);
   const target = config.budget.target_cost_usd_per_pr;
   if (estimate <= target) return { config, estimate };
@@ -415,7 +415,7 @@ function planModelsWithinTarget(
   }
 
   const models = config.models.map((model) => {
-    if (!model.enabled || !hasSecret(secrets[model.secret]) || selected.has(model.id)) return model;
+    if (!model.enabled || !hasSecret(readSecret(secrets, model.secret).value) || selected.has(model.id)) return model;
     warnings.push(`${model.label ?? model.id} omitted because its estimate does not fit the spend target.`);
     return { ...model, enabled: false };
   });

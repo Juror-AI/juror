@@ -30,11 +30,14 @@ const HARNESS_IDS: readonly HarnessId[] = [
 ];
 
 /**
- * The env var each harness reads by default. Having this table is what lets a user add a
- * model with two lines (`id` + `harness`) instead of remembering which provider key the
- * CLI underneath happens to want.
+ * Two different names are in play for one key, and conflating them breaks authentication
+ * silently — the failure looks like "the model returned nothing", not like an auth error.
+ *
+ * `PROVIDER_ENV` is the variable the vendor CLI reads for itself. Claude Code, opencode,
+ * and Grok are handed their environment directly, so these names are fixed by the vendors
+ * and are NOT ours to rename.
  */
-const DEFAULT_SECRET: Record<HarnessId, string> = {
+const PROVIDER_ENV: Record<HarnessId, string> = {
   'claude-code': 'ANTHROPIC_API_KEY',
   codex: 'OPENAI_API_KEY',
   'grok-build': 'XAI_API_KEY',
@@ -42,6 +45,52 @@ const DEFAULT_SECRET: Record<HarnessId, string> = {
   opencode: 'FIREWORKS_API_KEY',
   'generic-openai': 'OPENAI_API_KEY',
 };
+
+/** The vendor variable a harness hands to its CLI. Never a `JUROR_`-prefixed name. */
+export function providerEnvFor(harness: HarnessId): string {
+  return PROVIDER_ENV[harness];
+}
+
+export const JUROR_SECRET_PREFIX = 'JUROR_';
+
+/**
+ * `DEFAULT_SECRET` is the variable JUROR reads from the operator, and it is deliberately
+ * prefixed. Pointing Juror at `JUROR_OPENAI_API_KEY` lets an operator issue it a dedicated
+ * provider key, so review spend shows up as its own line in provider billing instead of
+ * being mixed into whatever else that account does.
+ *
+ * Having this table is what lets a user add a model with two lines (`id` + `harness`)
+ * instead of remembering which provider key the CLI underneath happens to want.
+ */
+const DEFAULT_SECRET: Record<HarnessId, string> = {
+  'claude-code': 'JUROR_ANTHROPIC_API_KEY',
+  codex: 'JUROR_OPENAI_API_KEY',
+  'grok-build': 'JUROR_XAI_API_KEY',
+  'kimi-code': 'JUROR_FIREWORKS_API_KEY',
+  opencode: 'JUROR_FIREWORKS_API_KEY',
+  'generic-openai': 'JUROR_OPENAI_API_KEY',
+};
+
+/**
+ * Read a model's key, preferring the prefixed name and falling back to the bare vendor one.
+ *
+ * The fallback is what keeps every pre-1.3 install working: an operator who set only
+ * `OPENAI_API_KEY` keeps a working review and can migrate whenever they like. Returns the
+ * name it actually read from so callers can say which variable satisfied the model.
+ */
+export function readSecret(
+  env: Record<string, string | undefined>,
+  secretName: string,
+): { value: string | undefined; source: string } {
+  const direct = env[secretName];
+  if (typeof direct === 'string' && direct.trim()) return { value: direct, source: secretName };
+  if (secretName.startsWith(JUROR_SECRET_PREFIX)) {
+    const bare = secretName.slice(JUROR_SECRET_PREFIX.length);
+    const legacy = env[bare];
+    if (typeof legacy === 'string' && legacy.trim()) return { value: legacy, source: bare };
+  }
+  return { value: undefined, source: secretName };
+}
 
 /** Credentials that are privileged control-plane tokens, never model-provider inputs. */
 const RESERVED_MODEL_SECRETS = new Set([
@@ -63,14 +112,14 @@ const BUILTIN_MODELS: Record<string, ModelConfig> = {
     id: 'claude-opus-5',
     harness: 'claude-code',
     enabled: true,
-    secret: 'ANTHROPIC_API_KEY',
+    secret: 'JUROR_ANTHROPIC_API_KEY',
     label: 'Opus 5',
   },
   'gpt-5.6-sol': {
     id: 'gpt-5.6-sol',
     harness: 'codex',
     enabled: true,
-    secret: 'OPENAI_API_KEY',
+    secret: 'JUROR_OPENAI_API_KEY',
     label: 'GPT-5.6 Sol',
     args: { reasoning_effort: 'high' },
   },
@@ -78,7 +127,7 @@ const BUILTIN_MODELS: Record<string, ModelConfig> = {
     id: 'gpt-5.6-terra',
     harness: 'codex',
     enabled: true,
-    secret: 'OPENAI_API_KEY',
+    secret: 'JUROR_OPENAI_API_KEY',
     label: 'GPT-5.6 Terra',
     args: { reasoning_effort: 'max' },
   },
@@ -86,7 +135,7 @@ const BUILTIN_MODELS: Record<string, ModelConfig> = {
     id: 'gpt-5.6-luna',
     harness: 'codex',
     enabled: true,
-    secret: 'OPENAI_API_KEY',
+    secret: 'JUROR_OPENAI_API_KEY',
     label: 'GPT-5.6 Luna',
     args: { reasoning_effort: 'low' },
   },
@@ -94,7 +143,7 @@ const BUILTIN_MODELS: Record<string, ModelConfig> = {
     id: 'grok-4.5',
     harness: 'grok-build',
     enabled: true,
-    secret: 'XAI_API_KEY',
+    secret: 'JUROR_XAI_API_KEY',
     label: 'Grok 4.5',
     args: { reasoning_effort: 'high' },
   },
@@ -102,7 +151,7 @@ const BUILTIN_MODELS: Record<string, ModelConfig> = {
     id: 'kimi-k3',
     harness: 'kimi-code',
     enabled: true,
-    secret: 'FIREWORKS_API_KEY',
+    secret: 'JUROR_FIREWORKS_API_KEY',
     label: 'Kimi K3',
     base_url: 'https://api.fireworks.ai/inference/v1',
     harness_model: 'accounts/fireworks/models/kimi-k3',
@@ -113,7 +162,7 @@ const BUILTIN_MODELS: Record<string, ModelConfig> = {
     id: 'deepseek-v4-flash-0731',
     harness: 'opencode',
     enabled: true,
-    secret: 'FIREWORKS_API_KEY',
+    secret: 'JUROR_FIREWORKS_API_KEY',
     label: 'DeepSeek V4 Flash',
     harness_model: 'fireworks-ai/accounts/fireworks/models/deepseek-v4-flash-0731',
     pricing_key: 'accounts/fireworks/models/deepseek-v4-flash-0731',
