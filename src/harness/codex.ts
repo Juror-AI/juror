@@ -173,6 +173,19 @@ export const codexHarness: Harness = {
     ].join('\n');
     writeFileSync(join(codexHome, 'config.toml'), config, { encoding: 'utf8', mode: 0o600 });
 
+    // Codex reads credentials from `$CODEX_HOME/auth.json`, never from `OPENAI_API_KEY` in
+    // the environment. The private home above starts empty, so without this the CLI sends
+    // no Authorization header at all and every turn dies on a 401 before it bills anything.
+    // This is the same file `codex login --with-api-key` writes, minus the subprocess.
+    writeFileSync(
+      join(codexHome, 'auth.json'),
+      JSON.stringify({
+        auth_mode: 'apikey',
+        OPENAI_API_KEY: ctx.providerKey ?? ctx.env['OPENAI_API_KEY'],
+      }),
+      { encoding: 'utf8', mode: 0o600 },
+    );
+
     const argv = [
       'codex',
       'exec',

@@ -10,7 +10,7 @@ version: 1
 # Built-in jury selection: fast | balanced | high | ultra. Missing provider keys simply
 # skip their models. `models:` can replace the selected preset with a fully custom jury.
 #
-# fast (default):     GPT-5.6 Luna + DeepSeek V4 Flash, both at low reasoning effort
+# fast (default):     GPT-5.6 Luna max + DeepSeek V4 Flash high
 # balanced:           GPT-5.6 Terra max + Grok 4.5 high + Kimi K3
 # high:               GPT-5.6 Sol + Opus 5 + Grok 4.5
 # ultra:              every model above, using the higher reasoning settings

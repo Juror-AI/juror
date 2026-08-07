@@ -43,15 +43,15 @@ describe('defaultConfig', () => {
     expect(c.models.map((m) => m.id)).toEqual(['gpt-5.6-luna', 'deepseek-v4-flash-0731']);
     expect(c.models[0]?.harness).toBe('codex');
     expect(c.models[0]?.secret).toBe('OPENAI_API_KEY');
-    expect(c.models[0]?.args?.['reasoning_effort']).toBe('low');
+    expect(c.models[0]?.args?.['reasoning_effort']).toBe('max');
     expect(c.models[1]?.harness).toBe('opencode');
     expect(c.models[1]?.secret).toBe('FIREWORKS_API_KEY');
     expect(c.models[1]?.harness_model).toBe(
       'fireworks-ai/accounts/fireworks/models/deepseek-v4-flash-0731',
     );
     expect(c.models[1]?.pricing_key).toBe('accounts/fireworks/models/deepseek-v4-flash-0731');
-    // The preset's `low` overrides this model's built-in `variant: high`.
-    expect(c.models[1]?.args?.['variant']).toBe('low');
+    // The preset pins `high` explicitly rather than inheriting the model's built-in default.
+    expect(c.models[1]?.args?.['variant']).toBe('high');
     expect(c.consensus.verify_model).toBe('deepseek-v4-flash-0731');
     expect(c.consensus.referee_model).toBe('deepseek-v4-flash-0731');
   });
@@ -65,7 +65,7 @@ describe('defaultConfig', () => {
     const b = defaultConfig();
     expect(b.review.severity_floor).toBe('P3');
     expect(b.review.paths_ignore).not.toContain('mutated/**');
-    expect(b.models[0]?.args?.['reasoning_effort']).toBe('low');
+    expect(b.models[0]?.args?.['reasoning_effort']).toBe('max');
   });
 
   it('ships the requested fast, balanced, high, and ultra preset memberships', () => {
@@ -76,7 +76,7 @@ describe('defaultConfig', () => {
     const ultra = applyReviewPreset(base, 'ultra');
 
     expect(fast.models.map((m) => m.id)).toEqual(['gpt-5.6-luna', 'deepseek-v4-flash-0731']);
-    expect(fast.models.map((m) => m.args?.['reasoning_effort'] ?? m.args?.['variant'])).toEqual(['low', 'low']);
+    expect(fast.models.map((m) => m.args?.['reasoning_effort'] ?? m.args?.['variant'])).toEqual(['max', 'high']);
     expect(fast.consensus.referee_model).toBe('deepseek-v4-flash-0731');
     // No longer the default, so this is the only place its membership is pinned.
     expect(balanced.models.map((m) => m.id)).toEqual(['gpt-5.6-terra', 'grok-4.5', 'kimi-k3']);
