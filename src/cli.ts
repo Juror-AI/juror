@@ -38,7 +38,7 @@ import { checkoutAt, type EphemeralCheckout } from './util/worktree.js';
 import { evaluateBenchmark, parseBenchmarkCorpus, renderBenchmark } from './benchmark.js';
 import { loadAgentInstructions } from './instructions.js';
 
-export const VERSION = '0.1.0';
+export const VERSION = '1.0.0';
 
 const USAGE = `
 juror ${VERSION} — multi-model PR review that shows you the bill

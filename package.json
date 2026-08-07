@@ -1,6 +1,6 @@
 {
   "name": "juror-ai",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Multi-model PR review that shows you the bill. Duplicate findings collapse into one, with optional agreement filtering.",
   "license": "MIT",
   "type": "module",
