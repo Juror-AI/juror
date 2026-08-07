@@ -22,6 +22,69 @@ receipt.**
 
 ---
 
+## Add it to your repo
+
+Three steps, about two minutes. No app to install, no account to create, no repository index
+to build — it runs on your own GitHub Actions runner, and your code never leaves it beyond
+the model API call itself.
+
+**1 — Drop in the workflow.** Save this as `.github/workflows/juror.yml`:
+
+```yaml
+name: Juror
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }   # full history: review policy is read from the base revision
+      - uses: juror-dev/juror@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          OPENAI_API_KEY:    ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          XAI_API_KEY:       ${{ secrets.XAI_API_KEY }}
+          FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
+```
+
+**2 — Add at least one provider key.** *Settings → Secrets and variables → Actions*, or from
+your terminal:
+
+```bash
+gh secret set OPENAI_API_KEY      # one key is enough to start
+gh secret set ANTHROPIC_API_KEY   # every extra key adds another juror
+```
+
+Any key you leave out is skipped with a note in the receipt. One key gets you a working
+single-model review; four gets you the full jury. Degrade, never fail.
+
+**3 — Open a pull request.** Juror posts a sticky *Juror is reviewing…* comment right away,
+then replaces it in place with the findings, the merge score, and the bill.
+
+That's the whole setup — `.juror.yml` is optional, and every default is listed under
+[Configuration](#configuration).
+
+<details><summary><b>Want to try it on a real PR before committing a workflow file?</b></summary><br>
+
+Same binary, same code path, nothing posted unless you ask:
+
+```bash
+export OPENAI_API_KEY=…
+npx juror review --pr 1234 --repo owner/name          # prints to your terminal
+npx juror review --pr 1234 --repo owner/name --post   # ...and posts it
+```
+
+</details>
+
+---
+
 ## Why
 
 Single-model PR bots have three problems, in order of how much they cost you:
@@ -133,32 +196,10 @@ leaving a spinner behind forever.
 
 ### GitHub Action
 
-```yaml
-name: Juror
-on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-permissions:
-  contents: read
-  pull-requests: write
-jobs:
-  review:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
-      - uses: juror-dev/juror@v1
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          OPENAI_API_KEY:    ${{ secrets.OPENAI_API_KEY }}
-          FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
-          XAI_API_KEY:       ${{ secrets.XAI_API_KEY }}
-```
-
-**Any model whose key is absent is skipped with a note in the receipt.** A repo with one key
-still gets a working single-model review. Degrade, never fail.
+The workflow file is in [Add it to your repo](#add-it-to-your-repo) above. Beyond
+`github-token`, every Action input is optional: `preset`, `models`, `config`,
+`cost-target-usd`, `post` (set `false` for a dry run), and `pr-number`. They are documented
+with their defaults in [`action.yml`](action.yml).
 
 ### Locally
 
