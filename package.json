@@ -1,11 +1,12 @@
 {
-  "name": "@juror/cli",
+  "name": "juror-ai",
   "version": "0.1.0",
   "description": "Multi-model PR review that shows you the bill. Duplicate findings collapse into one, with optional agreement filtering.",
   "license": "MIT",
   "type": "module",
   "bin": {
-    "juror": "./dist/cli.js"
+    "juror": "./dist/cli.js",
+    "juror-ai": "./dist/cli.js"
   },
   "engines": {
     "node": ">=20"
@@ -43,6 +44,6 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/juror-dev/juror.git"
+    "url": "git+https://github.com/juror-ai/juror.git"
   }
 }

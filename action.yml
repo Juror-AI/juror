@@ -1,6 +1,6 @@
-name: Juror
+name: Juror AI
 description: Multi-model PR review that shows you the bill — duplicate findings collapse into one, with optional agreement filtering.
-author: juror-dev
+author: juror-ai
 branding:
   icon: check-circle
   color: purple
