@@ -1,6 +1,7 @@
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { computeCost, loadPricing, totalCost } from '../src/cost/compute.js';
 import { loadRolling, recordSpend } from '../src/cost/rolling.js';
@@ -73,6 +74,25 @@ describe('pricing.json', () => {
       expect(entry.input_per_mtok, `${key} input`).toBeGreaterThan(0);
       expect(entry.output_per_mtok, `${key} output`).toBeGreaterThan(0);
     }
+  });
+
+  // loadPricing() strips $-prefixed keys, so this invariant has to read the raw file.
+  it("$meta.updated is never older than the newest model entry's updated date", () => {
+    const rawPath = join(dirname(fileURLToPath(import.meta.url)), '../src/cost/pricing.json');
+    const raw = JSON.parse(readFileSync(rawPath, 'utf8')) as {
+      $meta: { updated: string };
+      models: Record<string, { updated?: string }>;
+    };
+    expect(raw.$meta.updated).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    const entryDates = Object.entries(raw.models).map(([key, entry]) => {
+      expect(entry.updated, `${key} updated`).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      return entry.updated as string;
+    });
+    const newest = entryDates.reduce((a, b) => (a >= b ? a : b));
+    expect(
+      raw.$meta.updated >= newest,
+      `$meta.updated ${raw.$meta.updated} is older than newest entry ${newest}`,
+    ).toBe(true);
   });
 });
 
