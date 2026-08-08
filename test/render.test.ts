@@ -693,6 +693,35 @@ describe('renderReceipt', () => {
     expect(md).toContain('Partial: `Kimi K3` (loop.max_steps_exceeded)');
     expect(md).not.toContain('Failed: `Kimi K3`');
   });
+
+  // Referee/verify rows use harnessLabelOf → getHarness(...).label. Receipt must show the
+  // display label (Codex), not the raw harness id (codex), so cost rows match model rows.
+  it('prints the harness display label on extra cost rows, not the raw id', () => {
+    const t = totals({
+      rows: [
+        ...totals().rows,
+        {
+          label: 'referee (1 call)',
+          harnessLabel: 'Codex',
+          usage: null,
+          cost: { usd: 0.0043, source: 'estimated', longContext: false },
+        },
+        {
+          label: 'verify (2 calls)',
+          harnessLabel: 'Kimi Code CLI',
+          usage: null,
+          cost: { usd: 0.01, source: 'estimated', longContext: false },
+        },
+      ],
+      usd: 0.1943,
+    });
+    const md = renderReceipt(t, { durationMs: 1_000 });
+    expect(md).toContain('| `referee (1 call)` | Codex |');
+    expect(md).toContain('| `verify (2 calls)` | Kimi Code CLI |');
+    // Raw harness ids must not appear in the harness column.
+    expect(md).not.toContain('| `referee (1 call)` | codex |');
+    expect(md).not.toContain('| kimi-code |');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
