@@ -10,7 +10,19 @@ const red = (s: string) => (COLOR ? `\x1b[31m${s}\x1b[0m` : s);
 const yellow = (s: string) => (COLOR ? `\x1b[33m${s}\x1b[0m` : s);
 const cyan = (s: string) => (COLOR ? `\x1b[36m${s}\x1b[0m` : s);
 
-let current: LogLevel = (process.env.JUROR_LOG_LEVEL as LogLevel) || 'info';
+const LOG_LEVELS = Object.keys(ORDER) as LogLevel[];
+
+export function parseLogLevelEnv(raw: string | undefined): LogLevel {
+  if (!raw) return 'info';
+  if ((LOG_LEVELS as string[]).includes(raw)) return raw as LogLevel;
+  // Unrecognized values used to make ORDER[current] undefined so every line printed.
+  process.stderr.write(
+    `  ! JUROR_LOG_LEVEL=${JSON.stringify(raw)} is not one of ${LOG_LEVELS.join(', ')}; using info\n`,
+  );
+  return 'info';
+}
+
+let current: LogLevel = parseLogLevelEnv(process.env.JUROR_LOG_LEVEL);
 
 export function setLogLevel(level: LogLevel): void {
   current = level;
