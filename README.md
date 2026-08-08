@@ -346,7 +346,7 @@ is thrown away — that transparency is what makes the optional precision filter
 Replacement decisions can be evaluated with a manually adjudicated corpus:
 
 ```bash
-npm run build && node dist/cli.js benchmark --file benchmarks/platform-10359.json
+juror benchmark --file benchmarks/platform-10359.json
 ```
 
 The report compares P0–P2 recall, overall recall, precision, duplicate rate, measured cost,
