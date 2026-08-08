@@ -652,6 +652,24 @@ describe('renderReceipt', () => {
     expect(md.trimEnd().endsWith('</details>')).toBe(true);
   });
 
+  it('shows harness display labels (not raw ids) on cost rows', () => {
+    // review.ts harnessLabelOf now uses getHarness(...).label so referee/verify
+    // rows match model rows (e.g. "Codex" not "codex").
+    const t = totals({
+      rows: [
+        {
+          label: 'referee (1 call)',
+          harnessLabel: 'Codex',
+          usage: null,
+          cost: { usd: 0.01, source: 'estimated', longContext: false },
+        },
+      ],
+    });
+    const md = renderReceipt(t, { durationMs: 1_000 });
+    expect(md).toContain('| `referee (1 call)` | Codex |');
+    expect(md).not.toMatch(/\| `referee \(1 call\)` \| codex \|/i);
+  });
+
   it('calls a partial total a lower bound and names the unknown rows', () => {
     const t = totals({
       rows: [

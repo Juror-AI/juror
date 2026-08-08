@@ -29,6 +29,7 @@ import { refereeClusters } from './merge/referee.js';
 import { verifyClusters } from './merge/verify.js';
 import { applyPublishRules, requiredAgreement, scoreReview } from './merge/score.js';
 import { loadPricing, totalCost } from './cost/compute.js';
+import { getHarness } from './harness/registry.js';
 import { fanOut } from './harness/runner.js';
 import { synthesizeSummary } from './render/summary.js';
 import { loadPromptTemplate, readSecret, renderTemplate, resolveModelRuntime } from './config.js';
@@ -437,7 +438,7 @@ function findModel(config: JurorConfig, id: string | null): ModelConfig | null {
 }
 
 function harnessLabelOf(m: ModelConfig): string {
-  return m.harness;
+  return getHarness(m.harness).label;
 }
 
 function emptyResult(
