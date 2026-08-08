@@ -10,7 +10,23 @@ const red = (s: string) => (COLOR ? `\x1b[31m${s}\x1b[0m` : s);
 const yellow = (s: string) => (COLOR ? `\x1b[33m${s}\x1b[0m` : s);
 const cyan = (s: string) => (COLOR ? `\x1b[36m${s}\x1b[0m` : s);
 
-let current: LogLevel = (process.env.JUROR_LOG_LEVEL as LogLevel) || 'info';
+let warnedInvalidLogLevel = false;
+
+/** Resolve an env/CLI log level; unknown values fall back to `info`. */
+export function resolveLogLevel(raw: string | undefined): LogLevel {
+  if (!raw) return 'info';
+  if (Object.prototype.hasOwnProperty.call(ORDER, raw)) return raw as LogLevel;
+  if (!warnedInvalidLogLevel) {
+    warnedInvalidLogLevel = true;
+    const allowed = Object.keys(ORDER).join(', ');
+    process.stderr.write(
+      yellow('  !') + ` JUROR_LOG_LEVEL="${raw}" is not recognized (expected one of: ${allowed}); using info\n`,
+    );
+  }
+  return 'info';
+}
+
+let current: LogLevel = resolveLogLevel(process.env.JUROR_LOG_LEVEL);
 
 export function setLogLevel(level: LogLevel): void {
   current = level;
