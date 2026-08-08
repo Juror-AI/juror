@@ -9,8 +9,9 @@ disagrees with this file, re-measure before changing anything.**
 Measured 2026-08-06 against: `claude` 2.1.223 · `codex-cli` 0.146.1 · `grok` 0.2.118 ·
 `opencode` 1.17.20.
 
-Source-inspected (no paid provider run) against: `@moonshot-ai/kimi-code` 0.34.0. Its
-section below names that distinction rather than presenting inferred usage as measured.
+Source-inspected (no paid provider run) against: `@moonshot-ai/kimi-code` 0.34.0
+and the in-process `generic-openai` adapter in `src/harness/generic-openai.ts`. Their
+sections below name that distinction rather than presenting inferred usage as measured.
 
 `timeout(1)` does not exist on macOS, so every time limit is enforced in Node by
 `run()` in `src/util/proc.ts` rather than by the shell. On Unix the harness starts in its
@@ -214,6 +215,49 @@ omits `--max-turns` by default and adds it only for a positive custom `max_turns
 usage, returns `usage: null` so the receipt prints `unknown` rather than a fabricated number.
 
 ---
+
+
+## Generic OpenAI — in-process `/chat/completions` tool loop
+
+**Source-inspected** against `src/harness/generic-openai.ts` (no paid provider run). This is
+the escape-hatch adapter: any OpenAI-compatible chat endpoint can be driven without a native
+CLI harness. It has a lower ceiling than a real harness — no kernel sandbox, no
+provider-reported cost — which is why it is the fallback and not the default.
+
+```text
+POST {base_url}/chat/completions
+  Authorization: Bearer $API_KEY
+  body: { model, messages, tools: [read_file, grep, list_dir, write_file], tool_choice: "auto" }
+```
+
+- **`base_url` is mandatory.** It is read from the model config's `base_url` field or
+  `args.base_url`. Missing either throws
+  `generic-openai requires `base_url` in the model config` before any network call.
+- The request URL is always `{base_url}/chat/completions` with trailing slashes on
+  `base_url` stripped. There is no alternate path, no Responses API, and no streaming.
+- The API key comes from `args.api_key_env` (or `args.secret`) naming an env var; absence
+  throws rather than silently falling through to an empty Bearer header.
+- **In-process only.** `command()` / `parse()` throw on purpose. `runner.ts` special-cases
+  `h.id === 'generic-openai'` and calls `runGenericOpenAI(ctx)` instead of spawning.
+  `locate()` reports `process.execPath` / `process.version` so the fan-out table still has
+  a binary column.
+- Tools are Juror's own loop, not the provider's:
+  - `read_file` — hard-capped at **64 KiB** (`MAX_READ_BYTES`); longer files are truncated
+    with a note to request a line range.
+  - `grep` — at most **100** matches (`MAX_GREP_MATCHES`) across at most **2_000** files
+    scanned (`MAX_FILES_SCANNED`).
+  - `list_dir` — at most **200** entries (`MAX_LIST_ENTRIES`).
+  - `write_file` — only the configured findings path is writable; every other path is refused.
+- Paths outside the sealed repo root are refused. Relative paths resolve against `repoDir`.
+- **Never reports a provider cost.** `reportedCostUsd` is always `null`. When the endpoint
+  returns `usage`, token counts are accumulated (with `prompt_tokens` treated as including
+  any cached prefix, so uncached = `prompt_tokens - cached_tokens`); cost is then
+  `estimated` from `pricing.json`. No usage → `usage: null` and the receipt shows unknown.
+- Termination is wall-clock (`ctx.timeoutMs`) plus an optional positive `max_turns`. A
+  zero/negative turn cap means no turn limit. Abort signals and tool-pending turn limits
+  mark the run `truncated`.
+- Findings preference: the file written via `write_file` wins; a fenced JSON report in the
+  final assistant message is only a fallback when the file is missing.
 
 ## Consensus similarity — why it is not prose Jaccard
 
