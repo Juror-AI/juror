@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -588,5 +588,39 @@ describe('rolling spend', () => {
     const result = recordSpend(dir, 0.75, 'owner/repo#4@ddd');
     expect(result).toMatchObject({ totalUsd: 0.75, prCount: 1 });
     expect(loadRolling(dir)).toEqual(result);
+  });
+});
+
+describe('pricing.json $meta freshness', () => {
+  it('$meta.updated is never older than the newest model entry', () => {
+    // loadPricing strips $ keys; read the raw file for the stamp users see on receipts.
+    const raw = JSON.parse(
+      readFileSync(new URL('../src/cost/pricing.json', import.meta.url), 'utf8'),
+    ) as {
+      $meta?: { updated?: string };
+      models?: Record<string, { updated?: string }>;
+      [key: string]: unknown;
+    };
+    const metaUpdated = raw.$meta?.updated;
+    expect(metaUpdated).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+    const entryDates: string[] = [];
+    const models = raw.models;
+    if (models && typeof models === 'object') {
+      for (const entry of Object.values(models)) {
+        if (entry && typeof entry === 'object' && typeof entry.updated === 'string') {
+          entryDates.push(entry.updated);
+        }
+      }
+    }
+    for (const [key, value] of Object.entries(raw)) {
+      if (key.startsWith('$') || key === 'models') continue;
+      if (value && typeof value === 'object' && typeof (value as { updated?: string }).updated === 'string') {
+        entryDates.push((value as { updated: string }).updated);
+      }
+    }
+    expect(entryDates.length).toBeGreaterThan(0);
+    const newest = entryDates.reduce((a, b) => (a >= b ? a : b));
+    expect(metaUpdated! >= newest).toBe(true);
   });
 });
