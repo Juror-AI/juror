@@ -232,7 +232,7 @@ POST {base_url}/chat/completions
 
 - **`base_url` is mandatory.** It is read from the model config's `base_url` field or
   `args.base_url`. Missing either throws
-  `generic-openai requires `base_url` in the model config` before any network call.
+  `generic-openai requires base_url in the model config` before any network call.
 - The request URL is always `{base_url}/chat/completions` with trailing slashes on
   `base_url` stripped. There is no alternate path, no Responses API, and no streaming.
 - The API key comes from `args.api_key_env` (or `args.secret`) naming an env var; absence
