@@ -78,6 +78,8 @@ Environment
   prefixed ones and give Juror its own provider key, so review spend is billed and
   tracked separately from everything else that account does.
   GITHUB_TOKEN
+  JUROR_LOG_LEVEL          debug | info | warn | error | silent (default: info).
+                           Unrecognized values fall back to info with a one-time warning.
   Any model whose key is absent is skipped with a note in the receipt — a repo with one
   key still gets a working review.
 `;
