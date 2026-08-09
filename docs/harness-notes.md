@@ -235,8 +235,20 @@ POST {base_url}/chat/completions
   `generic-openai requires base_url in the model config` before any network call.
 - The request URL is always `{base_url}/chat/completions` with trailing slashes on
   `base_url` stripped. There is no alternate path, no Responses API, and no streaming.
-- The API key comes from `args.api_key_env` (or `args.secret`) naming an env var; absence
-  throws rather than silently falling through to an empty Bearer header.
+- **API key resolution is three tiers** (`resolveApiKey()`), first match wins:
+  1. **`ctx.providerKey`** — preferred. The runner-resolved provider secret wins before
+     any config is consulted.
+  2. **`args.api_key_env` / `args.secret`** — name of a child env var; that var's value is
+     used as the Bearer token.
+  3. **Single non-`SYSTEM_ENV` remainder** — if neither tier above yields a key and the
+     child env has *exactly one* non-system variable with a non-empty value, that value is
+     sent as the Bearer token to the configured `base_url`.
+  Absence does **not** throw at resolve time (a later error only fires when no key resolves
+  at all). **Tier 3 is a footgun / credential-disclosure risk:** `candidates.length === 1`
+  proves the value is unique in the child env, not that it is a credential. A config that
+  omits `api_key_env` and passes through one unrelated variable (a `SENTRY_DSN`, an internal
+  hostname, a webhook URL) will ship that value to a third-party endpoint in an
+  `Authorization` header.
 - **In-process only.** `command()` / `parse()` throw on purpose. `runner.ts` special-cases
   `h.id === 'generic-openai'` and calls `runGenericOpenAI(ctx)` instead of spawning.
   `locate()` reports `process.execPath` / `process.version` so the fan-out table still has
@@ -248,7 +260,13 @@ POST {base_url}/chat/completions
     scanned (`MAX_FILES_SCANNED`).
   - `list_dir` — at most **200** entries (`MAX_LIST_ENTRIES`).
   - `write_file` — only the configured findings path is writable; every other path is refused.
-- Paths outside the sealed repo root are refused. Relative paths resolve against `repoDir`.
+- **Path confinement is split.** Reads (`read_file` / `grep` / `list_dir`) go through
+  userland `confine()` — `realpathSync` + prefix check against `readRoots = [repoDir]` —
+  so paths outside the repo root are refused. `write_file` does **not** use `confine()`;
+  it is pinned by exact-path equality to `findingsPath` (often under `scratchDir`, outside
+  the repo root). Relative paths resolve against `repoDir`. This is userland path checking
+  only, not a kernel sandbox.
+
 - **Never reports a provider cost.** `reportedCostUsd` is always `null`. When the endpoint
   returns `usage`, token counts are accumulated (with `prompt_tokens` treated as including
   any cached prefix, so uncached = `prompt_tokens - cached_tokens`); cost is then
