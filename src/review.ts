@@ -166,7 +166,7 @@ export async function runReview(o: ReviewOptions): Promise<ReviewResult> {
     log.step(`${initial.length} clusters · ${ambiguousPairs.length} ambiguous pairs`);
 
     // ── 6. Referee the ambiguous band ────────────────────────────────────────
-    const refereeModel = findModel(config, config.consensus.referee_model);
+    const refereeModel = findModel(config, config.consensus.referee_model, o.secrets, warnings);
     const refereed = await refereeClusters(ambiguousPairs, initial, {
       modelRun: refereeModel,
       pricing,
@@ -196,7 +196,9 @@ export async function runReview(o: ReviewOptions): Promise<ReviewResult> {
     // High-recall mode publishes every eligible deduplicated cluster, so a refutation pass
     // cannot affect the result. Skip it instead of charging for evidence we will not use.
     const consensusMode = config.review.publish_mode === 'consensus';
-    const verifyModel = consensusMode ? findModel(config, config.consensus.verify_model) : null;
+    const verifyModel = consensusMode
+      ? findModel(config, config.consensus.verify_model, o.secrets, warnings)
+      : null;
     const verificationThreshold = requiredAgreement(
       config.consensus.min_agreement,
       produced.length,
@@ -432,9 +434,40 @@ function restrictModels(config: JurorConfig, only: string[], warnings: string[])
   return { ...config, models };
 }
 
-function findModel(config: JurorConfig, id: string | null): ModelConfig | null {
+/**
+ * Resolve the model used for referee / verify.
+ *
+ * Prefer the configured id when it is enabled and has a readable secret.
+ * Otherwise fall back to the first enabled model whose secret can be read,
+ * and push a warning so the silent degradation is visible. Returns null when
+ * `id` is null (feature disabled) or no keyed enabled model exists.
+ */
+export function findModel(
+  config: JurorConfig,
+  id: string | null,
+  secrets: Record<string, string | undefined>,
+  warnings: string[],
+): ModelConfig | null {
   if (!id) return null;
-  return config.models.find((m) => m.id === id && m.enabled) ?? null;
+
+  const preferred = config.models.find((m) => m.id === id && m.enabled) ?? null;
+  if (preferred && hasSecret(readSecret(secrets, preferred.secret).value)) {
+    return preferred;
+  }
+
+  const fallback =
+    config.models.find((m) => m.enabled && hasSecret(readSecret(secrets, m.secret).value)) ?? null;
+  if (fallback) {
+    const reason = preferred
+      ? `has no readable secret (${preferred.secret})`
+      : 'is missing or disabled';
+    warnings.push(
+      `Configured model "${id}" ${reason}; falling back to "${fallback.id}" for referee/verify.`,
+    );
+    return fallback;
+  }
+
+  return null;
 }
 
 function harnessLabelOf(m: ModelConfig): string {
