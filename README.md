@@ -12,6 +12,21 @@
 
 </div>
 
+> ### Benchmark evidence: Juror Fast found 4× more adjudicated P0–P2 defects than Greptile
+>
+> On the bundled production-PR seed, Juror Fast found **4/6 (66.7%)** P0–P2 defects at
+> **100% precision**. Greptile found **1/6 (16.7%)** at **50% precision**.
+>
+> | Reviewer | P0–P2 recall | Precision |
+> |---|---:|---:|
+> | **Juror Fast** | **66.7% (4/6)** | **100% (4/4)** |
+> | Greptile | 16.7% (1/6) | 50% (1/2) |
+>
+> This is a manually adjudicated, one-PR seed—not a statistically sufficient replacement
+> benchmark. Inspect the [corpus](benchmarks/platform-10359.json) and
+> [methodology](docs/benchmarking.md), or reproduce it with
+> `juror benchmark --file benchmarks/platform-10359.json`.
+
 ```
 npx juror-ai review --pr 1234
 ```
