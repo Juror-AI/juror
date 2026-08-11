@@ -91,7 +91,11 @@ describe('managed workflow', () => {
     const workflow = renderManagedWorkflow({ actionSha: sha, version: '1.3.3' });
 
     expect(workflow).toContain(`uses: juror-ai/juror@${sha} # v1.3.3`);
+    expect(workflow).toContain(
+      'uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0',
+    );
     expect(workflow).not.toContain('juror-ai/juror@v1');
+    expect(workflow).not.toContain('actions/checkout@v4');
     expect(workflow).toContain('# juror:init:managed sha256:');
     expect(managedWorkflowIsPristine(workflow)).toBe(true);
   });
