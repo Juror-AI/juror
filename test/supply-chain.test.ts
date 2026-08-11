@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 
 import { releaseIdentityErrors } from '../scripts/verify-release.mjs';
 
@@ -51,6 +52,19 @@ describe('supply-chain policy', () => {
 
     expect(config).toContain('package-ecosystem: npm');
     expect(config).toContain('package-ecosystem: github-actions');
+  });
+
+  it('keeps the OpenRouter key away from setup, cache, build, and installer steps', () => {
+    const action = parse(read('action.yml')) as {
+      runs: { steps: { name?: string; env?: Record<string, string> }[] };
+    };
+    const reviewIndex = action.runs.steps.findIndex((step) => step.name === 'Review');
+
+    expect(reviewIndex).toBeGreaterThan(0);
+    for (const step of action.runs.steps.slice(0, reviewIndex)) {
+      expect(step.env?.['JUROR_OPENROUTER_API_KEY'], step.name).toBe('');
+      expect(step.env?.['OPENROUTER_API_KEY'], step.name).toBe('');
+    }
   });
 
   it('publishes only a matching tag and produces verifiable release artifacts', () => {

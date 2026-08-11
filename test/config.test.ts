@@ -74,13 +74,32 @@ describe('defaultConfig', () => {
     expect(b.models[0]?.args?.['reasoning_effort']).toBe('low');
   });
 
-  it('ships the requested fast, balanced, high, and ultra preset memberships', () => {
+  it('ships the opt-in one-secret starter and the direct-provider presets', () => {
     const base = defaultConfig();
+    const starter = applyReviewPreset(base, 'starter');
     const fast = applyReviewPreset(base, 'fast');
     const balanced = applyReviewPreset(base, 'balanced');
     const high = applyReviewPreset(base, 'high');
     const ultra = applyReviewPreset(base, 'ultra');
 
+    expect(starter.models).toMatchObject([
+      {
+        id: 'openrouter-gpt-5.6-luna',
+        harness: 'generic-openai',
+        secret: 'JUROR_OPENROUTER_API_KEY',
+        harness_model: 'openai/gpt-5.6-luna',
+        base_url: 'https://openrouter.ai/api/v1',
+      },
+      {
+        id: 'openrouter-deepseek-v4-flash',
+        harness: 'generic-openai',
+        secret: 'JUROR_OPENROUTER_API_KEY',
+        harness_model: 'deepseek/deepseek-v4-flash-0731',
+        base_url: 'https://openrouter.ai/api/v1',
+      },
+    ]);
+    expect(starter.models.every((model) => model.args?.['usage_cost'] === 'usd')).toBe(true);
+    expect(starter.consensus.referee_model).toBe('openrouter-deepseek-v4-flash');
     expect(fast.models.map((m) => m.id)).toEqual(['gpt-5.6-luna', 'deepseek-v4-flash-0731']);
     expect(fast.models.map((m) => m.args?.['reasoning_effort'] ?? m.args?.['variant'])).toEqual(['low', 'low']);
     expect(fast.consensus.referee_model).toBe('deepseek-v4-flash-0731');
@@ -265,7 +284,7 @@ describe('loadConfig', () => {
     const { config, problems } = loadConfig(dir);
     expect(config).toEqual(defaultConfig());
     expect(problems).toHaveLength(1);
-    expect(problems[0]).toContain('expected one of fast, balanced, high, ultra');
+    expect(problems[0]).toContain('expected one of starter, fast, balanced, high, ultra');
   });
 
   it('falls back to the default and reports a problem for an out-of-range number', () => {

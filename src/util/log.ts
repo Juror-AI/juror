@@ -63,6 +63,7 @@ export const log = {
 const SECRET_PATTERNS: RegExp[] = [
   /\bsk-ant-api\d{2}-[A-Za-z0-9_-]{20,}/g,
   /\bsk-proj-[A-Za-z0-9_-]{20,}/g,
+  /\bsk-or-v1-[A-Za-z0-9_-]{20,}/g,
   /\bsk-[A-Za-z0-9]{32,}/g,
   /\bxai-[A-Za-z0-9]{20,}/g,
   /\bfw_[A-Za-z0-9]{16,}/g,

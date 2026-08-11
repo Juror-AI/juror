@@ -5,8 +5,8 @@
  * today ships a breaking flag next month. This adapter drives any OpenAI-compatible
  * `/chat/completions` endpoint through our own small read/grep/list/write tool loop, so
  * adding a model is a config edit rather than a pull request. It has a lower ceiling than
- * a real harness — no kernel sandbox, no provider-reported cost — which is exactly why it
- * is the fallback and not the default.
+ * a real harness — no kernel sandbox, and cost is provider-reported only when the endpoint
+ * explicitly documents USD usage — which is exactly why it is the fallback and not the default.
  *
  * It is also the only adapter that does not spawn a process, so `runner.ts` special-cases
  * `id === 'generic-openai'` and calls `runGenericOpenAI()` instead of command/parse.
@@ -162,6 +162,10 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 
 function num(v: unknown): number {
   return typeof v === 'number' && Number.isFinite(v) ? v : 0;
+}
+
+function nonNegativeNumber(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
 }
 
 function readString(v: unknown): string | null {
@@ -492,6 +496,10 @@ export async function runGenericOpenAI(ctx: RunContext, signal?: AbortSignal): P
   const diagnostics: string[] = [];
   const deadline = Date.now() + ctx.timeoutMs;
   let sawUsage = false;
+  let reportedCostUsd = 0;
+  let usageTurns = 0;
+  let costedTurns = 0;
+  const resolvedModels = new Set<string>();
   let truncated = false;
   let rawText = '';
   let turns = 0;
@@ -519,16 +527,30 @@ export async function runGenericOpenAI(ctx: RunContext, signal?: AbortSignal): P
     );
     turns += 1;
 
+    const resolvedModel = readString(data['model']);
+    if (resolvedModel) resolvedModels.add(resolvedModel);
+
     const u = isRecord(data['usage']) ? data['usage'] : null;
     if (u) {
       sawUsage = true;
+      usageTurns += 1;
       const details = isRecord(u['prompt_tokens_details']) ? u['prompt_tokens_details'] : null;
       const cached = num(details ? details['cached_tokens'] : u['cached_tokens']);
+      const cacheWrite = num(details ? details['cache_write_tokens'] : u['cache_write_tokens']);
       // `prompt_tokens` INCLUDES the cached prefix; billing the whole thing at the uncached
       // rate is the 10x overbilling bug from design §5.2.
-      usage.uncachedIn += Math.max(0, num(u['prompt_tokens']) - cached);
+      usage.uncachedIn += Math.max(0, num(u['prompt_tokens']) - cached - cacheWrite);
       usage.cacheRead += cached;
+      usage.cacheWrite += cacheWrite;
       usage.out += num(u['completion_tokens']);
+
+      if (ctx.args['usage_cost'] === 'usd') {
+        const cost = nonNegativeNumber(u['cost']);
+        if (cost !== null) {
+          costedTurns += 1;
+          reportedCostUsd += cost;
+        }
+      }
     }
 
     const choices = data['choices'];
@@ -569,6 +591,13 @@ export async function runGenericOpenAI(ctx: RunContext, signal?: AbortSignal): P
     }
   }
 
+  if (resolvedModels.size > 1) {
+    diagnostics.push(`routing provider returned multiple model identities: ${[...resolvedModels].join(', ')}`);
+  }
+  if (ctx.args['usage_cost'] === 'usd' && usageTurns > costedTurns) {
+    diagnostics.push('provider omitted charged cost for at least one turn — estimating from token usage');
+  }
+
   // The file written through the write_file tool wins; the fenced-block parse of the final
   // message is the fallback for a model that answered in prose instead.
   const file = readReportSafely(ctx.findingsPath);
@@ -586,8 +615,9 @@ export async function runGenericOpenAI(ctx: RunContext, signal?: AbortSignal): P
   return {
     report,
     usage: sawUsage ? usage : null,
-    // No OpenAI-compatible endpoint returns a dollar figure — we always estimate from tokens.
-    reportedCostUsd: null,
+    reportedCostUsd: usageTurns > 0 && costedTurns === usageTurns ? reportedCostUsd : null,
+    ...(resolvedModels.size ? { resolvedModel: [...resolvedModels].join(', ') } : {}),
+    ...(sawUsage ? { usageSource: 'provider' as const } : {}),
     turns,
     truncated,
     rawText,

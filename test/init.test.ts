@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { defaultConfig } from '../src/config.js';
+import { applyReviewPreset, defaultConfig } from '../src/config.js';
 import {
   credentialReadiness,
   installManagedWorkflow,
@@ -66,6 +66,12 @@ describe('credentialReadiness', () => {
         available: true,
         source: 'FIREWORKS_API_KEY',
       },
+      {
+        canonicalName: 'JUROR_OPENROUTER_API_KEY',
+        label: 'OpenRouter',
+        available: false,
+        source: 'JUROR_OPENROUTER_API_KEY',
+      },
     ]);
     expect(readiness.runnableModels).toEqual(['gpt-5.6-luna', 'deepseek-v4-flash-0731']);
     expect(readiness.juryKind).toBe('multi-model');
@@ -82,6 +88,21 @@ describe('credentialReadiness', () => {
     expect(readiness.runnableModels).toEqual(['gpt-5.6-luna']);
     expect(readiness.juryKind).toBe('single-model');
   });
+
+  it('recognizes two independent starter families from one OpenRouter credential', () => {
+    const readiness = credentialReadiness(
+      { JUROR_OPENROUTER_API_KEY: 'one-aggregator-secret' },
+      applyReviewPreset(defaultConfig(), 'starter'),
+    );
+
+    expect(readiness.runnableModels).toEqual([
+      'openrouter-gpt-5.6-luna',
+      'openrouter-deepseek-v4-flash',
+    ]);
+    expect(readiness.runnableFamilies).toEqual(['openai', 'deepseek']);
+    expect(readiness.juryKind).toBe('multi-model');
+    expect(JSON.stringify(readiness)).not.toContain('one-aggregator-secret');
+  });
 });
 
 describe('managed workflow', () => {
@@ -96,6 +117,7 @@ describe('managed workflow', () => {
     );
     expect(workflow).not.toContain('juror-ai/juror@v1');
     expect(workflow).not.toContain('actions/checkout@v4');
+    expect(workflow).toContain('JUROR_OPENROUTER_API_KEY: ${{ secrets.JUROR_OPENROUTER_API_KEY }}');
     expect(workflow).toContain('# juror:init:managed sha256:');
     expect(managedWorkflowIsPristine(workflow)).toBe(true);
   });
@@ -206,6 +228,28 @@ describe('uploadProviderSecrets', () => {
       ),
     ).rejects.toThrow('Unsupported Juror provider secret');
   });
+
+  it('uploads an OpenRouter key through stdin under the dedicated name', async () => {
+    const calls: { argv: string[]; opts: RunOptions }[] = [];
+    const runner = vi.fn(async (argv: string[], opts: RunOptions = {}) => {
+      calls.push({ argv, opts });
+      return { stdout: '', stderr: '', exitCode: 0, signal: null, durationMs: 1, timedOut: false };
+    });
+
+    await expect(
+      uploadProviderSecrets(
+        { OPENROUTER_API_KEY: 'aggregator-value' },
+        ['JUROR_OPENROUTER_API_KEY'],
+        'owner/repo',
+        runner,
+      ),
+    ).resolves.toEqual(['JUROR_OPENROUTER_API_KEY']);
+    expect(calls).toEqual([{
+      argv: ['gh', 'secret', 'set', 'JUROR_OPENROUTER_API_KEY', '--repo', 'owner/repo'],
+      opts: { stdin: 'aggregator-value', timeoutMs: 120_000 },
+    }]);
+    expect(JSON.stringify(calls.map((call) => call.argv))).not.toContain('aggregator-value');
+  });
 });
 
 describe('juror init CLI', () => {
@@ -270,5 +314,37 @@ describe('juror init CLI', () => {
 
     expect(result.status).not.toBe(0);
     expect(() => readFileSync(join(repo, '.github/workflows/juror.yml'), 'utf8')).toThrow();
+  });
+
+  it('persists an explicit starter preset and reports a one-key multi-model jury', () => {
+    const repo = tempRepo();
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo });
+    execFileSync('git', ['remote', 'add', 'origin', 'git@github.com:owner/example.git'], { cwd: repo });
+    writeFileSync(join(repo, '.env'), 'JUROR_OPENROUTER_API_KEY=test-only-value\n', 'utf8');
+
+    const output = execFileSync(
+      join(process.cwd(), 'node_modules', '.bin', 'vite-node'),
+      [
+        join(process.cwd(), 'src/cli.ts'),
+        'init',
+        '--repo-dir',
+        repo,
+        '--preset',
+        'starter',
+        '--action-sha',
+        'b'.repeat(40),
+      ],
+      {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+        env: { PATH: process.env.PATH, HOME: process.env.HOME, NO_COLOR: '1' },
+      },
+    );
+
+    expect(output).toContain('Preset: starter (CLI override)');
+    expect(output).toContain('2 runnable models across 2 families');
+    expect(output).not.toContain('test-only-value');
+    const workflow = readFileSync(join(repo, '.github/workflows/juror.yml'), 'utf8');
+    expect(workflow).toContain('preset: starter');
   });
 });

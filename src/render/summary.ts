@@ -221,6 +221,9 @@ export function renderSummaryComment(r: ReviewResult, o: RenderOptions): string 
   const votes = votesLine(r.verdict);
   if (votes) blocks.push(votes);
 
+  const consensus = consensusAvailability(r);
+  if (consensus) blocks.push(consensus);
+
   const attention = filesNeedingAttention(r.published);
   if (attention) blocks.push(`**Files needing attention:** ${attention}`);
 
@@ -268,6 +271,13 @@ function votesLine(v: Verdict): string {
   if (v.votes.length === 0) return '';
   const votes = v.votes.map((x) => `${mdCell(x.modelLabel)} \`${x.vote}\``).join(' · ');
   return `<sub>Model votes: ${votes} → median **${trimNum(v.base)}**${capClause(v)}.</sub>`;
+}
+
+function consensusAvailability(r: ReviewResult): string {
+  const configured = r.runs.length;
+  const completed = r.runs.filter((run) => run.ok && run.result?.report).length;
+  if (configured < 2 || completed >= 2) return '';
+  return `**⚠ Cross-model consensus unavailable: only ${completed} of ${configured} configured jurors completed.**`;
 }
 
 /**

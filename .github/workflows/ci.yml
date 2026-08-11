@@ -23,7 +23,7 @@ jobs:
       - run: npm test
       - run: npm run check:secure-refs
 
-  # This repo is public and is handed four provider keys at runtime. One committed key is
+  # This repo is public and is handed provider keys at runtime. One committed key is
   # the worst thing that can happen to it, so the check is a build gate rather than a habit.
   secrets-scan:
     runs-on: ubuntu-latest
@@ -37,6 +37,7 @@ jobs:
           # cries wolf on its own definitions gets muted within a week.
           PATTERN='sk-ant-api[0-9]{2}-[A-Za-z0-9_-]{40,}'
           PATTERN="$PATTERN|sk-proj-[A-Za-z0-9_-]{40,}"
+          PATTERN="$PATTERN|sk-or-v1-[A-Za-z0-9_-]{40,}"
           PATTERN="$PATTERN|xai-[A-Za-z0-9]{40,}"
           PATTERN="$PATTERN|fw_[A-Za-z0-9]{20,}"
           PATTERN="$PATTERN|gh[pousr]_[A-Za-z0-9]{36}"

@@ -79,6 +79,19 @@ Any key used by the selected preset gets you a working review. Missing providers
 with a note in the receipt. The default `fast` preset becomes a cross-model jury when both
 OpenAI and Fireworks are available. Degrade, never pretend.
 
+Want to evaluate the two-family jury with one credential? The opt-in `starter` preset routes
+fixed OpenAI and DeepSeek model revisions through OpenRouter's OpenAI-compatible API:
+
+```bash
+export JUROR_OPENROUTER_API_KEY=…
+npx juror-ai init --preset starter --set-secrets
+```
+
+`starter` is intentionally not the default yet. It must meet the existing `fast` preset on the
+adjudicated seed and expanded corpus before the onboarding recommendation changes. Direct
+first-party OpenAI, Fireworks, Anthropic, and xAI credentials remain the higher-control path:
+they avoid an aggregator trust boundary and use each vendor's native agent harness.
+
 Open a pull request. Juror posts a sticky *Juror is reviewing…* comment right away,
 then replaces it in place with the findings, the merge score, and the bill.
 
@@ -237,14 +250,17 @@ JUROR_ANTHROPIC_API_KEY=…
 JUROR_OPENAI_API_KEY=…
 JUROR_FIREWORKS_API_KEY=…
 JUROR_XAI_API_KEY=…
+JUROR_OPENROUTER_API_KEY=…
 ```
 
 ---
 
 ## Supported models & harnesses
 
-Juror drives each model through its **native agent harness**, so each one greps your repo
-the way its vendor intended.
+Juror normally drives each model through its **native agent harness**, so each one greps your
+repo the way its vendor intended. The opt-in one-secret starter uses Juror's confined in-process
+tool loop against OpenRouter instead; it preserves the same sealed checkout and exact findings
+file boundary without installing another executable.
 
 | Harness | CLI | Models | Reports cost | Sandbox |
 |---|---|---|---|---|
@@ -253,7 +269,7 @@ the way its vendor intended.
 | `opencode` | `opencode run` | anything on [models.dev](https://models.dev) — Fireworks, Groq, OpenRouter, … | ✅ per-step `cost` | tool removal |
 | `grok-build` | `grok -p` | Grok models | ✅ `total_cost_usd` | Landlock |
 | `kimi-code` | `kimi -p` | Kimi K3 on Fireworks | ❌ → estimated from session usage | tool allowlist + isolated runtime |
-| `generic-openai` | *(in-process)* | any OpenAI-compatible endpoint | ❌ → estimated | path-confined tools |
+| `generic-openai` | *(in-process)* | any OpenAI-compatible endpoint | provider-reported when documented; otherwise estimated | path-confined tools |
 
 The `opencode` harness is the reason adding a model is a config edit rather than a PR. To add
 **DeepSeek V4 Flash** to your jury:
@@ -272,11 +288,12 @@ models:
 
 ## Configuration
 
-Juror ships four jury presets. Models whose provider key is unavailable are skipped, so
+Juror ships five jury presets. Models whose provider key is unavailable are skipped, so
 `ultra` means every built-in model that can actually authenticate on that runner.
 
 | Preset | Jury | Intended use |
 |---|---|---|
+| `starter` *(opt-in)* | GPT-5.6 Luna · DeepSeek V4 Flash through OpenRouter's confined generic harness | Two model families from one `JUROR_OPENROUTER_API_KEY`; awaiting benchmark promotion gate |
 | `fast` **(default)** | GPT-5.6 Luna via Codex/OpenAI (`low`) · DeepSeek V4 Flash via opencode/Fireworks (`low`) | Smallest, cheapest jury |
 | `balanced` | GPT-5.6 Terra via Codex/OpenAI (`max`) · Grok 4.5 via Grok Build/xAI (`high`) · Kimi K3 via Kimi Code/Fireworks (`max`) | Strong provider diversity without the full burn |
 | `high` | GPT-5.6 Sol via Codex/OpenAI (`high`) · Opus 5 via Claude Code/Anthropic · Grok 4.5 via Grok Build/xAI (`high`) | Higher-confidence frontier jury |
@@ -286,6 +303,7 @@ Select one in config, on the CLI, or in the Action:
 
 ```bash
 juror review --preset fast --base main
+juror review --preset starter --base main
 juror review --mode ultra --pr 1234 --repo owner/name
 ```
 

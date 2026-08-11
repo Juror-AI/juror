@@ -23,6 +23,12 @@ describe('redact', () => {
     expect(redact('sk-proj-tooshort')).toBe('sk-proj-tooshort');
   });
 
+  it('redacts OpenRouter keys and leaves short tails alone', () => {
+    const key = 'sk-or-v1-' + 'R'.repeat(20);
+    expect(redact(`OPENROUTER_API_KEY=${key}`)).toBe('OPENROUTER_API_KEY=[redacted]');
+    expect(redact('sk-or-v1-short')).toBe('sk-or-v1-short');
+  });
+
   it('redacts generic sk- keys (32+ alnum) without eating shorter tokens', () => {
     const key = 'sk-' + 'c'.repeat(32);
     expect(redact(`export OPENAI_API_KEY=${key}`)).toBe('export OPENAI_API_KEY=[redacted]');

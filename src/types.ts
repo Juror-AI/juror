@@ -213,6 +213,10 @@ export interface HarnessResult {
   usage: CanonicalUsage | null;
   /** Provider-computed cost. `null` means we must estimate from tokens. */
   reportedCostUsd: number | null;
+  /** Actual model identity returned by a routing provider, when available. */
+  resolvedModel?: string;
+  /** Where normalized token counts came from. */
+  usageSource?: 'provider' | 'harness';
   turns: number;
   truncated: boolean;
   /** Final assistant text, kept for debugging and fenced-block fallback parsing. */
@@ -415,7 +419,7 @@ export interface ModelConfig {
   max_turns?: number;
 }
 
-export type ReviewPreset = 'fast' | 'balanced' | 'high' | 'ultra';
+export type ReviewPreset = 'starter' | 'fast' | 'balanced' | 'high' | 'ultra';
 
 export interface JurorConfig {
   version: 1;
@@ -484,8 +488,11 @@ export interface ReviewSummary {
 
 export interface CostRow {
   label: string;
+  /** Actual provider-returned model identity, when it differs from the display label. */
+  modelRef?: string;
   harnessLabel: string;
   usage: CanonicalUsage | null;
+  usageSource?: 'provider' | 'harness';
   cost: CostBreakdown;
 }
 
