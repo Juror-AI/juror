@@ -282,7 +282,7 @@ Juror ships four jury presets. Models whose provider key is unavailable are skip
 
 | Preset | Jury | Intended use |
 |---|---|---|
-| `fast` **(default)** | GPT-5.6 Luna via Codex/OpenAI (`high`) · DeepSeek V4 Flash via opencode/Fireworks (`high`) | Smallest, cheapest jury |
+| `fast` **(default)** | GPT-5.6 Luna via Codex/OpenAI (`low`) · DeepSeek V4 Flash via opencode/Fireworks (`low`) | Smallest, cheapest jury |
 | `balanced` | GPT-5.6 Terra via Codex/OpenAI (`max`) · Grok 4.5 via Grok Build/xAI (`high`) · Kimi K3 via Kimi Code/Fireworks (`max`) | Strong provider diversity without the full burn |
 | `high` | GPT-5.6 Sol via Codex/OpenAI (`high`) · Opus 5 via Claude Code/Anthropic · Grok 4.5 via Grok Build/xAI (`high`) | Higher-confidence frontier jury |
 | `ultra` | Every model from the other presets (seven total), using their higher reasoning settings | Maximum coverage; highest token and cost use |

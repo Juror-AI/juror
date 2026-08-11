@@ -45,19 +45,19 @@ describe('defaultConfig', () => {
     expect(c.models.map((m) => m.id)).toEqual(['gpt-5.6-luna', 'deepseek-v4-flash-0731']);
     expect(c.models[0]?.harness).toBe('codex');
     expect(c.models[0]?.secret).toBe('JUROR_OPENAI_API_KEY');
-    expect(c.models[0]?.args?.['reasoning_effort']).toBe('high');
+    expect(c.models[0]?.args?.['reasoning_effort']).toBe('low');
     expect(c.models[1]?.harness).toBe('opencode');
     expect(c.models[1]?.secret).toBe('JUROR_FIREWORKS_API_KEY');
     expect(c.models[1]?.harness_model).toBe(
       'fireworks-ai/accounts/fireworks/models/deepseek-v4-flash-0731',
     );
     expect(c.models[1]?.pricing_key).toBe('accounts/fireworks/models/deepseek-v4-flash-0731');
-    // The preset pins `high` explicitly rather than inheriting the model's built-in default.
-    expect(c.models[1]?.args?.['variant']).toBe('high');
+    // The fast preset deliberately lowers both models' thinking settings.
+    expect(c.models[1]?.args?.['variant']).toBe('low');
     expect(c.consensus.verify_model).toBe('deepseek-v4-flash-0731');
     expect(c.consensus.referee_model).toBe('deepseek-v4-flash-0731');
     // Kept well clear of the jury's slowest legitimate run: Luna was measured at 750–900s
-    // on large diffs at `max`, and is faster at `high`. This is a hung-harness kill switch,
+    // on large diffs at `max`, and is faster at `low`. This is a hung-harness kill switch,
     // so headroom costs nothing and a tight wall silently drops a model mid-review.
     expect(c.review.per_model_timeout_seconds).toBe(1800);
   });
@@ -71,7 +71,7 @@ describe('defaultConfig', () => {
     const b = defaultConfig();
     expect(b.review.severity_floor).toBe('P3');
     expect(b.review.paths_ignore).not.toContain('mutated/**');
-    expect(b.models[0]?.args?.['reasoning_effort']).toBe('high');
+    expect(b.models[0]?.args?.['reasoning_effort']).toBe('low');
   });
 
   it('ships the requested fast, balanced, high, and ultra preset memberships', () => {
@@ -82,7 +82,7 @@ describe('defaultConfig', () => {
     const ultra = applyReviewPreset(base, 'ultra');
 
     expect(fast.models.map((m) => m.id)).toEqual(['gpt-5.6-luna', 'deepseek-v4-flash-0731']);
-    expect(fast.models.map((m) => m.args?.['reasoning_effort'] ?? m.args?.['variant'])).toEqual(['high', 'high']);
+    expect(fast.models.map((m) => m.args?.['reasoning_effort'] ?? m.args?.['variant'])).toEqual(['low', 'low']);
     expect(fast.consensus.referee_model).toBe('deepseek-v4-flash-0731');
     // No longer the default, so this is the only place its membership is pinned.
     expect(balanced.models.map((m) => m.id)).toEqual(['gpt-5.6-terra', 'grok-4.5', 'kimi-k3']);
