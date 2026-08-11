@@ -128,7 +128,9 @@ function headlineAmount(totals: CostTotals): string {
 }
 
 function modelRow(row: CostRow, isSkipped: boolean): string {
-  const model = code(row.label);
+  const model = row.modelRef
+    ? `${cell(row.label)}<br><sub>${cell(row.modelRef)}</sub>`
+    : code(row.label);
   const harness = cell(row.harnessLabel);
   if (isSkipped) {
     return `| ${model} | ${harness} | ${DASH} | ${DASH} | ${DASH} | ${DASH} | *skipped* |`;
@@ -149,7 +151,8 @@ function totalRow(totals: CostTotals): string {
 
 function sourceCell(row: CostRow): string {
   const base = row.cost.source === 'reported' ? 'reported' : `*${row.cost.source}*`;
-  return row.cost.longContext ? `${base}, long-context` : base;
+  const usage = row.usageSource ? ` (${row.usageSource} usage)` : '';
+  return `${base}${row.cost.longContext ? ', long-context' : ''}${usage}`;
 }
 
 function rollingLine(r: RollingSpend): string {

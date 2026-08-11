@@ -266,8 +266,10 @@ export function totalCost(
 ): CostTotals {
   const rows: CostRow[] = runs.map((run) => ({
     label: run.modelLabel,
+    ...(run.result?.resolvedModel ? { modelRef: run.result.resolvedModel } : {}),
     harnessLabel: run.harnessLabel,
     usage: run.result?.usage ?? null,
+    ...(run.result?.usageSource ? { usageSource: run.result.usageSource } : {}),
     cost: rowCost(run),
   }));
   for (const e of extra) {

@@ -652,6 +652,43 @@ describe('renderReceipt', () => {
     expect(md.trimEnd().endsWith('</details>')).toBe(true);
   });
 
+  it('shows the actual routed model and provider usage source in a receipt', () => {
+    const t = totals({
+      rows: [{
+        label: 'GPT-5.6 Luna',
+        modelRef: 'openai/gpt-5.6-luna',
+        harnessLabel: 'Generic OpenAI',
+        usageSource: 'provider',
+        usage: { uncachedIn: 100, cacheRead: 20, cacheWrite: 10, out: 7 },
+        cost: { usd: 0.0123, source: 'reported', longContext: false },
+      }],
+      usage: { uncachedIn: 100, cacheRead: 20, cacheWrite: 10, out: 7 },
+      usd: 0.0123,
+      modelsRun: 1,
+    });
+
+    const md = renderReceipt(t, { durationMs: 1_000 });
+
+    expect(md).toContain('GPT-5.6 Luna<br><sub>openai/gpt-5.6-luna</sub>');
+    expect(md).toContain('| Generic OpenAI | 100 | 30 | 7 | $0.01 | reported (provider usage) |');
+  });
+
+  it('states that cross-model consensus is unavailable when only one juror completes', () => {
+    const failed = run({
+      modelId: 'deepseek',
+      modelLabel: 'DeepSeek V4 Flash',
+      ok: false,
+      result: null,
+      cost: { usd: null, source: 'unknown', longContext: false },
+      error: 'provider unavailable',
+    }, null);
+    const r = result({ runs: [run(), failed], totals: totals({ modelsRun: 1 }) });
+
+    expect(renderSummaryComment(r, opts)).toContain(
+      'Cross-model consensus unavailable: only 1 of 2 configured jurors completed.',
+    );
+  });
+
   it('calls a partial total a lower bound and names the unknown rows', () => {
     const t = totals({
       rows: [

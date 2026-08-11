@@ -5,8 +5,8 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
 
-import { loadConfig, readSecret } from './config.js';
-import type { HarnessId, JurorConfig, ModelConfig } from './types.js';
+import { applyReviewPreset, loadConfig, readSecret } from './config.js';
+import type { HarnessId, JurorConfig, ModelConfig, ReviewPreset } from './types.js';
 import { run, type RunOptions } from './util/proc.js';
 import { repoRoot } from './util/workspace.js';
 
@@ -48,6 +48,7 @@ const PROVIDERS = [
   { canonicalName: 'JUROR_OPENAI_API_KEY', label: 'OpenAI' },
   { canonicalName: 'JUROR_XAI_API_KEY', label: 'xAI' },
   { canonicalName: 'JUROR_FIREWORKS_API_KEY', label: 'Fireworks' },
+  { canonicalName: 'JUROR_OPENROUTER_API_KEY', label: 'OpenRouter' },
 ] as const;
 
 export interface InitCommandOptions {
@@ -56,6 +57,7 @@ export interface InitCommandOptions {
   env: Record<string, string | undefined>;
   version: string;
   actionSha?: string | null;
+  preset?: ReviewPreset | null;
   dryRun?: boolean;
   setSecrets?: boolean;
   yes?: boolean;
@@ -124,7 +126,11 @@ function modelFamily(model: ModelConfig): string {
   return model.id.toLowerCase();
 }
 
-export function renderManagedWorkflow(options: { actionSha: string; version: string }): string {
+export function renderManagedWorkflow(options: {
+  actionSha: string;
+  version: string;
+  preset?: ReviewPreset | null;
+}): string {
   assertActionSha(options.actionSha);
   const body = `# Juror v${options.version}\n` +
     `# Edit .juror.yml for review policy. Run \`juror init\` to refresh this managed workflow.\n` +
@@ -149,11 +155,13 @@ export function renderManagedWorkflow(options: { actionSha: string; version: str
     `      - uses: juror-ai/juror@${options.actionSha} # v${options.version}\n` +
     `        with:\n` +
     `          github-token: \${{ secrets.GITHUB_TOKEN }}\n` +
+    (options.preset ? `          preset: ${options.preset}\n` : '') +
     `        env:\n` +
     `          JUROR_OPENAI_API_KEY: \${{ secrets.JUROR_OPENAI_API_KEY }}\n` +
     `          JUROR_ANTHROPIC_API_KEY: \${{ secrets.JUROR_ANTHROPIC_API_KEY }}\n` +
     `          JUROR_XAI_API_KEY: \${{ secrets.JUROR_XAI_API_KEY }}\n` +
-    `          JUROR_FIREWORKS_API_KEY: \${{ secrets.JUROR_FIREWORKS_API_KEY }}\n`;
+    `          JUROR_FIREWORKS_API_KEY: \${{ secrets.JUROR_FIREWORKS_API_KEY }}\n` +
+    `          JUROR_OPENROUTER_API_KEY: \${{ secrets.JUROR_OPENROUTER_API_KEY }}\n`;
   const digest = createHash('sha256').update(body).digest('hex');
   return `${MANAGED_PREFIX}${digest}\n${body}`;
 }
@@ -242,7 +250,8 @@ export async function runInitCommand(options: InitCommandOptions): Promise<InitC
   const gh = await inspectGh(runner);
   const defaultBranch = await detectDefaultBranch(root, repo, gh.authenticated, runner);
   const loaded = loadConfig(root);
-  const readiness = credentialReadiness(options.env, loaded.config);
+  const config = options.preset ? applyReviewPreset(loaded.config, options.preset) : loaded.config;
+  const readiness = credentialReadiness(options.env, config);
   const availableNames = readiness.providers
     .filter((provider) => provider.available)
     .map((provider) => provider.canonicalName);
@@ -252,6 +261,7 @@ export async function runInitCommand(options: InitCommandOptions): Promise<InitC
   write(`Default branch: ${defaultBranch}\n`);
   write(`GitHub CLI: ${gh.installed ? (gh.authenticated ? `authenticated${gh.login ? ` as ${gh.login}` : ''}` : 'installed, not authenticated') : 'not installed'}\n`);
   write(`Config: ${loaded.sourcePath ? path.relative(root, loaded.sourcePath) : 'defaults (no .juror.yml found)'}\n`);
+  if (options.preset) write(`Preset: ${options.preset} (CLI override)\n`);
   for (const problem of loaded.problems) write(`  ! Config warning: ${problem}\n`);
   for (const provider of readiness.providers) {
     write(
@@ -275,7 +285,7 @@ export async function runInitCommand(options: InitCommandOptions): Promise<InitC
     );
   }
   const actionSha = await resolveActionSha(options.actionSha, options.version, runner);
-  const workflowText = renderManagedWorkflow({ actionSha, version: options.version });
+  const workflowText = renderManagedWorkflow({ actionSha, version: options.version, preset: options.preset });
   const workflow = await installManagedWorkflow(root, workflowText, options.dryRun ?? false);
   write(`${workflowSummary(workflow, root)}\n`);
 
@@ -301,7 +311,10 @@ export async function runInitCommand(options: InitCommandOptions): Promise<InitC
     write('Existing workflow has user changes and was preserved; merge the generated setup manually.\n');
   } else {
     write(`Next: commit ${path.relative(root, workflow.path)} and open a pull request.\n`);
-    write(`First local review (uses provider APIs): juror review --base ${defaultBranch}\n`);
+    write(
+      `First local review (uses provider APIs): juror review` +
+        `${options.preset ? ` --preset ${options.preset}` : ''} --base ${defaultBranch}\n`,
+    );
   }
 
   return {

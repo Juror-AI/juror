@@ -59,7 +59,7 @@ Options
   --repo-dir <path>      Repository checkout to read (default: cwd)
   --head <ref>           Head ref for local mode (default: HEAD)
   --config <path>        Config file (default: .juror.yml in the repo)
-  --preset <name>        Jury preset: fast (default), balanced, high, or ultra
+  --preset <name>        Jury preset: starter (one OpenRouter key), fast (default), balanced, high, or ultra
   --mode <name>          Alias for --preset
   --models <a,b,c>       Only run these model ids
   --post                 Post the review to the pull request (requires --pr and GITHUB_TOKEN)
@@ -81,6 +81,7 @@ Init
 
 Environment
   JUROR_ANTHROPIC_API_KEY  JUROR_OPENAI_API_KEY  JUROR_XAI_API_KEY  JUROR_FIREWORKS_API_KEY
+  JUROR_OPENROUTER_API_KEY
   The unprefixed names (ANTHROPIC_API_KEY, …) still work as a fallback. Prefer the
   prefixed ones and give Juror its own provider key, so review spend is billed and
   tracked separately from everything else that account does.
@@ -249,6 +250,7 @@ async function main(): Promise<number> {
       env: process.env as Record<string, string | undefined>,
       version: VERSION,
       actionSha: args.actionSha,
+      preset: args.preset,
       dryRun: args.dryRun,
       setSecrets: args.setSecrets,
       yes: args.yes,

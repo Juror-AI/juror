@@ -37,3 +37,20 @@ across the full corpus, not just in aggregate on one favorable PR.
 `benchmarks/platform-10359.json` is a seed based on the reviewed PR and the two supplied
 Greptile comments. It is intentionally one case and must not be presented as statistically
 sufficient evidence that either reviewer can replace the other.
+
+## Starter-preset promotion gate
+
+The one-secret `starter` preset is opt-in until it is compared with `fast` on the same commit
+and adjudicated expectations. Run both reviews with dedicated credentials and preserve their
+JSON reports before adding the mapped findings to the corpus:
+
+```bash
+juror review --preset fast --pr <number> --repo <owner/name> --json fast.json
+juror review --preset starter --pr <number> --repo <owner/name> --json starter.json
+```
+
+The comparison must record failed/skipped jurors, provider-reported cost, wall time, recall,
+precision, and duplicate rate. Do not promote `starter` merely because it is easier to
+configure: it should meet or exceed `fast` on adjudicated P0–P2 recall without an unacceptable
+precision or cost regression. A missing OpenRouter credential is a blocked benchmark, not a
+zero-cost or passing run.

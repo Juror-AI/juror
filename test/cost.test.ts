@@ -55,6 +55,16 @@ describe('pricing.json', () => {
     expect(pricing['gpt-5.6-terra']?.long_context?.output_per_mtok).toBe(22.5);
     expect(pricing['claude-opus-5']?.cache_write_per_mtok).toBe(6.25);
     expect(pricing['accounts/fireworks/models/deepseek-v4-flash-0731']?.input_per_mtok).toBe(0.14);
+    expect(pricing['openrouter/openai/gpt-5.6-luna-20260709']).toMatchObject({
+      input_per_mtok: 0.1,
+      cache_read_per_mtok: 0.01,
+      output_per_mtok: 0.6,
+    });
+    expect(pricing['openrouter/deepseek/deepseek-v4-flash-20260731']).toMatchObject({
+      input_per_mtok: 0.08,
+      cache_read_per_mtok: 0.016,
+      output_per_mtok: 0.18,
+    });
     expect(pricing['accounts/fireworks/models/kimi-k3']).toMatchObject({
       input_per_mtok: 3,
       cache_read_per_mtok: 0.3,
@@ -133,6 +143,18 @@ describe('computeCost rule 2 — never guess', () => {
     });
     expect(cost.usd).toBeNull();
     expect(cost.source).toBe('unknown');
+  });
+
+  it('uses the pinned OpenRouter rate only when provider-charged cost is absent', () => {
+    const cost = computeCost({
+      pricingKey: 'openrouter/deepseek/deepseek-v4-flash-20260731',
+      usage: usage({ uncachedIn: 1_000_000, cacheRead: 500_000, out: 1_000_000 }),
+      reportedCostUsd: null,
+      pricing,
+      turns: 2,
+    });
+
+    expect(cost).toMatchObject({ usd: 0.268, source: 'estimated', longContext: false });
   });
 });
 

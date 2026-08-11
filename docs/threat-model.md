@@ -27,7 +27,7 @@ advisory and must not be treated as authorization to merge, deploy, or execute c
 | Boundary | Threat | Primary controls | Residual risk |
 |---|---|---|---|
 | Untrusted pull request text and repository files | Prompt injection, malicious hooks, oversized input, misleading policy | Review from a detached checkout; load policy and execution config from the base revision; do not use `pull_request_target`; treat PR metadata as untrusted | A model can still produce a wrong or attacker-influenced review |
-| Provider keys | Exfiltration through tools, logs, child processes, or committed configuration | One provider credential per harness; rebuilt child environments; secret redaction; `juror init` sends secrets to GitHub over stdin; untracked `.env` files stay outside reviewer roots | A compromised provider CLI can use its own credential while it is running |
+| Provider keys | Exfiltration through tools, logs, child processes, or committed configuration | One provider credential per harness invocation; rebuilt child environments; secret redaction; `juror init` sends secrets to GitHub over stdin; untracked `.env` files stay outside reviewer roots | A compromised provider CLI can use its own credential while it is running; an aggregator key authorizes every selected model routed through that aggregator |
 | GitHub token | Repository mutation or disclosure to a model | Never pass it to model subprocesses; publish only after jurors exit; request `contents: read` and `pull-requests: write`; fork reviews receive no secrets | The trusted publishing process can create or edit review comments by design |
 | Model subprocesses | Shell execution, filesystem escape, persistence, cross-juror leakage | Private temporary homes, read-only/search-only tools where supported, kernel filesystem restrictions for Codex, path confinement for the generic harness, separate scratch directories | Sandboxing differs by harness and operating system; a harness vulnerability may weaken it |
 | Harness packages and installer scripts | Compromised npm package, mutable installer response, postinstall code, or binary substitution | Exact package versions in Action inputs; credential-stripped installation environment; isolated runner; immutable Action revision; cache keys include harness specs | The Grok installer script is fetched from the vendor at runtime and is not content-addressed; disable xAI or preinstall an audited binary when this is unacceptable |
@@ -61,6 +61,14 @@ artifact is exposed by the integration. Piping a network response to a shell tru
 TLS path, and current response. Security-sensitive operators should omit the xAI key/model or
 use a controlled runner with a preinstalled, audited CLI. Installer failure degrades that juror
 explicitly; it must never be represented as model agreement.
+
+The `starter` preset uses one OpenRouter key for two isolated `generic-openai` runs. That key is
+used only as an HTTP authorization header inside Juror; it is never inserted into the prompt,
+tool messages, report, or scratch files. Each model still receives a separate scratch directory
+and the same path-confined read/write tools. This removes extra CLI installers but adds
+OpenRouter as a routing, billing, and data-processing trust boundary. Use direct first-party
+presets when provider selection, retention terms, or independent credentials matter more than
+one-secret onboarding.
 
 ## GitHub workflow trust
 

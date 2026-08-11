@@ -112,8 +112,8 @@ async function dumpIo(scratchDir: string, io: HarnessIO): Promise<void> {
 
 /**
  * `run()` layers its env over `process.env`, so an allowlisted env is not enough on its
- * own: every ambient variable has to be explicitly cleared, or a fan-out of four models
- * hands all four providers all four API keys. Node drops keys whose value is `undefined`.
+ * own: every ambient variable has to be explicitly cleared, or a multi-model fan-out
+ * hands every provider every configured API key. Node drops keys whose value is `undefined`.
  */
 function isolate(env: Record<string, string>): Record<string, string | undefined> {
   const cleared: Record<string, string | undefined> = {};

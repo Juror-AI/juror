@@ -105,9 +105,31 @@ const SUPPRESSED_MODES = ['collapsed', 'hidden', 'inline'] as const;
 const ON_EXCEED_MODES = ['partial', 'skip'] as const;
 const PUBLISH_MODES = ['all', 'consensus'] as const;
 
-export const REVIEW_PRESETS = ['fast', 'balanced', 'high', 'ultra'] as const satisfies readonly ReviewPreset[];
+export const REVIEW_PRESETS = ['starter', 'fast', 'balanced', 'high', 'ultra'] as const satisfies readonly ReviewPreset[];
 
 const BUILTIN_MODELS: Record<string, ModelConfig> = {
+  'openrouter-gpt-5.6-luna': {
+    id: 'openrouter-gpt-5.6-luna',
+    harness: 'generic-openai',
+    enabled: true,
+    secret: 'JUROR_OPENROUTER_API_KEY',
+    label: 'GPT-5.6 Luna',
+    base_url: 'https://openrouter.ai/api/v1',
+    harness_model: 'openai/gpt-5.6-luna',
+    pricing_key: 'openrouter/openai/gpt-5.6-luna-20260709',
+    args: { usage_cost: 'usd' },
+  },
+  'openrouter-deepseek-v4-flash': {
+    id: 'openrouter-deepseek-v4-flash',
+    harness: 'generic-openai',
+    enabled: true,
+    secret: 'JUROR_OPENROUTER_API_KEY',
+    label: 'DeepSeek V4 Flash',
+    base_url: 'https://openrouter.ai/api/v1',
+    harness_model: 'deepseek/deepseek-v4-flash-0731',
+    pricing_key: 'openrouter/deepseek/deepseek-v4-flash-20260731',
+    args: { usage_cost: 'usd' },
+  },
   'claude-opus-5': {
     id: 'claude-opus-5',
     harness: 'claude-code',
@@ -177,6 +199,10 @@ interface PresetDefinition {
 }
 
 const PRESET_DEFINITIONS: Record<ReviewPreset, PresetDefinition> = {
+  starter: {
+    modelIds: ['openrouter-gpt-5.6-luna', 'openrouter-deepseek-v4-flash'],
+    consensusModel: 'openrouter-deepseek-v4-flash',
+  },
   fast: {
     modelIds: ['gpt-5.6-luna', 'deepseek-v4-flash-0731'],
     consensusModel: 'deepseek-v4-flash-0731',
