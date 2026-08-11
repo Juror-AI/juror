@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Private security report
+    url: https://github.com/Juror-AI/juror/security/advisories/new
+    about: Report credential exposure, sandbox escapes, and other security issues privately.

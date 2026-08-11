@@ -1,0 +1,56 @@
+name: Adjudicated benchmark case
+description: Propose public or consented evidence for the shadow-review corpus.
+title: "[Benchmark]: "
+labels:
+  - benchmark
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read `docs/contributing/benchmark-cases.md` first. Do not disclose private source, prompts, credentials, or provider session ids.
+  - type: input
+    id: source
+    attributes:
+      label: Public source or consent basis
+      description: Link the public pull request or explain how a synthetic/consented case can be redistributed.
+    validations:
+      required: true
+  - type: textarea
+    id: defect
+    attributes:
+      label: Confirmed defect and severity
+      description: Describe the adjudicated trigger, mechanism, consequence, and fix without unnecessary source text.
+    validations:
+      required: true
+  - type: textarea
+    id: reviewers
+    attributes:
+      label: Reviewer and model versions
+      description: List every reviewer, exact model/client version, provider route, commit reviewed, and run date.
+    validations:
+      required: true
+  - type: textarea
+    id: accounting
+    attributes:
+      label: Cost, duration, and authentication shape
+      description: Give measured cost/duration or unknown, and name credential variables/account mode without values.
+    validations:
+      required: true
+  - type: textarea
+    id: fixture
+    attributes:
+      label: Reproducible minimized fixture
+      description: Provide the proposed corpus JSON or explain how it will be redacted and adjudicated.
+    validations:
+      required: true
+  - type: checkboxes
+    id: method
+    attributes:
+      label: Method checks
+      options:
+        - label: Every reviewer ran on the same commit, and failures/skips remain in the denominator.
+          required: true
+        - label: A human mapped findings to expected defects; unknown cost is not recorded as zero.
+          required: true
+        - label: I included no credential values, private source, prompts, or provider session ids.
+          required: true

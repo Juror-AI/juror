@@ -518,6 +518,10 @@ node dist/cli.js review --base main
 Layout follows the pipeline: `src/diff` → `src/harness` → `src/merge` → `src/cost` →
 `src/render` → `src/github`. `src/types.ts` is the only shared vocabulary.
 
+Start with [`CONTRIBUTING.md`](CONTRIBUTING.md) for model/preset, harness/provider, and
+adjudicated benchmark paths. The generated [compatibility matrix](docs/compatibility.md) is
+checked against the built-in configuration and pricing table in CI.
+
 Juror reviews its own pull requests. Every PR in this repo carries a public cost receipt.
 
 ## License
