@@ -522,6 +522,9 @@ Start with [`CONTRIBUTING.md`](CONTRIBUTING.md) for model/preset, harness/provid
 adjudicated benchmark paths. The generated [compatibility matrix](docs/compatibility.md) is
 checked against the built-in configuration and pricing table in CI.
 
+Maintainers should use the gated [post-proof launch playbook](docs/launch/README.md); it stays
+no-go until representative benchmark and week-4 lighthouse evidence are complete.
+
 Juror reviews its own pull requests. Every PR in this repo carries a public cost receipt.
 
 ## License
