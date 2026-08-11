@@ -1,0 +1,74 @@
+name: Harness or provider integration
+description: Propose a new CLI/API adapter, provider, or authentication boundary.
+title: "[Harness]: "
+labels:
+  - enhancement
+  - harness
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read `docs/contributing/harness-providers.md` and `docs/threat-model.md` first. Never paste credentials or unredacted provider output.
+  - type: input
+    id: provider
+    attributes:
+      label: Provider, client, and tested version
+      placeholder: Provider · package/CLI 1.2.3
+    validations:
+      required: true
+  - type: textarea
+    id: models
+    attributes:
+      label: Exact model ids and versions
+      description: List request ids, immutable revisions where available, and endpoint routes.
+    validations:
+      required: true
+  - type: textarea
+    id: authentication
+    attributes:
+      label: Authentication and installation shape
+      description: Name environment variables, login/account requirements, install source, and immutable version/artifact. Never include values.
+    validations:
+      required: true
+  - type: textarea
+    id: isolation
+    attributes:
+      label: Tool and filesystem isolation
+      description: Detail cwd/HOME/config isolation, allowed tools, shell/network/write/MCP behavior, concurrency, and cleanup.
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output, usage, and failure behavior
+      description: Describe success markers, partial/error shapes, timeout behavior, token semantics, cache fields, and provider-reported cost.
+    validations:
+      required: true
+  - type: textarea
+    id: pricing
+    attributes:
+      label: Pricing evidence
+      description: Link official rates and include tiers, context cliffs, units, and date checked.
+    validations:
+      required: true
+  - type: textarea
+    id: fixtures
+    attributes:
+      label: Reproducible redacted fixtures
+      description: List fixture paths or minimized payloads for success, auth failure, unavailable model, malformed output, missing usage, and timeout.
+    validations:
+      required: true
+  - type: textarea
+    id: maintenance
+    attributes:
+      label: Maintenance owner
+      description: Who will track upstream releases, security changes, fixture drift, and deprecation?
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I included no credential values, private source, prompts, or unredacted provider output.
+          required: true

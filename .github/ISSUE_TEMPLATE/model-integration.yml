@@ -1,0 +1,83 @@
+name: Model or preset integration
+description: Propose a model that can use an existing Juror harness, or a new jury preset.
+title: "[Model]: "
+labels:
+  - enhancement
+  - harness
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read `docs/contributing/model-presets.md` first. Never paste credentials or unredacted provider output.
+  - type: input
+    id: model
+    attributes:
+      label: Exact model id and version
+      description: Use the provider's request id and immutable revision when one exists.
+      placeholder: provider/model-version
+    validations:
+      required: true
+  - type: input
+    id: provider
+    attributes:
+      label: Serving provider and route
+      description: Name the provider, endpoint family, and harness model string.
+    validations:
+      required: true
+  - type: dropdown
+    id: harness
+    attributes:
+      label: Existing harness
+      options:
+        - claude-code
+        - codex
+        - generic-openai
+        - grok-build
+        - kimi-code
+        - opencode
+        - New harness required
+    validations:
+      required: true
+  - type: textarea
+    id: authentication
+    attributes:
+      label: Authentication shape
+      description: Name Juror and vendor environment variables and account requirements. Do not include values.
+      placeholder: JUROR_PROVIDER_API_KEY maps to PROVIDER_API_KEY inside the adapter.
+    validations:
+      required: true
+  - type: textarea
+    id: pricing
+    attributes:
+      label: Pricing evidence
+      description: Link official rates and include input/output/cache tiers, context cliffs, units, and date checked.
+    validations:
+      required: true
+  - type: textarea
+    id: preset
+    attributes:
+      label: Preset placement and value
+      description: Which preset(s), consensus/referee choice, and expected quality/cost/diversity benefit?
+    validations:
+      required: true
+  - type: textarea
+    id: fixtures
+    attributes:
+      label: Reproducible fixtures
+      description: Give a redacted command/output fixture or a plan for success, unavailable-model, auth-failure, and malformed output coverage.
+    validations:
+      required: true
+  - type: textarea
+    id: security
+    attributes:
+      label: Security and failure behavior
+      description: Explain model identity, credential isolation, unavailable-model degradation, and single-reviewer/no-consensus behavior.
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I included no credential values, private source, prompts, or unredacted provider output.
+          required: true

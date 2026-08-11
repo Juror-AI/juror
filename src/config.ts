@@ -198,6 +198,11 @@ interface PresetDefinition {
   args?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
 }
 
+export interface BuiltinModelCatalogEntry {
+  model: ModelConfig;
+  presets: ReviewPreset[];
+}
+
 const PRESET_DEFINITIONS: Record<ReviewPreset, PresetDefinition> = {
   starter: {
     modelIds: ['openrouter-gpt-5.6-luna', 'openrouter-deepseek-v4-flash'],
@@ -238,6 +243,20 @@ function cloneModel(model: ModelConfig, args?: Readonly<Record<string, unknown>>
     ...model,
     ...((model.args || args) ? { args: { ...model.args, ...args } } : {}),
   };
+}
+
+/**
+ * Public, defensive view of the built-in model catalog used by generated compatibility docs.
+ * Keeping preset membership here means the docs and contribution checks cannot silently
+ * describe a model that `modelsForPreset()` can never select.
+ */
+export function builtinModelCatalog(): BuiltinModelCatalogEntry[] {
+  return Object.values(BUILTIN_MODELS).map((model) => ({
+    model: cloneModel(model),
+    presets: REVIEW_PRESETS.filter((preset) =>
+      PRESET_DEFINITIONS[preset].modelIds.includes(model.id),
+    ),
+  }));
 }
 
 function modelsForPreset(preset: ReviewPreset): ModelConfig[] {

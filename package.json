@@ -21,6 +21,8 @@
     "build": "tsc -p tsconfig.json && node scripts/copy-assets.mjs",
     "prepack": "npm run build",
     "dev": "tsc -p tsconfig.json --watch",
+    "docs:compatibility": "npm run build && node scripts/render-compatibility.mjs",
+    "check:compatibility": "node scripts/render-compatibility.mjs --check",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "check:secure-refs": "node scripts/check-action-pins.mjs",
     "test": "vitest run",
