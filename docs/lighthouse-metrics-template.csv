@@ -1,0 +1,2 @@
+week_start,repository_alias,source_channel,setup_starts,setup_completions,ready_zero_families,ready_one_family,ready_two_plus_families,first_success_elapsed_minutes,review_attempts,successful_reviews,multifamily_successes,week_zero_multifamily_installations,week_four_returning_installations,human_reviewed_findings,confirmed_findings,acted_on_findings,not_a_defect_findings,duplicate_findings,reported_cost_usd,estimated_cost_usd,partial_cost_reviews,unknown_cost_reviews
+YYYY-MM-DD,random-local-alias,direct_or_unknown,0,0,0,0,0,,0,0,0,0,0,0,0,0,0,0,0.00,0.00,0,0

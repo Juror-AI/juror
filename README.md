@@ -480,6 +480,10 @@ publish npm provenance plus GitHub build and SBOM attestations for the exact pac
 Action source archive; verification commands and the maintainer procedure are in the
 [release guide](docs/releasing.md).
 
+Juror does not emit product telemetry. The [privacy-preserving metrics contract](docs/metrics.md)
+defines the default-off aggregate schema, retention and deletion requirements, explicit human
+outcome labels, and a no-telemetry lighthouse measurement path that must precede any collector.
+
 ---
 
 ## Limitations
