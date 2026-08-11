@@ -1,0 +1,129 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+concurrency:
+  group: release-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'Juror-AI/juror' && !github.event.release.prerelease
+    runs-on: ubuntu-latest
+    permissions:
+      attestations: write
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Check out the exact release tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+
+      - name: Verify tag, package, and commit identity
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: node scripts/verify-release.mjs "$RELEASE_TAG" "$RELEASE_SHA"
+
+      - name: Install exact dependencies
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm install --global npm@12.0.2 --ignore-scripts --no-audit --no-fund
+          test "$(npm --version)" = "12.0.2"
+
+      - name: Validate and build
+        run: |
+          npm run typecheck
+          npm test
+          npm run check:secure-refs
+          npm run build
+
+      - name: Create release artifacts once
+        id: artifacts
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${RELEASE_TAG#v}"
+          mkdir -p release
+
+          NPM_FILE="$(npm pack --ignore-scripts --silent | tail -n 1)"
+          NPM_TARBALL="release/$NPM_FILE"
+          mv "$NPM_FILE" "$NPM_TARBALL"
+
+          TAR_LIST="$(mktemp)"
+          tar -tzf "$NPM_TARBALL" | LC_ALL=C sort > "$TAR_LIST"
+          for required in package/package.json package/dist/cli.js package/README.md package/LICENSE; do
+            grep -Fxq "$required" "$TAR_LIST" || {
+              echo "::error::npm artifact is missing $required"
+              exit 1
+            }
+          done
+          if grep -Eq '(^|/)(\.env|\.github|src|test)(/|$)' "$TAR_LIST"; then
+            echo "::error::npm artifact contains private or source-only paths"
+            exit 1
+          fi
+
+          ACTION_ARCHIVE="release/juror-ai-$VERSION-action.tar.gz"
+          git archive \
+            --format=tar.gz \
+            --prefix="juror-ai-$VERSION-action/" \
+            --output="$ACTION_ARCHIVE" \
+            "$RELEASE_TAG" \
+            action.yml assets scripts src package.json package-lock.json tsconfig.json README.md LICENSE
+
+          SBOM="release/juror-ai-$VERSION-sbom.cdx.json"
+          npm sbom --omit=dev --sbom-format=cyclonedx > "$SBOM"
+          sha256sum "$NPM_TARBALL" "$ACTION_ARCHIVE" "$SBOM" |
+            sed 's#  release/#  #' > release/SHA256SUMS
+
+          {
+            echo "npm-tarball=$NPM_TARBALL"
+            echo "action-archive=$ACTION_ARCHIVE"
+            echo "sbom=$SBOM"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Attest package and Action source provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            ${{ steps.artifacts.outputs.npm-tarball }}
+            ${{ steps.artifacts.outputs.action-archive }}
+
+      - name: Bind the SBOM to the npm package
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ steps.artifacts.outputs.npm-tarball }}
+          sbom-path: ${{ steps.artifacts.outputs.sbom }}
+
+      - name: Upload workflow evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: juror-${{ github.event.release.tag_name }}
+          path: release/
+          if-no-files-found: error
+
+      - name: Attach evidence to the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" release/* --repo "$GITHUB_REPOSITORY" --clobber
+
+      # npm trusted publishing exchanges the job's OIDC identity. No long-lived npm token
+      # is present, and this exact, already-attested tarball is what reaches the registry.
+      - name: Publish the attested npm package
+        env:
+          NPM_TARBALL: ${{ steps.artifacts.outputs.npm-tarball }}
+        run: npm publish "$NPM_TARBALL" --provenance --access public

@@ -22,6 +22,7 @@
     "prepack": "npm run build",
     "dev": "tsc -p tsconfig.json --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "check:secure-refs": "node scripts/check-action-pins.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "juror": "node --experimental-strip-types src/cli.ts"
@@ -44,6 +45,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/juror-ai/juror.git"
+    "url": "git+https://github.com/Juror-AI/juror.git"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

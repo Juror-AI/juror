@@ -18,13 +18,13 @@ jobs:
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
 
       # Never execute action code from the pull request while provider secrets are present.
       # Dependabot can deliberately update this immutable revision after the reviewed code lands.
-      - uses: juror-ai/juror@24721b8b02ba3cdffbef1ecbcf148a69b029c2ea
+      - uses: juror-ai/juror@178a16d6fa3a1b868094bc4236d42fb8e442ea6a # v1.3.3
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
         env:

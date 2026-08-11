@@ -1,0 +1,19 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      development-dependencies:
+        dependency-type: development
+
+  # Dependabot updates both the full commit and the same-line version comment.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - '*'

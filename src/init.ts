@@ -143,7 +143,7 @@ export function renderManagedWorkflow(options: { actionSha: string; version: str
     `    if: github.event.pull_request.head.repo.full_name == github.repository\n` +
     `    runs-on: ubuntu-latest\n` +
     `    steps:\n` +
-    `      - uses: actions/checkout@v4\n` +
+    `      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0\n` +
     `        with:\n` +
     `          fetch-depth: 0\n` +
     `      - uses: juror-ai/juror@${options.actionSha} # v${options.version}\n` +
