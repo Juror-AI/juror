@@ -38,6 +38,7 @@ import { gitStateDir, repoRoot } from './util/workspace.js';
 import { checkoutAt, type EphemeralCheckout } from './util/worktree.js';
 import { evaluateBenchmark, parseBenchmarkCorpus, renderBenchmark } from './benchmark.js';
 import { loadAgentInstructions } from './instructions.js';
+import { runInitCommand } from './init.js';
 
 export const VERSION = '1.3.3';
 
@@ -45,6 +46,7 @@ const USAGE = `
 juror ${VERSION} — multi-model PR review that shows you the bill
 
 Usage
+  juror init [options]
   juror review [options]
   juror benchmark --file <corpus.json> [--json [path]]
 
@@ -61,7 +63,7 @@ Options
   --mode <name>          Alias for --preset
   --models <a,b,c>       Only run these model ids
   --post                 Post the review to the pull request (requires --pr and GITHUB_TOKEN)
-  --dry-run              With --post, render everything but perform no writes
+  --dry-run              Init: validate without writes. Review: with --post, do not publish
   --json [path]          Emit the full ReviewResult as JSON (stdout, or a file)
   --markdown <path>      Write the rendered summary comment to a file
   --cost-target <usd>    Override budget.target_cost_usd_per_pr (planning target, not a hard cap)
@@ -71,6 +73,11 @@ Options
   -v, --verbose          Debug logging
   -q, --quiet            Errors only
   -h, --help             This message
+
+Init
+  --set-secrets          After confirmation, upload detected keys using dedicated JUROR_ names
+  --yes                  Confirm --set-secrets non-interactively
+  --action-sha <sha>     Pin this full 40-character Juror Action SHA instead of resolving v${VERSION}
 
 Environment
   JUROR_ANTHROPIC_API_KEY  JUROR_OPENAI_API_KEY  JUROR_XAI_API_KEY  JUROR_FIREWORKS_API_KEY
@@ -102,6 +109,9 @@ interface Args {
   keepScratch: boolean;
   envFile: string | null;
   file: string | null;
+  setSecrets: boolean;
+  yes: boolean;
+  actionSha: string | null;
   help: boolean;
 }
 
@@ -124,6 +134,9 @@ function parseArgs(argv: string[]): Args {
     keepScratch: false,
     envFile: null,
     file: null,
+    setSecrets: false,
+    yes: false,
+    actionSha: null,
     help: false,
   };
 
@@ -163,6 +176,9 @@ function parseArgs(argv: string[]): Args {
       case '--keep-scratch': a.keepScratch = true; break;
       case '--env-file': a.envFile = path.resolve(next(i)); i++; break;
       case '--file': a.file = path.resolve(next(i)); i++; break;
+      case '--set-secrets': a.setSecrets = true; break;
+      case '--yes': a.yes = true; break;
+      case '--action-sha': a.actionSha = next(i); i++; break;
       case '--json': {
         const v = rest[i + 1];
         if (v && !v.startsWith('-')) { a.json = path.resolve(v); i++; } else a.json = true;
@@ -220,19 +236,38 @@ async function main(): Promise<number> {
     process.stdout.write(USAGE);
     return 0;
   }
+  if (args.command === 'init') {
+    if (args.yes && !args.setSecrets) {
+      throw new Error('--yes is only meaningful with `juror init --set-secrets`');
+    }
+    const initRepoDir = await repoRoot(args.repoDir);
+    const loaded = loadEnvFile(args.envFile ?? path.join(initRepoDir, '.env'));
+    if (loaded) log.debug(`loaded ${loaded} variable(s) from the env file`);
+    await runInitCommand({
+      repoDir: initRepoDir,
+      repo: args.repo,
+      env: process.env as Record<string, string | undefined>,
+      version: VERSION,
+      actionSha: args.actionSha,
+      dryRun: args.dryRun,
+      setSecrets: args.setSecrets,
+      yes: args.yes,
+    });
+    return 0;
+  }
   if (args.command === 'benchmark') return runBenchmarkCommand(args);
   if (args.command !== 'review') {
     process.stderr.write(`Unknown command "${args.command}".\n${USAGE}`);
     return 2;
   }
 
-  const loaded = loadEnvFile(args.envFile ?? path.join(process.cwd(), '.env'));
+  const repoDir = await repoRoot(args.repoDir);
+  const loaded = loadEnvFile(args.envFile ?? path.join(repoDir, '.env'));
   if (loaded) log.debug(`loaded ${loaded} variable(s) from the env file`);
   if (args.costTarget !== null && (!Number.isFinite(args.costTarget) || args.costTarget < 0)) {
     throw new Error('--cost-target must be a finite number greater than or equal to zero');
   }
 
-  const repoDir = await repoRoot(args.repoDir);
   const repo = args.repo ?? (await inferRepo(repoDir));
   const prNumber: number | null = args.pr;
   let githubClient: GitHubClient | null = null;
