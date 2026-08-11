@@ -76,7 +76,58 @@ runs:
       with:
         node-version: '22'
 
+    # Hosted runners are disposable, so both the action build and the globally installed
+    # harnesses would otherwise be recreated for every review. Hash the actual build inputs
+    # instead of github.action_ref: moving refs such as `v1` keep the same name across releases.
+    - name: Compute build cache key
+      id: build-cache-key
+      shell: bash
+      env:
+        JUROR_ANTHROPIC_API_KEY: ''
+        JUROR_OPENAI_API_KEY: ''
+        JUROR_FIREWORKS_API_KEY: ''
+        JUROR_XAI_API_KEY: ''
+        ANTHROPIC_API_KEY: ''
+        OPENAI_API_KEY: ''
+        FIREWORKS_API_KEY: ''
+        XAI_API_KEY: ''
+        GITHUB_TOKEN: ''
+        GH_TOKEN: ''
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        HASH="$({
+          find "$ACTION_PATH/src" "$ACTION_PATH/scripts" -type f -print0
+          printf '%s\0' \
+            "$ACTION_PATH/action.yml" \
+            "$ACTION_PATH/package.json" \
+            "$ACTION_PATH/package-lock.json" \
+            "$ACTION_PATH/tsconfig.json"
+        } | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
+        echo "key=juror-build-${RUNNER_OS}-${RUNNER_ARCH}-${HASH}" >> "$GITHUB_OUTPUT"
+
+    - name: Restore Juror build
+      id: build-cache
+      uses: actions/cache@v4
+      env:
+        JUROR_ANTHROPIC_API_KEY: ''
+        JUROR_OPENAI_API_KEY: ''
+        JUROR_FIREWORKS_API_KEY: ''
+        JUROR_XAI_API_KEY: ''
+        ANTHROPIC_API_KEY: ''
+        OPENAI_API_KEY: ''
+        FIREWORKS_API_KEY: ''
+        XAI_API_KEY: ''
+        GITHUB_TOKEN: ''
+        GH_TOKEN: ''
+      with:
+        path: |
+          ${{ github.action_path }}/node_modules
+          ${{ github.action_path }}/dist
+        key: ${{ steps.build-cache-key.outputs.key }}
+
     - name: Build Juror
+      if: steps.build-cache.outputs.cache-hit != 'true'
       shell: bash
       working-directory: ${{ github.action_path }}
       env:
@@ -93,6 +144,53 @@ runs:
       run: |
         npm ci --ignore-scripts --no-audit --no-fund
         npm run build
+        # The cached runtime only needs yaml; TypeScript/Vitest are build-time dependencies.
+        npm prune --omit=dev --package-lock=false --ignore-scripts --no-audit --no-fund
+
+    - name: Compute harness cache key
+      id: harness-cache-key
+      shell: bash
+      env:
+        CLAUDE_CODE_SPEC: ${{ inputs.claude-code-version }}
+        CODEX_SPEC: ${{ inputs.codex-version }}
+        OPENCODE_SPEC: ${{ inputs.opencode-version }}
+        KIMI_CODE_SPEC: ${{ inputs.kimi-code-version }}
+      run: |
+        set -euo pipefail
+        HAS_ANTHROPIC="${JUROR_ANTHROPIC_API_KEY:-${ANTHROPIC_API_KEY:-}}"
+        HAS_OPENAI="${JUROR_OPENAI_API_KEY:-${OPENAI_API_KEY:-}}"
+        HAS_FIREWORKS="${JUROR_FIREWORKS_API_KEY:-${FIREWORKS_API_KEY:-}}"
+        SPECS=()
+        [ -n "$HAS_ANTHROPIC" ] && SPECS+=("$CLAUDE_CODE_SPEC")
+        [ -n "$HAS_OPENAI" ] && SPECS+=("$CODEX_SPEC")
+        if [ -n "$HAS_FIREWORKS" ]; then
+          SPECS+=("$OPENCODE_SPEC" "$KIMI_CODE_SPEC")
+        fi
+        if [ "${#SPECS[@]}" -eq 0 ]; then
+          echo "enabled=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        HASH="$(printf '%s\n' "${SPECS[@]}" | sha256sum | cut -d' ' -f1)"
+        echo "enabled=true" >> "$GITHUB_OUTPUT"
+        echo "key=juror-harnesses-node22-${RUNNER_OS}-${RUNNER_ARCH}-${HASH}" >> "$GITHUB_OUTPUT"
+
+    - name: Restore harnesses
+      if: steps.harness-cache-key.outputs.enabled == 'true'
+      uses: actions/cache@v4
+      env:
+        JUROR_ANTHROPIC_API_KEY: ''
+        JUROR_OPENAI_API_KEY: ''
+        JUROR_FIREWORKS_API_KEY: ''
+        JUROR_XAI_API_KEY: ''
+        ANTHROPIC_API_KEY: ''
+        OPENAI_API_KEY: ''
+        FIREWORKS_API_KEY: ''
+        XAI_API_KEY: ''
+        GITHUB_TOKEN: ''
+        GH_TOKEN: ''
+      with:
+        path: ${{ runner.temp }}/juror-harnesses
+        key: ${{ steps.harness-cache-key.outputs.key }}
 
     # Only harnesses backed by an available provider are installed. Fireworks supplies
     # both the opencode models and Kimi K3 through Kimi Code.
@@ -103,6 +201,7 @@ runs:
         CODEX_SPEC: ${{ inputs.codex-version }}
         OPENCODE_SPEC: ${{ inputs.opencode-version }}
         KIMI_CODE_SPEC: ${{ inputs.kimi-code-version }}
+        HARNESS_ROOT: ${{ runner.temp }}/juror-harnesses
       run: |
         set -euo pipefail
         # A prefixed key wins, the bare vendor name is the pre-1.3 fallback. Gating on the
@@ -112,10 +211,18 @@ runs:
         HAS_FIREWORKS="${JUROR_FIREWORKS_API_KEY:-${FIREWORKS_API_KEY:-}}"
         HAS_XAI="${JUROR_XAI_API_KEY:-${XAI_API_KEY:-}}"
         CLEAN_ENV=(env -u JUROR_ANTHROPIC_API_KEY -u JUROR_OPENAI_API_KEY -u JUROR_FIREWORKS_API_KEY -u JUROR_XAI_API_KEY -u ANTHROPIC_API_KEY -u OPENAI_API_KEY -u FIREWORKS_API_KEY -u XAI_API_KEY -u GITHUB_TOKEN -u GH_TOKEN)
-        [ -n "$HAS_ANTHROPIC" ] && "${CLEAN_ENV[@]}" npm i -g "$CLAUDE_CODE_SPEC" || true
-        [ -n "$HAS_OPENAI"    ] && "${CLEAN_ENV[@]}" npm i -g "$CODEX_SPEC"       || true
-        [ -n "$HAS_FIREWORKS" ] && "${CLEAN_ENV[@]}" npm i -g "$OPENCODE_SPEC"    || true
-        [ -n "$HAS_FIREWORKS" ] && "${CLEAN_ENV[@]}" npm i -g "$KIMI_CODE_SPEC"   || true
+        mkdir -p "$HARNESS_ROOT"
+        install_harness() {
+          local binary="$1" spec="$2"
+          # Also repair an incomplete cache rather than treating a cache hit as proof that
+          # every independent npm install succeeded on the run that populated it.
+          [ -x "$HARNESS_ROOT/bin/$binary" ] || "${CLEAN_ENV[@]}" npm i -g --prefix "$HARNESS_ROOT" "$spec" || true
+        }
+        [ -n "$HAS_ANTHROPIC" ] && install_harness claude "$CLAUDE_CODE_SPEC"
+        [ -n "$HAS_OPENAI"    ] && install_harness codex "$CODEX_SPEC"
+        [ -n "$HAS_FIREWORKS" ] && install_harness opencode "$OPENCODE_SPEC"
+        [ -n "$HAS_FIREWORKS" ] && install_harness kimi "$KIMI_CODE_SPEC"
+        echo "$HARNESS_ROOT/bin" >> "$GITHUB_PATH"
         if [ -n "$HAS_XAI" ]; then
           "${CLEAN_ENV[@]}" curl -fsSL https://grok.com/install.sh | "${CLEAN_ENV[@]}" bash || true
         fi
