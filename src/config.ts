@@ -25,6 +25,7 @@ const HARNESS_IDS: readonly HarnessId[] = [
   'codex',
   'grok-build',
   'kimi-code',
+  'deepseek',
   'opencode',
   'generic-openai',
 ];
@@ -42,6 +43,7 @@ const PROVIDER_ENV: Record<HarnessId, string> = {
   codex: 'OPENAI_API_KEY',
   'grok-build': 'XAI_API_KEY',
   'kimi-code': 'FIREWORKS_API_KEY',
+  deepseek: 'FIREWORKS_API_KEY',
   opencode: 'FIREWORKS_API_KEY',
   'generic-openai': 'OPENAI_API_KEY',
 };
@@ -67,6 +69,7 @@ const DEFAULT_SECRET: Record<HarnessId, string> = {
   codex: 'JUROR_OPENAI_API_KEY',
   'grok-build': 'JUROR_XAI_API_KEY',
   'kimi-code': 'JUROR_FIREWORKS_API_KEY',
+  deepseek: 'JUROR_FIREWORKS_API_KEY',
   opencode: 'JUROR_FIREWORKS_API_KEY',
   'generic-openai': 'JUROR_OPENAI_API_KEY',
 };
@@ -182,13 +185,14 @@ const BUILTIN_MODELS: Record<string, ModelConfig> = {
   },
   'deepseek-v4-flash-0731': {
     id: 'deepseek-v4-flash-0731',
-    harness: 'opencode',
+    harness: 'deepseek',
     enabled: true,
     secret: 'JUROR_FIREWORKS_API_KEY',
     label: 'DeepSeek V4 Flash',
-    harness_model: 'fireworks-ai/accounts/fireworks/models/deepseek-v4-flash-0731',
+    base_url: 'https://api.fireworks.ai/inference/v1',
+    harness_model: 'accounts/fireworks/models/deepseek-v4-flash-0731',
     pricing_key: 'accounts/fireworks/models/deepseek-v4-flash-0731',
-    args: { variant: 'high' },
+    args: { reasoning_effort: 'high' },
   },
 };
 
@@ -213,7 +217,9 @@ const PRESET_DEFINITIONS: Record<ReviewPreset, PresetDefinition> = {
     consensusModel: 'deepseek-v4-flash-0731',
     args: {
       'gpt-5.6-luna': { reasoning_effort: 'low' },
-      'deepseek-v4-flash-0731': { variant: 'low' },
+      // CodeWhale 0.9.7 normalizes Fireworks low/medium/high to the high wire tier.
+      // Keep the effective setting explicit instead of promising a tier the route ignores.
+      'deepseek-v4-flash-0731': { reasoning_effort: 'high' },
     },
   },
   balanced: {

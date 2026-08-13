@@ -37,6 +37,10 @@ inputs:
     description: npm version spec for Codex CLI. Must be >= 0.146.0 for cache-write accounting.
     required: false
     default: '@openai/codex@0.146.1'
+  deepseek-version:
+    description: npm version spec for the DeepSeek-native CodeWhale CLI.
+    required: false
+    default: 'codewhale@0.9.7'
   opencode-version:
     description: npm version spec for opencode.
     required: false
@@ -161,6 +165,7 @@ runs:
       env:
         CLAUDE_CODE_SPEC: ${{ inputs.claude-code-version }}
         CODEX_SPEC: ${{ inputs.codex-version }}
+        DEEPSEEK_SPEC: ${{ inputs.deepseek-version }}
         OPENCODE_SPEC: ${{ inputs.opencode-version }}
         KIMI_CODE_SPEC: ${{ inputs.kimi-code-version }}
         JUROR_OPENROUTER_API_KEY: ''
@@ -174,7 +179,7 @@ runs:
         [ -n "$HAS_ANTHROPIC" ] && SPECS+=("$CLAUDE_CODE_SPEC")
         [ -n "$HAS_OPENAI" ] && SPECS+=("$CODEX_SPEC")
         if [ -n "$HAS_FIREWORKS" ]; then
-          SPECS+=("$OPENCODE_SPEC" "$KIMI_CODE_SPEC")
+          SPECS+=("$DEEPSEEK_SPEC" "$OPENCODE_SPEC" "$KIMI_CODE_SPEC")
         fi
         if [ "${#SPECS[@]}" -eq 0 ]; then
           echo "enabled=false" >> "$GITHUB_OUTPUT"
@@ -205,12 +210,13 @@ runs:
         key: ${{ steps.harness-cache-key.outputs.key }}
 
     # Only harnesses backed by an available provider are installed. Fireworks supplies
-    # both the opencode models and Kimi K3 through Kimi Code.
+    # DeepSeek through CodeWhale, custom opencode models, and Kimi K3 through Kimi Code.
     - name: Install harnesses
       shell: bash
       env:
         CLAUDE_CODE_SPEC: ${{ inputs.claude-code-version }}
         CODEX_SPEC: ${{ inputs.codex-version }}
+        DEEPSEEK_SPEC: ${{ inputs.deepseek-version }}
         OPENCODE_SPEC: ${{ inputs.opencode-version }}
         KIMI_CODE_SPEC: ${{ inputs.kimi-code-version }}
         HARNESS_ROOT: ${{ runner.temp }}/juror-harnesses
@@ -234,6 +240,7 @@ runs:
         }
         [ -n "$HAS_ANTHROPIC" ] && install_harness claude "$CLAUDE_CODE_SPEC"
         [ -n "$HAS_OPENAI"    ] && install_harness codex "$CODEX_SPEC"
+        [ -n "$HAS_FIREWORKS" ] && install_harness codewhale "$DEEPSEEK_SPEC"
         [ -n "$HAS_FIREWORKS" ] && install_harness opencode "$OPENCODE_SPEC"
         [ -n "$HAS_FIREWORKS" ] && install_harness kimi "$KIMI_CODE_SPEC"
         echo "$HARNESS_ROOT/bin" >> "$GITHUB_PATH"

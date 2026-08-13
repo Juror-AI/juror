@@ -46,14 +46,12 @@ describe('defaultConfig', () => {
     expect(c.models[0]?.harness).toBe('codex');
     expect(c.models[0]?.secret).toBe('JUROR_OPENAI_API_KEY');
     expect(c.models[0]?.args?.['reasoning_effort']).toBe('low');
-    expect(c.models[1]?.harness).toBe('opencode');
+    expect(c.models[1]?.harness).toBe('deepseek');
     expect(c.models[1]?.secret).toBe('JUROR_FIREWORKS_API_KEY');
-    expect(c.models[1]?.harness_model).toBe(
-      'fireworks-ai/accounts/fireworks/models/deepseek-v4-flash-0731',
-    );
+    expect(c.models[1]?.harness_model).toBe('accounts/fireworks/models/deepseek-v4-flash-0731');
     expect(c.models[1]?.pricing_key).toBe('accounts/fireworks/models/deepseek-v4-flash-0731');
-    // The fast preset deliberately lowers both models' thinking settings.
-    expect(c.models[1]?.args?.['variant']).toBe('low');
+    // CodeWhale 0.9.7 maps every non-max Fireworks reasoning tier to high.
+    expect(c.models[1]?.args?.['reasoning_effort']).toBe('high');
     expect(c.consensus.verify_model).toBe('deepseek-v4-flash-0731');
     expect(c.consensus.referee_model).toBe('deepseek-v4-flash-0731');
     // Kept well clear of the jury's slowest legitimate run: Luna was measured at 750–900s
@@ -101,7 +99,7 @@ describe('defaultConfig', () => {
     expect(starter.models.every((model) => model.args?.['usage_cost'] === 'usd')).toBe(true);
     expect(starter.consensus.referee_model).toBe('openrouter-deepseek-v4-flash');
     expect(fast.models.map((m) => m.id)).toEqual(['gpt-5.6-luna', 'deepseek-v4-flash-0731']);
-    expect(fast.models.map((m) => m.args?.['reasoning_effort'] ?? m.args?.['variant'])).toEqual(['low', 'low']);
+    expect(fast.models.map((m) => m.args?.['reasoning_effort'] ?? m.args?.['variant'])).toEqual(['low', 'high']);
     expect(fast.consensus.referee_model).toBe('deepseek-v4-flash-0731');
     // No longer the default, so this is the only place its membership is pinned.
     expect(balanced.models.map((m) => m.id)).toEqual(['gpt-5.6-terra', 'grok-4.5', 'kimi-k3']);
@@ -161,9 +159,10 @@ describe('provider credentials', () => {
     expect(providerEnvFor('codex')).toBe('OPENAI_API_KEY');
     expect(providerEnvFor('grok-build')).toBe('XAI_API_KEY');
     expect(providerEnvFor('kimi-code')).toBe('FIREWORKS_API_KEY');
+    expect(providerEnvFor('deepseek')).toBe('FIREWORKS_API_KEY');
     expect(providerEnvFor('opencode')).toBe('FIREWORKS_API_KEY');
     expect(providerEnvFor('generic-openai')).toBe('OPENAI_API_KEY');
-    for (const harness of ['claude-code', 'codex', 'grok-build', 'kimi-code', 'opencode', 'generic-openai'] as const) {
+    for (const harness of ['claude-code', 'codex', 'grok-build', 'kimi-code', 'deepseek', 'opencode', 'generic-openai'] as const) {
       expect(providerEnvFor(harness).startsWith('JUROR_')).toBe(false);
     }
   });

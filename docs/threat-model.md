@@ -50,7 +50,7 @@ advisory and must not be treated as authorization to merge, deploy, or execute c
 
 ## External executables
 
-Juror orchestrates Claude Code, Codex, opencode, Grok Build, and Kimi Code. These programs are
+Juror orchestrates Claude Code, Codex, CodeWhale for DeepSeek, opencode, Grok Build, and Kimi Code. These programs are
 outside Juror's trust boundary: they parse untrusted model and repository data and may make
 network requests. The hosted Action installs exact npm package versions, but npm installation
 still trusts the registry, the package publisher, and any lifecycle behavior allowed by that

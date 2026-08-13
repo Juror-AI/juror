@@ -266,22 +266,23 @@ file boundary without installing another executable.
 |---|---|---|---|---|
 | `claude-code` | `claude -p` | any Anthropic model | ✅ `total_cost_usd` | tool removal |
 | `codex` | `codex exec` | any OpenAI model | ❌ → estimated | split filesystem profile (kernel) |
+| `deepseek` | `codewhale exec` | DeepSeek models | ❌ → estimated from provider usage | read-only sandbox + tool allowlist |
 | `opencode` | `opencode run` | anything on [models.dev](https://models.dev) — Fireworks, Groq, OpenRouter, … | ✅ per-step `cost` | tool removal |
 | `grok-build` | `grok -p` | Grok models | ✅ `total_cost_usd` | Landlock |
 | `kimi-code` | `kimi -p` | Kimi K3 on Fireworks | ❌ → estimated from session usage | tool allowlist + isolated runtime |
 | `generic-openai` | *(in-process)* | any OpenAI-compatible endpoint | provider-reported when documented; otherwise estimated | path-confined tools |
 
-The `opencode` harness is the reason adding a model is a config edit rather than a PR. To add
-**DeepSeek V4 Flash** to your jury:
+DeepSeek models use the DeepSeek-native CodeWhale harness so interleaved reasoning survives
+tool calls. To add **DeepSeek V4 Flash** on Fireworks to your jury:
 
 ```yaml
 models:
   - id: deepseek-v4-flash-0731
-    harness: opencode
-    harness_model: fireworks-ai/accounts/fireworks/models/deepseek-v4-flash-0731
+    harness: deepseek
+    harness_model: accounts/fireworks/models/deepseek-v4-flash-0731
     pricing_key: accounts/fireworks/models/deepseek-v4-flash-0731
     secret: JUROR_FIREWORKS_API_KEY
-    args: { variant: high }
+    args: { reasoning_effort: high }
 ```
 
 ---
@@ -294,7 +295,7 @@ Juror ships five jury presets. Models whose provider key is unavailable are skip
 | Preset | Jury | Intended use |
 |---|---|---|
 | `starter` *(opt-in)* | GPT-5.6 Luna · DeepSeek V4 Flash through OpenRouter's confined generic harness | Two model families from one `JUROR_OPENROUTER_API_KEY`; awaiting benchmark promotion gate |
-| `fast` **(default)** | GPT-5.6 Luna via Codex/OpenAI (`low`) · DeepSeek V4 Flash via opencode/Fireworks (`low`) | Smallest, cheapest jury |
+| `fast` **(default)** | GPT-5.6 Luna via Codex/OpenAI (`low`) · DeepSeek V4 Flash via DeepSeek/Fireworks (`high`) | Lean two-model jury |
 | `balanced` | GPT-5.6 Terra via Codex/OpenAI (`max`) · Grok 4.5 via Grok Build/xAI (`high`) · Kimi K3 via Kimi Code/Fireworks (`max`) | Strong provider diversity without the full burn |
 | `high` | GPT-5.6 Sol via Codex/OpenAI (`high`) · Opus 5 via Claude Code/Anthropic · Grok 4.5 via Grok Build/xAI (`high`) | Higher-confidence frontier jury |
 | `ultra` | Every model from the other presets (seven total), using their higher reasoning settings | Maximum coverage; highest token and cost use |
@@ -445,7 +446,7 @@ It is designed for that.
    filesystem profile that exposes only runtime files, the sealed checkout, and Juror scratch;
    its model-controlled shells inherit no process environment or shell snapshot, so the
    provider credential remains available to the Codex client but not to commands it runs.
-   Claude, Grok Build, opencode, and Kimi receive read/search tools only. Generic OpenAI
+   Claude, DeepSeek, Grok Build, opencode, and Kimi receive read/search tools only. Generic OpenAI
    resolves symlinks and may write only one exact report path outside the repository. Claude,
    Codex, and Kimi start from private temporary directories so PR-controlled hooks, MCP,
    settings, and `AGENTS.md` are not auto-loaded. Every run reads a detached checkout that
