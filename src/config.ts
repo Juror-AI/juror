@@ -213,14 +213,13 @@ const PRESET_DEFINITIONS: Record<ReviewPreset, PresetDefinition> = {
     consensusModel: 'openrouter-deepseek-v4-flash',
   },
   fast: {
-    modelIds: ['gpt-5.6-luna', 'grok-4.5'],
-    consensusModel: 'grok-4.5',
+    modelIds: ['gpt-5.6-luna', 'deepseek-v4-flash-0731'],
+    consensusModel: 'deepseek-v4-flash-0731',
     args: {
       'gpt-5.6-luna': { reasoning_effort: 'low' },
-      // `high` is the only effort tier this route has been exercised at, and an effort the
-      // xAI API rejects would drop the whole second seat. Keep the verified tier rather than
-      // guessing a cheaper one: `fast` is the lean jury, not an unverified one.
-      'grok-4.5': { reasoning_effort: 'high' },
+      // CodeWhale 0.9.7 normalizes Fireworks low/medium/high to the high wire tier.
+      // Keep the effective setting explicit instead of promising a tier the route ignores.
+      'deepseek-v4-flash-0731': { reasoning_effort: 'high' },
     },
   },
   balanced: {

@@ -36,7 +36,7 @@ describe('credentialReadiness', () => {
       {
         JUROR_OPENAI_API_KEY: 'dedicated-openai-secret',
         OPENAI_API_KEY: 'legacy-openai-secret',
-        XAI_API_KEY: 'legacy-xai-secret',
+        FIREWORKS_API_KEY: 'legacy-fireworks-secret',
       },
       defaultConfig(),
     );
@@ -57,14 +57,14 @@ describe('credentialReadiness', () => {
       {
         canonicalName: 'JUROR_XAI_API_KEY',
         label: 'xAI',
-        available: true,
-        source: 'XAI_API_KEY',
+        available: false,
+        source: 'JUROR_XAI_API_KEY',
       },
       {
         canonicalName: 'JUROR_FIREWORKS_API_KEY',
         label: 'Fireworks',
-        available: false,
-        source: 'JUROR_FIREWORKS_API_KEY',
+        available: true,
+        source: 'FIREWORKS_API_KEY',
       },
       {
         canonicalName: 'JUROR_OPENROUTER_API_KEY',
@@ -73,10 +73,10 @@ describe('credentialReadiness', () => {
         source: 'JUROR_OPENROUTER_API_KEY',
       },
     ]);
-    expect(readiness.runnableModels).toEqual(['gpt-5.6-luna', 'grok-4.5']);
+    expect(readiness.runnableModels).toEqual(['gpt-5.6-luna', 'deepseek-v4-flash-0731']);
     expect(readiness.juryKind).toBe('multi-model');
     expect(JSON.stringify(readiness)).not.toContain('dedicated-openai-secret');
-    expect(JSON.stringify(readiness)).not.toContain('legacy-xai-secret');
+    expect(JSON.stringify(readiness)).not.toContain('legacy-fireworks-secret');
   });
 
   it('makes single-model degradation explicit', () => {

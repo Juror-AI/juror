@@ -42,16 +42,18 @@ describe('defaultConfig', () => {
     expect(c.review.publish_mode).toBe('all');
     expect(c.review.max_turns).toBe(0);
     expect(c.consensus.min_agreement).toBe('all');
-    expect(c.models.map((m) => m.id)).toEqual(['gpt-5.6-luna', 'grok-4.5']);
+    expect(c.models.map((m) => m.id)).toEqual(['gpt-5.6-luna', 'deepseek-v4-flash-0731']);
     expect(c.models[0]?.harness).toBe('codex');
     expect(c.models[0]?.secret).toBe('JUROR_OPENAI_API_KEY');
     expect(c.models[0]?.args?.['reasoning_effort']).toBe('low');
-    // The second seat runs Grok's own agent harness, not an OpenAI-compatible shim.
-    expect(c.models[1]?.harness).toBe('grok-build');
-    expect(c.models[1]?.secret).toBe('JUROR_XAI_API_KEY');
+    expect(c.models[1]?.harness).toBe('deepseek');
+    expect(c.models[1]?.secret).toBe('JUROR_FIREWORKS_API_KEY');
+    expect(c.models[1]?.harness_model).toBe('accounts/fireworks/models/deepseek-v4-flash-0731');
+    expect(c.models[1]?.pricing_key).toBe('accounts/fireworks/models/deepseek-v4-flash-0731');
+    // CodeWhale 0.9.7 maps every non-max Fireworks reasoning tier to high.
     expect(c.models[1]?.args?.['reasoning_effort']).toBe('high');
-    expect(c.consensus.verify_model).toBe('grok-4.5');
-    expect(c.consensus.referee_model).toBe('grok-4.5');
+    expect(c.consensus.verify_model).toBe('deepseek-v4-flash-0731');
+    expect(c.consensus.referee_model).toBe('deepseek-v4-flash-0731');
     // Kept well clear of the jury's slowest legitimate run: Luna was measured at 750–900s
     // on large diffs at `max`, and is faster at `low`. This is a hung-harness kill switch,
     // so headroom costs nothing and a tight wall silently drops a model mid-review.
@@ -96,9 +98,9 @@ describe('defaultConfig', () => {
     ]);
     expect(starter.models.every((model) => model.args?.['usage_cost'] === 'usd')).toBe(true);
     expect(starter.consensus.referee_model).toBe('openrouter-deepseek-v4-flash');
-    expect(fast.models.map((m) => m.id)).toEqual(['gpt-5.6-luna', 'grok-4.5']);
+    expect(fast.models.map((m) => m.id)).toEqual(['gpt-5.6-luna', 'deepseek-v4-flash-0731']);
     expect(fast.models.map((m) => m.args?.['reasoning_effort'] ?? m.args?.['variant'])).toEqual(['low', 'high']);
-    expect(fast.consensus.referee_model).toBe('grok-4.5');
+    expect(fast.consensus.referee_model).toBe('deepseek-v4-flash-0731');
     // No longer the default, so this is the only place its membership is pinned.
     expect(balanced.models.map((m) => m.id)).toEqual(['gpt-5.6-terra', 'grok-4.5', 'kimi-k3']);
     expect(balanced.models[0]?.args?.['reasoning_effort']).toBe('max');
