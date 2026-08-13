@@ -20,7 +20,12 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          # Every ref and the complete commit graph, so base-revision policy and merge-base
+          # resolution still work. `blob:none` only skips historical file contents, which are
+          # the bulk of the clone on a busy repository and are fetched on demand if a review
+          # ever needs one.
           fetch-depth: 0
+          filter: blob:none
 
       # Never execute action code from the pull request while provider secrets are present.
       # Dependabot can deliberately update this immutable revision after the reviewed code lands.

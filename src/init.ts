@@ -151,7 +151,10 @@ export function renderManagedWorkflow(options: {
     `    steps:\n` +
     `      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0\n` +
     `        with:\n` +
+    `          # Full ref graph for base-revision policy; blobless so history file contents\n` +
+    `          # are fetched on demand instead of up front.\n` +
     `          fetch-depth: 0\n` +
+    `          filter: blob:none\n` +
     `      - uses: juror-ai/juror@${options.actionSha} # v${options.version}\n` +
     `        with:\n` +
     `          github-token: \${{ secrets.GITHUB_TOKEN }}\n` +
