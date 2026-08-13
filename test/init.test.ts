@@ -117,6 +117,9 @@ describe('managed workflow', () => {
     );
     expect(workflow).not.toContain('juror-ai/juror@v1');
     expect(workflow).not.toContain('actions/checkout@v4');
+    // Base-revision policy needs the whole ref graph; only history blobs may be deferred.
+    expect(workflow).toContain('fetch-depth: 0');
+    expect(workflow).toContain('filter: blob:none');
     expect(workflow).toContain('JUROR_OPENROUTER_API_KEY: ${{ secrets.JUROR_OPENROUTER_API_KEY }}');
     expect(workflow).toContain('# juror:init:managed sha256:');
     expect(managedWorkflowIsPristine(workflow)).toBe(true);

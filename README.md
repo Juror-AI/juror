@@ -463,6 +463,8 @@ It is designed for that.
    update those files for future work, but cannot rewrite the policy used to review itself.
    If the base object is unavailable locally, Juror warns and refuses to treat any workspace
    copy as policy; use a full checkout (`fetch-depth: 0`) so the trusted rules can be loaded.
+   A blobless partial clone (`filter: blob:none`) keeps every ref and therefore works too,
+   and is much faster to fetch on a large repository.
    The GitHub PR title and description are also included as explicitly untrusted intent
    context, so reviewers can recognize documented staged migrations without treating author
    claims as proof or executable instructions.

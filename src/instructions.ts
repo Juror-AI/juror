@@ -134,7 +134,15 @@ async function loadUncached(
     const basePath = baseByDirectory.get(dir);
     if (basePath) {
       const contents = await readFromBase(repoDir, baseSha, basePath);
-      if (contents !== null) files.push({ path: basePath, contents });
+      if (contents !== null) {
+        files.push({ path: basePath, contents });
+      } else {
+        // The tree walk already proved this path exists at the base, so a failed read means
+        // the blob itself is unreachable — the normal cause is a partial clone whose on-demand
+        // fetch could not reach the promisor remote. Reviewing without a rule the repository
+        // does have is a quieter failure than reviewing with a rule it does not, so say so.
+        problems.push(`could not read ${basePath} at review base ${baseSha.slice(0, 12)}`);
+      }
       continue;
     }
 
