@@ -78,7 +78,20 @@ describe('supply-chain policy', () => {
     expect(workflow).toContain('npm pack');
     expect(workflow).toContain('npm sbom');
     expect(workflow).toContain('sbom-path:');
-    expect(workflow).toContain('npm publish "$NPM_TARBALL" --provenance --access public');
+    expect(workflow).toContain('--provenance --access public');
+  });
+
+  it('hands npm a local tarball path instead of a GitHub owner/repo shorthand', () => {
+    const workflow = parse(read('.github/workflows/release.yml')) as {
+      jobs: { publish: { steps: { run?: string }[] } };
+    };
+    const publish = workflow.jobs.publish.steps.filter((step) => step.run?.includes('npm publish'));
+
+    // `npm publish release/juror-ai-1.4.0.tgz` resolved as `github:release/juror-ai-1.4.0.tgz`
+    // and failed the v1.4.0 release. Only an explicitly relative or absolute path is read as
+    // the packed file rather than as an `owner/repo` git spec.
+    expect(publish).toHaveLength(1);
+    expect(publish[0]?.run).toMatch(/npm publish "(\.\/|\/)/);
   });
 
   it('rejects release identity mismatches before building or publishing', () => {
