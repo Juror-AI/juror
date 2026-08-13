@@ -174,6 +174,7 @@ export type HarnessId =
   | 'codex'
   | 'grok-build'
   | 'kimi-code'
+  | 'deepseek'
   | 'opencode'
   | 'generic-openai';
 

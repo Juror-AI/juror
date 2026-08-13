@@ -9,6 +9,7 @@
 import type { Harness, HarnessId } from '../types.js';
 import { claudeHarness } from './claude.js';
 import { codexHarness } from './codex.js';
+import { deepseekHarness } from './deepseek.js';
 import { genericOpenAIHarness } from './generic-openai.js';
 import { grokHarness } from './grok.js';
 import { kimiHarness } from './kimi.js';
@@ -17,6 +18,7 @@ import { opencodeHarness } from './opencode.js';
 export const HARNESSES: Record<HarnessId, Harness> = {
   'claude-code': claudeHarness,
   codex: codexHarness,
+  deepseek: deepseekHarness,
   'grok-build': grokHarness,
   'kimi-code': kimiHarness,
   opencode: opencodeHarness,

@@ -26,6 +26,10 @@ const harnessMeta = {
     isolation: 'private runtime; `Read`, `Grep`, and `Glob` only',
     cost: 'usage-estimated; unknown without usage records',
   },
+  deepseek: {
+    isolation: 'private runtime; workspace-confined read/search tools; read-only sandbox',
+    cost: 'provider-usage estimated; unknown without usage events',
+  },
   opencode: {
     isolation: 'private HOME/XDG; mutating, shell, web, and task tools removed',
     cost: 'provider-reported per step; unknown on malformed output',

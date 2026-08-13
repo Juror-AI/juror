@@ -34,6 +34,7 @@ body:
         - generic-openai
         - grok-build
         - kimi-code
+        - deepseek
         - opencode
         - New harness required
     validations:

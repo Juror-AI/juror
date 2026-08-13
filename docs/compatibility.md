@@ -14,7 +14,7 @@ Pricing table last checked: **2026-08-11**.
 | Model | Provider / Juror secret | Harness | Provider route | Presets | Cost accounting | Pricing evidence |
 |---|---|---|---|---|---|---|
 | Opus 5<br><sub>`claude-opus-5`</sub> | Anthropic<br><sub>`JUROR_ANTHROPIC_API_KEY`</sub> | Claude Code<br><sub>`claude-code`</sub> | `claude-opus-5` | `high`, `ultra` | provider-reported; unknown on malformed output | [2026-08-06](https://www.anthropic.com/pricing#api) |
-| DeepSeek V4 Flash<br><sub>`deepseek-v4-flash-0731`</sub> | Fireworks<br><sub>`JUROR_FIREWORKS_API_KEY`</sub> | opencode<br><sub>`opencode`</sub> | `fireworks-ai/accounts/fireworks/models/deepseek-v4-flash-0731` | `fast`, `ultra` | provider-reported per step; unknown on malformed output | [2026-08-06](https://models.dev) |
+| DeepSeek V4 Flash<br><sub>`deepseek-v4-flash-0731`</sub> | Fireworks<br><sub>`JUROR_FIREWORKS_API_KEY`</sub> | DeepSeek<br><sub>`deepseek`</sub> | `accounts/fireworks/models/deepseek-v4-flash-0731` | `fast`, `ultra` | provider-usage estimated; unknown without usage events | [2026-08-06](https://models.dev) |
 | GPT-5.6 Luna<br><sub>`gpt-5.6-luna`</sub> | OpenAI<br><sub>`JUROR_OPENAI_API_KEY`</sub> | Codex<br><sub>`codex`</sub> | `gpt-5.6-luna` | `fast`, `ultra` | token-estimated; unknown without usage | [2026-08-07](https://developers.openai.com/api/docs/models/gpt-5.6-luna) |
 | GPT-5.6 Sol<br><sub>`gpt-5.6-sol`</sub> | OpenAI<br><sub>`JUROR_OPENAI_API_KEY`</sub> | Codex<br><sub>`codex`</sub> | `gpt-5.6-sol` | `high`, `ultra` | token-estimated; unknown without usage | [2026-08-06](https://openai.com/api/pricing/) |
 | GPT-5.6 Terra<br><sub>`gpt-5.6-terra`</sub> | OpenAI<br><sub>`JUROR_OPENAI_API_KEY`</sub> | Codex<br><sub>`codex`</sub> | `gpt-5.6-terra` | `balanced`, `ultra` | token-estimated; unknown without usage | [2026-08-06](https://developers.openai.com/api/docs/models/gpt-5.6-terra) |
@@ -29,6 +29,7 @@ Pricing table last checked: **2026-08-11**.
 |---|---|---|---|
 | Claude Code<br><sub>`claude-code`</sub> | `ANTHROPIC_API_KEY` | private runtime; `Read`, `Grep`, and `Glob` only | provider-reported; unknown on malformed output |
 | Codex<br><sub>`codex`</sub> | `OPENAI_API_KEY` | kernel profile; sealed checkout read-only; minimal tool environment | token-estimated; unknown without usage |
+| DeepSeek<br><sub>`deepseek`</sub> | `FIREWORKS_API_KEY` | private runtime; workspace-confined read/search tools; read-only sandbox | provider-usage estimated; unknown without usage events |
 | Generic OpenAI<br><sub>`generic-openai`</sub> | `OPENAI_API_KEY` | in-process path-confined read/search tools; one exact report write | provider-reported only when declared; estimated or unknown fallback |
 | Grok Build<br><sub>`grok-build`</sub> | `XAI_API_KEY` | private runtime and kernel profile; no MCP, web, memory, or subagents | provider-reported when present; unknown otherwise |
 | Kimi Code CLI<br><sub>`kimi-code`</sub> | `FIREWORKS_API_KEY` | private runtime; `Read`, `Grep`, and `Glob` only | usage-estimated; unknown without usage records |

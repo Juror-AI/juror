@@ -9,8 +9,9 @@ disagrees with this file, re-measure before changing anything.**
 Measured 2026-08-06 against: `claude` 2.1.223 · `codex-cli` 0.146.1 · `grok` 0.2.118 ·
 `opencode` 1.17.20.
 
-Source-inspected (no paid provider run) against: `@moonshot-ai/kimi-code` 0.34.0
-and the in-process `generic-openai` adapter in `src/harness/generic-openai.ts`. Their
+Source-inspected (no paid provider run) against: CodeWhale 0.9.7 (the renamed
+DeepSeek-TUI), `@moonshot-ai/kimi-code` 0.34.0, and the in-process `generic-openai`
+adapter in `src/harness/generic-openai.ts`. Their
 sections below name that distinction rather than presenting inferred usage as measured.
 
 `timeout(1)` does not exist on macOS, so every time limit is enforced in Node by
@@ -97,6 +98,50 @@ JSONL on stdout: `thread.started`, `turn.started`, `item.started`, `item.complet
   is not auto-discovered; trusted base-revision rules are already embedded in the prompt.
 - Resolve the binary's absolute path and assert `--version`: multiple installs shadowing each
   other by PATH order is a real, observed failure (0.132.0 in one prefix, 0.146.1 in another).
+
+## DeepSeek — CodeWhale `exec --output-format stream-json`
+
+**Source-inspected, no paid provider run**, against CodeWhale 0.9.7 at upstream commit
+`5e3ac84c5cb925b4c90c34dfe582b75f04605cb1`. DeepSeek-TUI was renamed to CodeWhale in
+0.9.0; the `deepseek-tui` npm package is now a deprecation-only stub, so the Action pins
+`codewhale@0.9.7` and invokes its `codewhale` binary.
+
+```text
+HOME="$PRIVATE_HOME" CODEWHALE_HOME="$PRIVATE_STATE" \
+CODEWHALE_TELEMETRY=0 CODEWHALE_NO_UPDATE_CHECK=1 \
+FIREWORKS_API_KEY="$KEY" \
+  codewhale --config "$PRIVATE_CONFIG" --no-project-config --skip-onboarding \
+    --provider fireworks --model accounts/fireworks/models/deepseek-v4-flash-0731 \
+    -C "$PRIVATE_WORKSPACE" exec --sandbox read-only --output-format stream-json \
+    --allowed-tools read,list_dir,grep_files,file_search \
+    --reasoning-effort low \
+    "Read $SCRATCH/prompt.md completely … review $REPO …" < /dev/null
+```
+
+- CodeWhale 0.9.7 has no prompt-file flag. Juror points the short argv prompt at its existing
+  scratch `prompt.md`; the prompt itself never enters argv, avoiding OS argument limits.
+- The CLI runs with an explicit private `HOME`, `CODEWHALE_HOME`, config, empty skills/tool
+  directories, and empty MCP config. Project configuration is disabled. Telemetry and update
+  checks are disabled both in config and environment.
+- CodeWhale unconditionally imports project instructions from its workspace, even with
+  `--no-project-config`. Juror therefore starts it in a private, trusted empty workspace and
+  writes a private workspace-trust map granting its native path guard only the sealed checkout
+  and this run's scratch directory. Head-revision `AGENTS.md` remains review data instead of
+  becoming system policy.
+- Do **not** add `--auto`: in 0.9.7 it couples tool approval to `trust_mode`, and native file
+  reads can then escape the workspace. `approval_policy = "auto"` autonomously approves safe
+  reads without enabling trust mode. `--allowed-tools` admits only `read`, `list_dir`,
+  `grep_files`, and `file_search`; `[tools].always_load` activates the three deferred search
+  tools. `--sandbox read-only` and `allow_shell = false` remain independent mutation gates.
+- Fireworks is selected explicitly, so the provider model id is
+  `accounts/fireworks/models/deepseek-v4-flash-0731` and the only credential visible to the
+  process is `FIREWORKS_API_KEY`. `base_url` is forwarded as `CODEWHALE_BASE_URL`.
+- Stdout is NDJSON. Concatenate `content` events for the final answer. Each provider request
+  emits `turn_usage` with total input/output plus reported cache hit, miss, and write fields;
+  Juror sums those per-call receipts and estimates cost from its checked-in Fireworks rates.
+  A missing usage event remains unknown rather than `$0.00`.
+- The terminal `metadata` event supplies the resolved model and status. Timeouts, nonzero
+  exits, `error` events, and non-completed terminal statuses all mark the result partial.
 
 ## opencode — `opencode run --format json`
 
