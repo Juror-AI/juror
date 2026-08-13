@@ -67,7 +67,7 @@ Without `--set-secrets`, `init` creates only the workflow. You can manage creden
 
 ```bash
 gh secret set JUROR_OPENAI_API_KEY
-gh secret set JUROR_FIREWORKS_API_KEY   # gives the default fast preset a second model family
+gh secret set JUROR_XAI_API_KEY         # gives the default fast preset a second model family
 ```
 
 Issue Juror its **own** provider keys rather than reusing existing ones. Review spend then
@@ -77,7 +77,7 @@ existing install keeps running; a prefixed key wins when both are set.
 
 Any key used by the selected preset gets you a working review. Missing providers are skipped
 with a note in the receipt. The default `fast` preset becomes a cross-model jury when both
-OpenAI and Fireworks are available. Degrade, never pretend.
+OpenAI and xAI are available. Degrade, never pretend.
 
 Want to evaluate the two-family jury with one credential? The opt-in `starter` preset routes
 fixed OpenAI and DeepSeek model revisions through OpenRouter's OpenAI-compatible API:
@@ -295,7 +295,7 @@ Juror ships five jury presets. Models whose provider key is unavailable are skip
 | Preset | Jury | Intended use |
 |---|---|---|
 | `starter` *(opt-in)* | GPT-5.6 Luna · DeepSeek V4 Flash through OpenRouter's confined generic harness | Two model families from one `JUROR_OPENROUTER_API_KEY`; awaiting benchmark promotion gate |
-| `fast` **(default)** | GPT-5.6 Luna via Codex/OpenAI (`low`) · DeepSeek V4 Flash via DeepSeek/Fireworks (`high`) | Lean two-model jury |
+| `fast` **(default)** | GPT-5.6 Luna via Codex/OpenAI (`low`) · Grok 4.5 via Grok Build/xAI (`high`) | Lean two-model jury |
 | `balanced` | GPT-5.6 Terra via Codex/OpenAI (`max`) · Grok 4.5 via Grok Build/xAI (`high`) · Kimi K3 via Kimi Code/Fireworks (`max`) | Strong provider diversity without the full burn |
 | `high` | GPT-5.6 Sol via Codex/OpenAI (`high`) · Opus 5 via Claude Code/Anthropic · Grok 4.5 via Grok Build/xAI (`high`) | Higher-confidence frontier jury |
 | `ultra` | Every model from the other presets (seven total), using their higher reasoning settings | Maximum coverage; highest token and cost use |
