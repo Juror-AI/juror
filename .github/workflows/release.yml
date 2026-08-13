@@ -123,7 +123,9 @@ jobs:
 
       # npm trusted publishing exchanges the job's OIDC identity. No long-lived npm token
       # is present, and this exact, already-attested tarball is what reaches the registry.
+      # The path stays explicitly relative: npm reads a bare `dir/file` argument as the
+      # `owner/repo` GitHub shorthand and would resolve the release off a git remote.
       - name: Publish the attested npm package
         env:
           NPM_TARBALL: ${{ steps.artifacts.outputs.npm-tarball }}
-        run: npm publish "$NPM_TARBALL" --provenance --access public
+        run: npm publish "./$NPM_TARBALL" --provenance --access public
