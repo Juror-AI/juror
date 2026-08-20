@@ -10,6 +10,7 @@ import type {
   QaReasoningEffort,
   QaResetConfig,
   QaResetSecretHeader,
+  QaTargetConfig,
 } from './types.js';
 import { QA_REASONING_EFFORTS } from './types.js';
 import { isIpLiteralHostname, isLoopbackHostname } from '../util/url.js';
@@ -33,6 +34,7 @@ export function defaultQaConfig(): QaConfig {
     target: {
       strategy: 'staging-first',
       environment: 'staging',
+      deployment_environment: null,
       static_url: null,
       readiness_path: '/',
       readiness_statuses: null,
@@ -55,6 +57,11 @@ export function defaultQaConfig(): QaConfig {
       retention_days: 14,
     },
   };
+}
+
+/** Resolve the exact GitHub deployment environment selected by trusted policy. */
+export function qaDeploymentEnvironment(target: QaTargetConfig): string {
+  return target.deployment_environment ?? target.environment;
 }
 
 export function applyQaConfig(config: QaConfig, raw: unknown, problems: string[]): void {
@@ -120,7 +127,7 @@ function applyTarget(config: QaConfig, raw: unknown, problems: string[]): void {
   if (!value) return;
   unknownKeys(
     value,
-    ['strategy', 'environment', 'static_url', 'readiness_path', 'readiness_statuses', 'commit_probe', 'preview_fallback', 'wait_seconds'],
+    ['strategy', 'environment', 'deployment_environment', 'static_url', 'readiness_path', 'readiness_statuses', 'commit_probe', 'preview_fallback', 'wait_seconds'],
     'qa.target',
     problems,
   );
@@ -130,6 +137,21 @@ function applyTarget(config: QaConfig, raw: unknown, problems: string[]): void {
   assignString(value, 'environment', 'qa.target.environment', problems, (next) => {
     config.target.environment = next;
   });
+  if ('deployment_environment' in value) {
+    if (value['deployment_environment'] === null) {
+      config.target.deployment_environment = null;
+    } else {
+      assignString(
+        value,
+        'deployment_environment',
+        'qa.target.deployment_environment',
+        problems,
+        (next) => {
+          config.target.deployment_environment = next;
+        },
+      );
+    }
+  }
   if ('static_url' in value) {
     if (value['static_url'] === null) config.target.static_url = null;
     else {

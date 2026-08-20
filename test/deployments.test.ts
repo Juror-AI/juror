@@ -66,6 +66,7 @@ function qaConfig(overrides: Partial<QaConfig['target']> = {}): QaConfig {
     target: {
       strategy: 'staging-first',
       environment: 'staging',
+      deployment_environment: null,
       static_url: null,
       readiness_path: '/health',
       readiness_statuses: null,
@@ -218,6 +219,70 @@ describe('resolveQaTarget', () => {
           observed_sha: DEPLOYED_SHA,
           contains_merge_sha: true,
         },
+      },
+    });
+  });
+
+  it('queries an exact dedicated deployment environment for the staging tier', async () => {
+    const client = github((_method, path) => {
+      if (path.includes('/deployments?') && path.includes('environment=web-staging')) {
+        return [deployment(11, MERGE_SHA, 'web-staging')];
+      }
+      if (path.includes('/deployments/11/statuses?')) return [deploymentStatus(21)];
+      throw new Error(`unexpected path ${path}`);
+    });
+
+    const result = await resolveQaTarget(
+      client,
+      pull,
+      qaConfig({ deployment_environment: 'web-staging' }),
+      { fetchImpl: healthyFetch(), now: () => NOW },
+    );
+
+    expect(result).toMatchObject({
+      status: 'resolved',
+      target: {
+        kind: 'staging-deployment',
+        environment: 'web-staging',
+        deployment_id: 11,
+        deployment_status_id: 21,
+        verdict_eligible: true,
+        revision: {
+          verified_against: 'merge',
+          relation: 'exact',
+          observed_sha: MERGE_SHA,
+        },
+      },
+    });
+    expect(client.request).not.toHaveBeenCalledWith(
+      'GET',
+      expect.stringContaining('environment=staging&'),
+    );
+  });
+
+  it('attributes a static fallback to the exact deployment selector', async () => {
+    const client = github((_method, path) => {
+      if (path.includes('/deployments?') && path.includes('environment=web-staging')) return [];
+      throw new Error(`unexpected path ${path}`);
+    });
+
+    const result = await resolveQaTarget(
+      client,
+      pull,
+      qaConfig({
+        deployment_environment: 'web-staging',
+        static_url: 'https://staging.example.test/app',
+        preview_fallback: false,
+      }),
+      { fetchImpl: healthyFetch(), now: () => NOW },
+    );
+
+    expect(result).toMatchObject({
+      status: 'resolved',
+      target: {
+        kind: 'staging-static',
+        environment: 'web-staging',
+        verdict_eligible: false,
       },
     });
   });
@@ -673,6 +738,29 @@ describe('resolveQaTarget', () => {
     );
   });
 
+  it('does not reinterpret the dedicated staging deployment environment as a preview', async () => {
+    const client = github((_method, path) => {
+      if (path.includes('/deployments?') && path.includes('environment=web-staging')) return [];
+      if (path.includes('/deployments?') && path.includes(`sha=${HEAD_SHA}`)) {
+        return [deployment(62, HEAD_SHA, 'web-staging')];
+      }
+      throw new Error(`unexpected path ${path}`);
+    });
+
+    const result = await resolveQaTarget(
+      client,
+      pull,
+      qaConfig({ deployment_environment: 'web-staging' }),
+      { fetchImpl: healthyFetch(), now: () => NOW },
+    );
+
+    expect(result).toMatchObject({ target: null, status: 'timed_out' });
+    expect(client.request).not.toHaveBeenCalledWith(
+      'GET',
+      expect.stringContaining('/deployments/62/statuses'),
+    );
+  });
+
   it('does not reinterpret a non-transient production deployment as a preview', async () => {
     const client = github((_method, path) => {
       if (path.includes('/deployments?') && path.includes('environment=staging')) return [];
@@ -710,6 +798,34 @@ describe('recheckQaTarget', () => {
       return new Response('edge protection', { status: 403 });
     }) as unknown as typeof fetch;
   }
+
+  it('rechecks a dedicated deployment environment instead of the staging tier name', async () => {
+    const client = github((_method, path) => {
+      if (path.includes('/deployments?') && path.includes('environment=web-staging')) {
+        return [deployment(90, MERGE_SHA, 'web-staging')];
+      }
+      if (path.includes('/deployments/90/statuses?')) return [deploymentStatus(91)];
+      throw new Error(`unexpected path ${path}`);
+    });
+    const config = qaConfig({ deployment_environment: 'web-staging' });
+    const resolved = await resolveQaTarget(client, pull, config, {
+      fetchImpl: healthyFetch(),
+      now: () => NOW,
+    });
+    expect(resolved.target).not.toBeNull();
+    client.request.mockClear();
+
+    const current = await recheckQaTarget(client, pull, config, resolved.target!, {
+      fetchImpl: healthyFetch(),
+      now: () => NOW + 1_000,
+    });
+
+    expect(current).toMatchObject({ stable: true, current: { environment: 'web-staging' } });
+    expect(client.request).toHaveBeenCalledWith(
+      'GET',
+      expect.stringContaining('environment=web-staging'),
+    );
+  });
 
   async function resolveProtectedExplicitTarget(
     client: DeploymentGitHubApi,

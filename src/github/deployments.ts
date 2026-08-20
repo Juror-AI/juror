@@ -7,6 +7,7 @@ import type {
   QaTarget,
   QaTargetKind,
 } from '../qa/types.js';
+import { qaDeploymentEnvironment } from '../qa/config.js';
 import { isIpLiteralHostname, isLoopbackHostname } from '../util/url.js';
 
 export type DeploymentGitHubApi = Pick<GitHubApi, 'repo' | 'request'>;
@@ -306,7 +307,7 @@ export async function resolveQaTarget(
 
     const staging = await inspectDeploymentTargets({
       client,
-      query: { environment: config.target.environment },
+      query: { environment: qaDeploymentEnvironment(config.target) },
       kind: 'staging-deployment',
       expectedSha: pull.mergeSha,
       verifiedAgainst: 'merge',
@@ -416,7 +417,9 @@ export async function recheckQaTarget(
     const preview = selected.kind === 'preview-deployment';
     current = await inspectDeploymentTargets({
       client,
-      query: preview ? { sha: pull.headSha } : { environment: selected.environment ?? config.target.environment },
+      query: preview
+        ? { sha: pull.headSha }
+        : { environment: qaDeploymentEnvironment(config.target) },
       kind: selected.kind,
       expectedSha: preview ? pull.headSha : pull.mergeSha,
       verifiedAgainst: preview ? 'head' : 'merge',
@@ -485,7 +488,8 @@ async function inspectDeploymentTargets(o: DeploymentInspectionOptions): Promise
     // transient by GitHub and must not be the configured staging environment;
     // otherwise an exact-head production deployment could be mutated as a preview.
     if (o.kind === 'preview-deployment' &&
-        (!deployment.transient || deployment.environment === o.config.target.environment)) {
+        (!deployment.transient ||
+          deployment.environment === qaDeploymentEnvironment(o.config.target))) {
       continue;
     }
     let latest: GitHubDeploymentStatus | null;
@@ -636,7 +640,7 @@ async function inspectStaticTarget(o: StaticInspectionOptions): Promise<QaTarget
     kind: 'staging-static',
     url: normalized.url,
     allowed_origin: normalized.origin,
-    environment: o.config.target.environment,
+    environment: qaDeploymentEnvironment(o.config.target),
     deployment_id: null,
     deployment_status_id: null,
     revision: proof,

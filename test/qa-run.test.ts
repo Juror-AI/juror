@@ -186,6 +186,22 @@ describe('staging session bootstrap target binding', () => {
     expect(stagingAuthTargetProblem(authenticatedConfig(), target())).toBeNull();
   });
 
+  it('accepts an exact dedicated GitHub deployment environment for staging', () => {
+    const config = authenticatedConfig();
+    config.target.deployment_environment = 'web-staging';
+    expect(stagingAuthTargetProblem(config, {
+      ...target(),
+      environment: 'web-staging',
+    })).toBeNull();
+  });
+
+  it('rejects a resolved deployment outside the exact dedicated selector', () => {
+    const config = authenticatedConfig();
+    config.target.deployment_environment = 'web-staging';
+    expect(stagingAuthTargetProblem(config, target()))
+      .toContain('not the configured staging deployment environment');
+  });
+
   it('rejects preview targets even when their environment is staging', () => {
     expect(stagingAuthTargetProblem(authenticatedConfig(), {
       ...target(),
@@ -214,7 +230,7 @@ describe('staging session bootstrap target binding', () => {
 
     config.target.environment = 'staging';
     expect(stagingAuthTargetProblem(config, { ...target(), environment: 'production' }))
-      .toContain('not the configured staging environment');
+      .toContain('not the configured staging deployment environment');
   });
 
   it('applies the same staging restriction to secret browser headers', () => {

@@ -158,6 +158,7 @@ qa:
   target:
     strategy: staging-first
     environment: staging
+    deployment_environment: web-staging
     static_url: https://staging.example.com
     readiness_statuses: [403]
     preview_fallback: false
@@ -190,6 +191,12 @@ qa:
     trace: off
     screenshot: off
 ```
+
+`environment: staging` remains the authenticated QA security tier. When the web application uses
+a dedicated GitHub deployment environment, set `deployment_environment` to that exact name. Juror
+queries only that deployment stream and requires the resolved record to match it; `null` preserves
+the default behavior of querying `staging`. This selector does not enable preview authentication or
+relax the canonical-origin checks.
 
 `ready_storage_key` is checked in both `localStorage` and `sessionStorage` after the one-time URL
 loads. Juror does not read or expose the value. If the key does not become non-empty within the
