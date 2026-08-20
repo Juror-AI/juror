@@ -24,12 +24,13 @@ RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund \
     && npm install -g @openai/codex@0.147.0 --ignore-scripts --no-audit --no-fund
 
 COPY --from=build --chown=pwuser:pwuser /opt/juror/dist ./dist
-COPY --chown=pwuser:pwuser qa/egress-proxy.mjs qa/tls-client-hello.mjs ./qa/
+COPY --chown=pwuser:pwuser qa/egress-proxy.mjs qa/tls-client-hello.mjs qa/smoke-chromium.mjs ./qa/
 RUN chown pwuser:pwuser /opt/juror
 
 ENV NODE_ENV=production \
     JUROR_CODEX_BIN=/usr/bin/codex \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    HOME=/home/pwuser
 
 USER pwuser
 WORKDIR /workspace

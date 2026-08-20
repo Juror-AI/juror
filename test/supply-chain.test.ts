@@ -447,12 +447,23 @@ esac
 
   it('ships an enabled Chromium sandbox and exact-origin egress boundary', () => {
     const dockerfile = read('qa/Dockerfile');
+    const action = read('qa/action.yml');
+    const localRunner = read('qa/run-local.sh');
+    const imageCi = read('.github/workflows/qa-image-ci.yml');
+    const releaseWorkflow = read('.github/workflows/release-qa-image.yml');
     const browser = read('src/qa/browser.ts');
     const proxy = read('qa/egress-proxy.mjs');
 
-    expect(read('qa/action.yml')).toContain('seccomp=$GITHUB_ACTION_PATH/seccomp_profile.json');
-    expect(read('qa/action.yml')).toContain('--cap-drop=ALL');
-    expect(read('qa/action.yml')).toContain('--cap-add=SYS_CHROOT');
+    expect(action).toContain('seccomp=$GITHUB_ACTION_PATH/seccomp_profile.json');
+    expect(action).toContain('--cap-drop=ALL');
+    expect(action).toContain('--cap-add=SYS_CHROOT');
+    expect(dockerfile).toContain('HOME=/home/pwuser');
+    expect(action.match(/uid=\$RUNTIME_UID,gid=\$RUNTIME_GID,mode=0700/g)).toHaveLength(2);
+    expect(localRunner.match(/uid=\$CONTAINER_UID,gid=\$CONTAINER_GID,mode=0700/g)).toHaveLength(2);
+    expect(releaseWorkflow).toContain('uid=1001,gid=1001,mode=0700');
+    expect(dockerfile).toContain('qa/smoke-chromium.mjs');
+    expect(imageCi).toContain('/opt/juror/qa/smoke-chromium.mjs');
+    expect(releaseWorkflow).toContain('/opt/juror/qa/smoke-chromium.mjs');
     expect(read('qa/seccomp_profile.json')).toContain('Allow create user namespaces');
     expect(browser).toContain('chromiumSandbox = true');
     expect(browser).toContain('this.#options.chromiumSandbox ?? true');

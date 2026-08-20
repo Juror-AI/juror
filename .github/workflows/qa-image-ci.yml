@@ -1,0 +1,72 @@
+name: QA image CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'qa/**'
+      - 'src/qa/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+      - '.github/workflows/qa-image-ci.yml'
+      - '.github/workflows/release-qa-image.yml'
+  pull_request:
+    paths:
+      - 'qa/**'
+      - 'src/qa/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+      - '.github/workflows/qa-image-ci.yml'
+      - '.github/workflows/release-qa-image.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Build QA image on native amd64
+        env:
+          DOCKER_BUILDKIT: '1'
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = x86_64
+          docker build \
+            --platform linux/amd64 \
+            --file qa/Dockerfile \
+            --tag juror-qa:ci \
+            .
+          test "$(docker image inspect --format '{{.Architecture}}' juror-qa:ci)" = amd64
+
+      - name: Verify hardened sandboxed Chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          PW_UID="$(docker run --rm --entrypoint id juror-qa:ci -u pwuser)"
+          PW_GID="$(docker run --rm --entrypoint id juror-qa:ci -g pwuser)"
+          [[ "$PW_UID" =~ ^[0-9]+$ ]]
+          [[ "$PW_GID" =~ ^[0-9]+$ ]]
+
+          docker run --rm --init \
+            --read-only \
+            --tmpfs /tmp:rw,nosuid,nodev,size=256m \
+            --tmpfs "/home/pwuser:rw,nosuid,nodev,size=64m,uid=$PW_UID,gid=$PW_GID,mode=0700" \
+            --shm-size=1g \
+            --user "$PW_UID:$PW_GID" \
+            --cap-drop=ALL \
+            --cap-add=SYS_CHROOT \
+            --security-opt "seccomp=$GITHUB_WORKSPACE/qa/seccomp_profile.json" \
+            --pids-limit=256 \
+            --memory=2g \
+            --cpus=2 \
+            --entrypoint node \
+            juror-qa:ci \
+            /opt/juror/qa/smoke-chromium.mjs
