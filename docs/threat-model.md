@@ -137,8 +137,9 @@ CI runs the full test suite, a provider-key shape scan, and `npm run check:secur
 containment tests verify exact plan/runtime assertion binding, identical sealed acknowledgements,
 hidden `qa_status` outcomes, mandatory sensitive-state retries, the credential-scrubbed Chromium
 environment, and configured-secret scans after the final report and summary exist. Release artifacts
-are rebuilt in an empty staging directory from strict report-ledger entries only; each regular file
-must match its reported SHA-256 and pass an exact-byte secret scan. Semantic scans cover the actual
+are rebuilt in an empty staging directory from strict report-ledger entries; an empty ledger produces
+only a static controller-owned upload sentinel. Each ledger file must match its reported SHA-256 and
+pass an exact-byte secret scan. Semantic scans cover the actual
 destination bytes, including any emitted trailing newline, and the secret bundle is forwarded by
 name only to the trusted finalizer and publisher containers that need it. Release artifacts can be checked
 with the commands in [the release guide](releasing.md). Report boundary escapes,

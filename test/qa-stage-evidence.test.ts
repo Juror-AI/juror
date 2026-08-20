@@ -234,6 +234,32 @@ describe('stageEvidencePayload', () => {
     }
   });
 
+  it('stages a static upload sentinel for a completed pre-browser result without artifacts', async () => {
+    const scratch = mkdtempSync(join(tmpdir(), 'juror-stage-evidence-empty-'));
+    try {
+      const evidence = join(scratch, 'evidence');
+      const staged = join(scratch, 'staged');
+      mkdirSync(evidence);
+      const blocked = result([]);
+      blocked.outcome = 'blocked';
+      blocked.conclusion = 'failure';
+      blocked.target = null;
+      blocked.plan = null;
+      blocked.attempts = [];
+      complete(evidence, blocked);
+
+      await expect(stageEvidencePayload(evidence, staged)).resolves.toMatchObject({
+        files: ['payload-empty.json'],
+      });
+      expect(files(staged)).toEqual(['payload-empty.json']);
+      expect(readFileSync(join(staged, 'payload-empty.json'), 'utf8')).toBe(
+        '{"schema_version":1,"artifacts":[]}\n',
+      );
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
   it('rejects a partial plan without a completed marker and report, leaving no staged payload', async () => {
     const scratch = mkdtempSync(join(tmpdir(), 'juror-stage-evidence-partial-'));
     try {
