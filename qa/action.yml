@@ -30,28 +30,28 @@ inputs:
 outputs:
   outcome:
     description: Juror semantic QA outcome, or disabled when QA is opted out.
-    value: ${{ steps.finalize.outputs.outcome || steps.disabled.outputs.outcome }}
+    value: ${{ steps.finalize.outputs.outcome || steps.preflight.outputs.outcome || steps.disabled.outputs.outcome }}
   issues:
     description: Number of verified or advisory QA issues.
-    value: ${{ steps.finalize.outputs.issues || steps.disabled.outputs.issues }}
+    value: ${{ steps.finalize.outputs.issues || steps.preflight.outputs.issues || steps.disabled.outputs.issues }}
   scenarios:
     description: Number of planned scenarios.
-    value: ${{ steps.finalize.outputs.scenarios || steps.disabled.outputs.scenarios }}
+    value: ${{ steps.finalize.outputs.scenarios || steps.preflight.outputs.scenarios || steps.disabled.outputs.scenarios }}
   target-kind:
     description: Resolved target kind.
-    value: ${{ steps.finalize.outputs.target-kind || steps.disabled.outputs.target-kind }}
+    value: ${{ steps.finalize.outputs.target-kind || steps.preflight.outputs.target-kind || steps.disabled.outputs.target-kind }}
   target-sha:
     description: Observed deployed revision, when verified.
-    value: ${{ steps.finalize.outputs.target-sha || steps.disabled.outputs.target-sha }}
+    value: ${{ steps.finalize.outputs.target-sha || steps.preflight.outputs.target-sha || steps.disabled.outputs.target-sha }}
   cost-usd:
     description: Model cost, or unknown when the provider does not report it.
-    value: ${{ steps.finalize.outputs.cost-usd || steps.disabled.outputs.cost-usd }}
+    value: ${{ steps.finalize.outputs.cost-usd || steps.preflight.outputs.cost-usd || steps.disabled.outputs.cost-usd }}
   artifact-url:
     description: GitHub Actions artifact containing diagnostics and permitted unauthenticated videos.
-    value: ${{ steps.finalize.outputs.artifact-url || steps.evidence.outputs.artifact-url }}
+    value: ${{ steps.finalize.outputs.artifact-url || steps.preflight.outputs.artifact-url || steps.evidence.outputs.artifact-url }}
   report-path:
     description: Path to the versioned JSON QA report on the runner.
-    value: ${{ steps.finalize.outputs.report-path || steps.disabled.outputs.report-path }}
+    value: ${{ steps.finalize.outputs.report-path || steps.preflight.outputs.report-path || steps.disabled.outputs.report-path }}
   image-digest:
     description: Exact attested OCI image reference that executed Juror QA.
     value: ${{ steps.image.outputs.ref }}
@@ -304,9 +304,78 @@ runs:
           echo "retention-days=$RETENTION"
         } >> "$GITHUB_OUTPUT"
 
+    - name: Publish QA setup failure
+      id: preflight
+      if: ${{ failure() && (steps.image.outcome == 'failure' || steps.runtime.outcome == 'failure' || steps.policy.outcome == 'failure') }}
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        GITHUB_API_URL: ${{ github.api_url }}
+        GITHUB_SERVER_URL: ${{ github.server_url }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        GITHUB_RUN_ID: ${{ github.run_id }}
+        PR_NUMBER: ${{ steps.runtime.outputs.pr-number }}
+        REPORT_PATH: ${{ steps.runtime.outputs.report-path }}
+        EVIDENCE_DIR: ${{ steps.runtime.outputs.evidence-dir }}
+        EXACT_IMAGE: ${{ steps.image.outputs.ref }}
+        IMAGE_VERIFIED: ${{ steps.image.outcome == 'success' }}
+        RUNTIME_USER: ${{ steps.runtime.outputs.runtime-user }}
+        RUNTIME_PREPARED: ${{ steps.runtime.outcome == 'success' }}
+        INPUT_POST: ${{ inputs.post }}
+        JUROR_QA_PREFLIGHT_PHASE: ${{ steps.image.outcome == 'failure' && 'image' || steps.runtime.outcome == 'failure' && 'runtime' || 'policy' }}
+        JUROR_OPENAI_API_KEY: ''
+        OPENAI_API_KEY: ''
+        JUROR_ANTHROPIC_API_KEY: ''
+        ANTHROPIC_API_KEY: ''
+        JUROR_XAI_API_KEY: ''
+        XAI_API_KEY: ''
+        JUROR_FIREWORKS_API_KEY: ''
+        FIREWORKS_API_KEY: ''
+        JUROR_OPENROUTER_API_KEY: ''
+        OPENROUTER_API_KEY: ''
+        JUROR_QA_SECRETS_B64: ''
+        CODEX_HOME: ''
+      run: |
+        set -euo pipefail
+        WRITE_REPORT=false
+        if [ "$IMAGE_VERIFIED" = 'true' ] && [ "$RUNTIME_PREPARED" = 'true' ] && [ -n "$EXACT_IMAGE" ] && [ -d "$EVIDENCE_DIR" ] && [ -n "$REPORT_PATH" ] && [ -n "$PR_NUMBER" ] && [[ "$RUNTIME_USER" =~ ^[0-9]+:[0-9]+$ ]]; then
+          WRITE_REPORT=true
+        fi
+        JUROR_QA_PREFLIGHT_MODE=true \
+          JUROR_QA_PREFLIGHT_WRITE_REPORT="$WRITE_REPORT" \
+          node "$GITHUB_ACTION_PATH/finalize-fallback.mjs"
+
+        # Only a verified image and a prepared runtime may publish a sticky. The static host
+        # summary above is authoritative even if this best-effort transition fails.
+        if [ "$WRITE_REPORT" = 'true' ] && [ "$INPUT_POST" = 'true' ]; then
+          set +e
+          docker run --rm --init \
+            --pull=never \
+            --read-only \
+            --tmpfs /tmp:rw,nosuid,nodev,size=32m \
+            --user "$RUNTIME_USER" \
+            --cap-drop=ALL \
+            --security-opt no-new-privileges \
+            --pids-limit=128 \
+            --memory=512m \
+            --cpus=1 \
+            --mount "type=bind,src=$EVIDENCE_DIR,dst=/evidence,readonly" \
+            --env GITHUB_TOKEN \
+            --env GITHUB_API_URL \
+            --env GITHUB_SERVER_URL \
+            --env GITHUB_REPOSITORY \
+            --env GITHUB_RUN_ID \
+            --entrypoint node \
+            "$EXACT_IMAGE" \
+            /opt/juror/dist/cli.js qa-publish-final --report /evidence/report.json --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER"
+          STICKY_STATUS=$?
+          set -e
+          if [ "$STICKY_STATUS" -ne 0 ]; then echo '::warning::Could not publish the QA setup-failure sticky'; fi
+        fi
+
     - name: Record disabled QA outcome
       id: disabled
-      if: steps.policy.outputs.enabled != 'true'
+      if: steps.policy.outcome == 'success' && steps.policy.outputs.enabled == 'false'
       shell: bash
       env:
         REPORT_PATH: ${{ steps.runtime.outputs.report-path }}
@@ -909,7 +978,7 @@ runs:
       if: always()
       shell: bash
       env:
-        EXIT_CODE: ${{ steps.finalize.outputs.exit-code || steps.disabled.outputs.exit-code }}
+        EXIT_CODE: ${{ steps.finalize.outputs.exit-code || steps.preflight.outputs.exit-code || steps.disabled.outputs.exit-code }}
       run: |
         if ! [[ "$EXIT_CODE" =~ ^[0-9]+$ ]]; then exit 1; fi
         exit "$EXIT_CODE"

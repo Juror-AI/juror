@@ -48,7 +48,11 @@ import {
   runQa,
   serializeQaReport,
 } from './qa/run.js';
-import { finalizeQaEvidence, markQaInfrastructureError } from './qa/finalize.js';
+import {
+  finalizeQaEvidence,
+  markQaInfrastructureError,
+  normalizeQaArtifactUrl,
+} from './qa/finalize.js';
 import { isQaRunResult } from './qa/result-validator.js';
 import type { QaRunResult } from './qa/types.js';
 import { qaExactOrigin, qaGitHubServerOrigin, qaServiceOrigins } from './qa/network.js';
@@ -56,7 +60,7 @@ import {
   loadConfigFromBase,
   loadQaConfigConsensusFromBases,
 } from './qa/trusted-config.js';
-import { renderQaSummary } from './render/qa-summary.js';
+import { containsQaPresentationSecret, renderQaSummary } from './render/qa-summary.js';
 import { publishQaPending, publishQaResult, qaPublicationAllowed } from './github/publish-qa.js';
 import { resolveMergedPull } from './github/merged-pull.js';
 
@@ -875,9 +879,15 @@ async function persistFinalQaResult(
   result: QaRunResult,
   options: { jobUrl: string | null; artifactUrl: string | null },
 ): Promise<string> {
+  if (!isQaRunResult(result)) {
+    throw new Error('Refusing to persist an invalid finalized QA result');
+  }
   const outputSecrets = qaOutputSecretValues();
   const markdown = renderQaSummary(result, { ...options, secrets: outputSecrets });
   const report = serializeQaReport(result, outputSecrets);
+  if (containsQaPresentationSecret(markdown, outputSecrets)) {
+    throw new Error('Refusing to persist QA Markdown containing a configured secret canary');
+  }
   checkedQaOutput(markdown, outputSecrets);
   await writeFile(reportPath, report, {
     encoding: 'utf8',
@@ -988,21 +998,16 @@ async function runQaPublishFinalCommand(args: Args): Promise<number> {
     throw new Error('QA report repository or pull request does not match publisher arguments');
   }
   if (result.outcome === 'cancelled') return 0;
-  const token = await githubToken();
-  if (!token) throw new Error('qa-publish-final requires a GitHub token');
   let artifactUrl = result.artifacts.find((artifact) => artifact.upload)?.upload?.url ?? null;
   if (args.artifactUrl?.trim()) {
-    let parsedUrl: URL;
     try {
-      parsedUrl = new URL(args.artifactUrl);
-    } catch {
-      throw new Error('qa-publish-final --artifact-url must be an absolute HTTP(S) URL');
+      artifactUrl = normalizeQaArtifactUrl(args.artifactUrl);
+    } catch (error) {
+      throw new Error(`qa-publish-final --artifact-url is invalid: ${errorMessage(error)}`);
     }
-    if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
-      throw new Error('qa-publish-final --artifact-url must use HTTP(S)');
-    }
-    artifactUrl = parsedUrl.toString();
   }
+  const token = await githubToken();
+  if (!token) throw new Error('qa-publish-final requires a GitHub token');
   const client = new GitHubClient({ token, repo: args.repo, version: VERSION });
   const published = await publishQaResult(client, args.pr, result, {
     jobUrl: actionRunUrl(args.repo),

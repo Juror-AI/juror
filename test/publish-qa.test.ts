@@ -20,9 +20,44 @@ function result(overrides: Partial<QaRunResult> = {}): QaRunResult {
     duration_ms: 1_000,
     outcome: 'passed',
     conclusion: 'success',
-    target: null,
-    plan: null,
-    attempts: [],
+    target: {
+      kind: 'staging-static',
+      url: 'https://staging.example.test/',
+      allowed_origin: 'https://staging.example.test',
+      environment: 'staging',
+      deployment_id: null,
+      deployment_status_id: null,
+      revision: {
+        verified_against: 'none', expected_sha: null, observed_sha: null, relation: 'unverified',
+        method: 'none', contains_merge_sha: null, additional_commits: [], additional_commits_truncated: false,
+      },
+      stability: 'stable',
+      verdict_eligible: false,
+      resolved_at: '2026-08-18T10:00:00.000Z', ready_at: '2026-08-18T10:00:00.000Z',
+    },
+    plan: {
+      schema_version: 1,
+      impact_assessment: 'The visible control changed.',
+      testability: 'testable',
+      no_testable_surface_reason: null,
+      surfaces: ['composer'],
+      scenarios: [{
+        id: 'composer-check', title: 'Composer remains visible', rationale: 'The control changed.',
+        viewport: { kind: 'desktop', width: 1280, height: 720, justification: 'Default viewport.' },
+        preconditions: [], seeded_state: [],
+        checkpoints: [{
+          id: 'composer-visible', description: 'Composer is visible', expected: 'Composer is visible',
+          assertion: { kind: 'visible', locator: { by: 'role', value: 'textbox', name: 'Composer', exact: true, nth: null }, url_contains: null },
+        }],
+        allowed_mutations: ['none'], cleanup_expectations: [],
+      }],
+      risk_notes: [], blind_spots: [],
+    },
+    attempts: [{
+      scenario_id: 'composer-check', attempt: 1, status: 'passed', started_at: '2026-08-18T10:00:00.000Z', duration_ms: 1,
+      operations: [], checkpoints: [{ checkpoint_id: 'composer-visible', status: 'passed', expected: 'Composer is visible', observed: 'Composer is visible' }],
+      observations: [], evidence_artifact_ids: [],
+    }],
     issues: [],
     cleanup: { status: 'not_required', summary: 'No reset needed.', error: null },
     artifacts: [],
@@ -38,7 +73,11 @@ function result(overrides: Partial<QaRunResult> = {}): QaRunResult {
   };
 }
 
-function fakeClient(comments: IssueComment[] = [], updatesThatFail = new Set<number>()) {
+function fakeClient(
+  comments: IssueComment[] = [],
+  updatesThatFail = new Set<number>(),
+  repo = 'owner/repo',
+) {
   const listIssueComments = vi.fn(async () => comments.map((comment) => ({ ...comment })));
   const updateIssueComment = vi.fn(async (id: number, body: string) => {
     if (updatesThatFail.has(id)) {
@@ -58,7 +97,7 @@ function fakeClient(comments: IssueComment[] = [], updatesThatFail = new Set<num
     comments.push({ id, body, user: { login: 'juror[bot]' } });
     return { id };
   });
-  return { listIssueComments, updateIssueComment, createIssueComment, comments };
+  return { repo, listIssueComments, updateIssueComment, createIssueComment, comments };
 }
 
 describe('publishQaResult', () => {
@@ -154,17 +193,49 @@ describe('publishQaResult', () => {
     }
   });
 
-  it('redacts secrets and caps the GitHub comment body', async () => {
+  it('redacts secrets and keeps a bounded comment structurally complete', async () => {
     const fake = fakeClient();
     const secret = `github_pat_${'a'.repeat(48)}`;
-    const hugeWarning = `${secret} ${'x'.repeat(70_000)}`;
+    const boundedWarning = `${secret} ${'x'.repeat(430)}`;
 
-    await publishQaResult(fake, 9, result({ warnings: [hugeWarning] }));
+    await publishQaResult(fake, 9, result({ warnings: [boundedWarning] }));
 
     const body = fake.createIssueComment.mock.calls[0]?.[1];
     expect(body).toBeDefined();
-    expect(body).toHaveLength(65_000);
+    expect(body.length).toBeLessThanOrEqual(65_000);
     expect(body).not.toContain(secret);
-    expect(body).toContain('[redacted]');
+    expect(body).toContain('\\[redacted\\]');
+    expect(body).toContain('</details>');
+  });
+
+  it.each([publishQaResult, publishQaPending])('fails closed when %s would publish an exact canary from fixed copy', async (publish) => {
+    const fake = fakeClient();
+
+    await expect(publish(fake, 9, result(), { secrets: ['Juror QA'] }))
+      .rejects.toThrow('configured secret canary');
+    expect(fake.listIssueComments).not.toHaveBeenCalled();
+    expect(fake.createIssueComment).not.toHaveBeenCalled();
+  });
+
+  it.each([publishQaResult, publishQaPending])('refuses invalid direct publication through %s', async (publish) => {
+    const fake = fakeClient();
+    const invalid = result({ attempts: [] });
+
+    await expect(publish(fake, 9, invalid)).rejects.toThrow('Refusing to publish an invalid QA result');
+    expect(fake.createIssueComment).not.toHaveBeenCalled();
+  });
+
+  it.each([publishQaResult, publishQaPending])('binds publication to the result pull request through %s', async (publish) => {
+    const fake = fakeClient();
+    await expect(publish(fake, 10, result())).rejects.toThrow('different pull request');
+    expect(fake.listIssueComments).not.toHaveBeenCalled();
+    expect(fake.createIssueComment).not.toHaveBeenCalled();
+  });
+
+  it.each([publishQaResult, publishQaPending])('binds publication to the client repository through %s', async (publish) => {
+    const fake = fakeClient([], new Set(), 'expected/repo');
+    await expect(publish(fake, 9, result())).rejects.toThrow('different repository');
+    expect(fake.listIssueComments).not.toHaveBeenCalled();
+    expect(fake.createIssueComment).not.toHaveBeenCalled();
   });
 });

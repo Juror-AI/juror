@@ -262,6 +262,46 @@ describe('supply-chain policy', () => {
     expect(action.outputs['outcome']?.value).toContain('steps.finalize.outputs.outcome');
   });
 
+  it('publishes setup failures only through a verified image and preserves normal finalization', () => {
+    const action = parse(read('qa/action.yml')) as {
+      outputs: Record<string, { value?: string }>;
+      runs: { steps: { name?: string; id?: string; if?: string; env?: Record<string, string>; run?: string; with?: Record<string, unknown> }[] };
+    };
+    const steps = action.runs.steps;
+    const image = steps.findIndex((step) => step.id === 'image');
+    const runtime = steps.findIndex((step) => step.id === 'runtime');
+    const policy = steps.findIndex((step) => step.id === 'policy');
+    const preflight = steps.findIndex((step) => step.name === 'Publish QA setup failure');
+    const disabled = steps.findIndex((step) => step.name === 'Record disabled QA outcome');
+    const conclusion = steps.findIndex((step) => step.name === 'Apply QA conclusion');
+    const setup = steps[preflight];
+
+    expect(preflight).toBe(policy + 1);
+    expect(preflight).toBeGreaterThan(image);
+    expect(preflight).toBeGreaterThan(runtime);
+    expect(setup?.if).toBe("${{ failure() && (steps.image.outcome == 'failure' || steps.runtime.outcome == 'failure' || steps.policy.outcome == 'failure') }}");
+    expect(setup?.env?.['JUROR_QA_PREFLIGHT_PHASE']).toContain("steps.image.outcome == 'failure'");
+    for (const key of [
+      'JUROR_OPENAI_API_KEY', 'OPENAI_API_KEY', 'JUROR_ANTHROPIC_API_KEY', 'ANTHROPIC_API_KEY',
+      'JUROR_XAI_API_KEY', 'XAI_API_KEY', 'JUROR_FIREWORKS_API_KEY', 'FIREWORKS_API_KEY',
+      'JUROR_OPENROUTER_API_KEY', 'OPENROUTER_API_KEY', 'JUROR_QA_SECRETS_B64', 'CODEX_HOME',
+    ]) expect(setup?.env?.[key], key).toBe('');
+    expect(setup?.run).toContain('JUROR_QA_PREFLIGHT_MODE=true');
+    expect(setup?.run).toContain('qa-publish-final');
+    expect(setup?.run).toContain('[ "$IMAGE_VERIFIED" = \'true\' ]');
+    expect(setup?.run).toContain('[ "$RUNTIME_PREPARED" = \'true\' ]');
+    expect(setup?.run).toContain('if [ "$WRITE_REPORT" = \'true\' ] && [ "$INPUT_POST" = \'true\' ]; then');
+    expect(setup?.run).toContain('"$EXACT_IMAGE"');
+    expect(setup?.run).not.toContain('curl');
+    expect(setup?.run).not.toContain('gh api');
+    expect(steps[disabled]?.if).toBe("steps.policy.outcome == 'success' && steps.policy.outputs.enabled == 'false'");
+    expect(action.outputs['outcome']?.value).toContain('steps.preflight.outputs.outcome');
+    expect(steps[conclusion]?.env?.['EXIT_CODE']).toContain('steps.preflight.outputs.exit-code');
+    const result = steps.find((step) => step.name === 'Upload finalized QA report');
+    expect(result?.with?.['path']).toContain('/report.json');
+    expect(result?.with?.['path']).toContain('/summary.md');
+  });
+
   it('runs both workspace-reading containers as the numeric host user', () => {
     const action = parse(read('qa/action.yml')) as {
       runs: { steps: { name?: string; env?: Record<string, string>; run?: string }[] };

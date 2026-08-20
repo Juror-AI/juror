@@ -128,6 +128,10 @@ function plan(value) {
   } else if (p.no_testable_surface_reason !== null || p.scenarios.length < 1) {
     return false;
   }
+  // Guard structural access before collecting IDs: persisted inputs are untrusted
+  // and malformed array entries must simply fail validation, never throw.
+  if (!p.scenarios.every(record) ||
+    !unique(p.scenarios.map((scenario) => /** @type {Record<string, unknown>} */ (scenario).id))) return false;
   return p.scenarios.every((value) => {
     if (!exact(value, [
       'id',
@@ -156,6 +160,8 @@ function plan(value) {
       textList(scenario.preconditions, 30) &&
       textList(scenario.seeded_state, 30) &&
       Array.isArray(checkpoints) && checkpoints.length >= 1 && checkpoints.length <= 20 &&
+      checkpoints.every(record) &&
+      unique(checkpoints.map((checkpoint) => /** @type {Record<string, unknown>} */ (checkpoint).id)) &&
       checkpoints.every((checkpoint) => {
         if (!exact(checkpoint, ['id', 'description', 'expected', 'assertion'])) return false;
         const c = /** @type {Record<string, unknown>} */ (checkpoint);
@@ -183,7 +189,7 @@ function revision(value) {
     'additional_commits_truncated',
   ])) return false;
   const r = /** @type {Record<string, unknown>} */ (value);
-  return ['merge', 'head', 'none'].includes(/** @type {string} */ (r.verified_against)) &&
+  const shapeIsValid = ['merge', 'head', 'none'].includes(/** @type {string} */ (r.verified_against)) &&
     (r.expected_sha === null || (typeof r.expected_sha === 'string' && SHA40.test(r.expected_sha))) &&
     (r.observed_sha === null || (typeof r.observed_sha === 'string' && SHA40.test(r.observed_sha))) &&
     ['exact', 'descendant', 'unverified'].includes(/** @type {string} */ (r.relation)) &&
@@ -192,6 +198,22 @@ function revision(value) {
     Array.isArray(r.additional_commits) &&
     r.additional_commits.every((sha) => typeof sha === 'string' && SHA40.test(sha)) &&
     typeof r.additional_commits_truncated === 'boolean';
+  if (!shapeIsValid) return false;
+  if (r.relation === 'unverified') {
+    // An operator may retain an expected SHA as a diagnostic claim, but no
+    // observed revision or eligibility proof can accompany it.
+    return r.verified_against === 'none' && r.observed_sha === null && r.method === 'none' &&
+      r.contains_merge_sha === null && r.additional_commits.length === 0 &&
+      r.additional_commits_truncated === false;
+  }
+  if (r.verified_against === 'none' || r.expected_sha === null || r.observed_sha === null ||
+    r.method === 'none' || r.contains_merge_sha === null) return false;
+  const sameRevision = r.expected_sha.toLowerCase() === r.observed_sha.toLowerCase();
+  if (r.relation === 'exact') {
+    return sameRevision && ['deployment-sha', 'static-probe'].includes(/** @type {string} */ (r.method)) &&
+      r.additional_commits.length === 0 && r.additional_commits_truncated === false;
+  }
+  return !sameRevision && ['github-compare', 'static-probe'].includes(/** @type {string} */ (r.method));
 }
 
 /** @param {unknown} value */
@@ -357,6 +379,152 @@ function canonicalConclusion(outcome, conclusion) {
     (outcome === 'cancelled' && conclusion === 'cancelled');
 }
 
+/** Resolve sealed plan references and reject duplicate/tampered browser evidence. */
+function knownEvidence(result, requireCompleteFinal) {
+  const attempts = /** @type {Array<Record<string, unknown>>} */ (result.attempts);
+  const scenarios = /** @type {Array<Record<string, unknown>>} */ (result.plan.scenarios);
+  const planned = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
+  if (planned.size !== scenarios.length) return false;
+  const final = new Map();
+  const tuples = new Set();
+  for (const item of attempts) {
+    const tuple = `${item.scenario_id}:${item.attempt}`;
+    if (!planned.has(item.scenario_id) || tuples.has(tuple)) return false;
+    tuples.add(tuple);
+  }
+  for (const item of attempts) {
+    const scenario = planned.get(item.scenario_id);
+    if (!scenario || !Array.isArray(item.checkpoints) ||
+      (item.attempt === 2 && !tuples.has(`${item.scenario_id}:1`))) return false;
+    const checkpoints = new Map(scenario.checkpoints.map((checkpoint) => [checkpoint.id, checkpoint]));
+    const seen = new Set();
+    for (const observed of item.checkpoints) {
+      const sealed = checkpoints.get(observed.checkpoint_id);
+      if (!sealed || seen.has(observed.checkpoint_id) || observed.expected !== sealed.expected) return false;
+      seen.add(observed.checkpoint_id);
+    }
+    const current = final.get(item.scenario_id);
+    if (!current || Number(item.attempt) > Number(current.attempt)) final.set(item.scenario_id, item);
+  }
+  if (!requireCompleteFinal) return true;
+  return scenarios.every((scenario) => {
+    const attempt = final.get(scenario.id);
+    if (!attempt || attempt.status !== 'passed') return false;
+    const checkpoints = new Map(attempt.checkpoints.map((checkpoint) => [checkpoint.checkpoint_id, checkpoint]));
+    return scenario.checkpoints.length === checkpoints.size &&
+      scenario.checkpoints.every((checkpoint) => checkpoints.get(checkpoint.id)?.status === 'passed');
+  });
+}
+
+function resolvedIssueReferences(result) {
+  const scenarios = new Map(result.plan.scenarios.map((scenario) => [scenario.id, scenario]));
+  return result.issues.every((item) => scenarios.get(item.scenario_id)?.checkpoints
+    .some((checkpoint) => checkpoint.id === item.checkpoint_id));
+}
+
+/** Match the classifier's comparison of independently observed checkpoint text. */
+function normalizedObservation(value) {
+  return value.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+/** Product and advisory findings must be backed by reproducible controller evidence. */
+function reproducedIssues(result) {
+  const attempts = new Map(result.attempts.map((item) => [`${item.scenario_id}:${item.attempt}`, item]));
+  const scenarios = new Map(result.plan.scenarios.map((scenario) => [scenario.id, scenario]));
+  return result.issues.every((item) => {
+    if (!item.reproducible || item.attempt_numbers.length !== 2 ||
+      !item.attempt_numbers.includes(1) || !item.attempt_numbers.includes(2)) return false;
+    const scenario = scenarios.get(item.scenario_id);
+    const sealed = scenario?.checkpoints.find((checkpoint) => checkpoint.id === item.checkpoint_id);
+    const first = attempts.get(`${item.scenario_id}:1`);
+    const second = attempts.get(`${item.scenario_id}:2`);
+    const firstCheckpoint = first?.checkpoints.find((checkpoint) => checkpoint.checkpoint_id === item.checkpoint_id);
+    const secondCheckpoint = second?.checkpoints.find((checkpoint) => checkpoint.checkpoint_id === item.checkpoint_id);
+    return first?.status === 'failed' && second?.status === 'failed' &&
+      firstCheckpoint?.status === 'failed' && secondCheckpoint?.status === 'failed' &&
+      firstCheckpoint.expected === sealed?.expected && secondCheckpoint.expected === sealed?.expected &&
+      normalizedObservation(firstCheckpoint.observed) === normalizedObservation(secondCheckpoint.observed) &&
+      item.expected === sealed?.expected && item.actual === secondCheckpoint.observed;
+  });
+}
+
+/** References remain coherent even when finalization changes the terminal outcome. */
+function evidenceIsCoherent(result) {
+  if (result.attempts.length > 0 && (!record(result.plan) || !knownEvidence(result, false))) return false;
+  if (result.issues.length > 0 && (
+    !record(result.plan) ||
+    !resolvedIssueReferences(result) ||
+    !reproducedIssues(result) ||
+    (result.issues.some((item) => item.classification === 'verified') &&
+      (result.base_resolution !== 'exact' || !record(result.target) || result.target.verdict_eligible !== true))
+  )) return false;
+  return true;
+}
+
+/** A verdict-eligible flag is only meaningful when it is backed by revision proof. */
+function targetEligibilityIsCoherent(result) {
+  if (!record(result.target)) return true;
+  const proof = result.target.revision;
+  if (!record(proof)) return false;
+  if (proof.verified_against === 'merge') {
+    if (proof.expected_sha === null || proof.expected_sha.toLowerCase() !== result.merge_sha.toLowerCase() ||
+      proof.contains_merge_sha !== true) return false;
+  } else if (proof.verified_against === 'head') {
+    if (proof.observed_sha === null || result.target.kind !== 'preview-deployment' ||
+      proof.relation !== 'exact' || typeof proof.contains_merge_sha !== 'boolean' ||
+      proof.contains_merge_sha !== (proof.observed_sha.toLowerCase() === result.merge_sha.toLowerCase())) {
+      return false;
+    }
+  }
+  if (result.target.verdict_eligible !== true) return true;
+  return result.base_resolution === 'exact' && proof.expected_sha !== null &&
+    proof.observed_sha !== null && proof.relation !== 'unverified' && proof.method !== 'none' &&
+    (proof.verified_against === 'merge' || proof.verified_against === 'head');
+}
+
+/** Terminal outcomes must be internally compatible with classifyQaOutcome. */
+function presentationIsComplete(result) {
+  if (!targetEligibilityIsCoherent(result) || !evidenceIsCoherent(result)) return false;
+  if ((result.outcome === 'blocked' || result.outcome === 'cancelled') && result.issues.length !== 0) return false;
+  if (result.outcome === 'infrastructure_error' || result.outcome === 'blocked' || result.outcome === 'cancelled') {
+    return true;
+  }
+  if (result.outcome === 'no_testable_surface') {
+    return record(result.plan) && result.plan.testability === 'no_testable_surface' &&
+      result.attempts.length === 0 && result.issues.length === 0 && result.cleanup.status !== 'failed' &&
+      (result.target === null || (record(result.target) && result.target.stability === 'stable'));
+  }
+  if (result.outcome === 'product_issue') {
+    return record(result.target) && record(result.plan) && result.target.stability === 'stable' &&
+      result.target.verdict_eligible === true && result.base_resolution === 'exact' &&
+      result.plan.testability === 'testable' &&
+      result.cleanup.status !== 'failed' && result.attempts.length > 0 && result.issues.length > 0 &&
+      result.issues.some((item) => item.classification === 'verified') &&
+      !result.attempts.some((item) => item.status === 'blocked' || item.status === 'infrastructure_error') &&
+      knownEvidence(result, false) && resolvedIssueReferences(result) && reproducedIssues(result);
+  }
+  if (!SUCCESS_OUTCOMES.has(result.outcome)) return true;
+  if (!record(result.target) || !record(result.plan) || result.cleanup.status === 'failed' ||
+    result.target.stability !== 'stable') return false;
+  if (result.plan.testability !== 'testable') return false;
+  if (result.outcome === 'advisory') {
+    return result.attempts.length > 0 && result.issues.length > 0 &&
+      result.issues.every((item) => item.classification === 'advisory') &&
+      !result.attempts.some((item) => item.status === 'blocked' || item.status === 'infrastructure_error') &&
+      knownEvidence(result, false) && resolvedIssueReferences(result) && reproducedIssues(result);
+  }
+  if (result.issues.length !== 0 || result.attempts.length === 0 || !knownEvidence(result, true)) return false;
+  if (result.outcome === 'passed') {
+    return result.attempts.every((item) => item.status === 'passed' &&
+      item.checkpoints.every((checkpoint) => checkpoint.status === 'passed'));
+  }
+  // classifyQaOutcome emits flaky only after an initial failure followed by a
+  // passing retry, never for blocked/infrastructure attempts.
+  return !result.attempts.some((item) => item.status === 'blocked' || item.status === 'infrastructure_error') &&
+    result.attempts.some((item) => item.attempt === 1 && item.status === 'failed' &&
+      result.attempts.some((retry) => retry.scenario_id === item.scenario_id && retry.attempt === 2 && retry.status === 'passed'));
+}
+
 /** @param {unknown} value @returns {boolean} */
 export function isQaRunResult(value) {
   if (!exact(value, [
@@ -399,5 +567,5 @@ export function isQaRunResult(value) {
     Array.isArray(r.attempts) && r.attempts.every(attempt) &&
     Array.isArray(r.issues) && r.issues.every(issue) && cleanup(r.cleanup) &&
     Array.isArray(r.artifacts) && r.artifacts.every(artifact) && runtime(r.runtime) && cost(r.cost) &&
-    textList(r.warnings, 100);
+    textList(r.warnings, 100) && presentationIsComplete(r);
 }

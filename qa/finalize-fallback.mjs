@@ -7,7 +7,141 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { isQaRunResult } from '../src/qa/result-validator.js';
+
+// This branch is deliberately before the normal finalizer imports. It must remain usable when
+// image resolution, runtime preparation, or trusted-policy evaluation fails, and it may only use
+// Node built-ins or static data from this Action.
+const preflightPhases = new Map([
+  ['image', {
+    title: 'The released QA image could not be verified',
+    detail: 'Juror stopped before starting QA because its signed runtime image was not available as a trusted release.',
+  }],
+  ['runtime', {
+    title: 'The isolated QA runtime could not be prepared',
+    detail: 'Juror stopped before starting QA because the runner could not prepare its isolated workspace.',
+  }],
+  ['policy', {
+    title: 'The trusted QA policy could not be evaluated',
+    detail: 'Juror stopped before starting QA because its trusted policy gate did not complete.',
+  }],
+]);
+
+function validRepository(value) {
+  return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(value || '');
+}
+
+function positivePr(value) {
+  return /^[1-9][0-9]*$/.test(value || '') && Number.isSafeInteger(Number(value));
+}
+
+function safeControlPath(value) {
+  if (!value || !path.isAbsolute(value)) return null;
+  try {
+    const parent = path.dirname(value);
+    const parentStat = fs.lstatSync(parent);
+    if (!parentStat.isDirectory() || parentStat.isSymbolicLink()) return null;
+    try {
+      const leaf = fs.lstatSync(value);
+      return leaf.isFile() && !leaf.isSymbolicLink() ? value : null;
+    } catch (error) {
+      if (error?.code === 'ENOENT') return value;
+      return null;
+    }
+  } catch {
+    return null;
+  }
+}
+
+function safeNewReportPath(value) {
+  if (!value || !path.isAbsolute(value)) return null;
+  try {
+    const parent = path.dirname(value);
+    const stat = fs.lstatSync(parent);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) return null;
+    if (fs.existsSync(value) && fs.lstatSync(value).isSymbolicLink()) return null;
+    return value;
+  } catch {
+    return null;
+  }
+}
+
+function preflightReport(repository, prNumber) {
+  const now = new Date().toISOString();
+  return {
+    schema_version: 1,
+    run_id: `preflight-${repository.replace('/', '-')}-${prNumber}`,
+    repository,
+    pr_number: prNumber,
+    merge_sha: '0'.repeat(40),
+    base_resolution: 'conservative',
+    source_base_sha: '0'.repeat(40),
+    policy_base_shas: ['0'.repeat(40)],
+    started_at: now,
+    completed_at: now,
+    duration_ms: 0,
+    outcome: 'infrastructure_error',
+    conclusion: 'failure',
+    target: null,
+    plan: null,
+    attempts: [],
+    issues: [],
+    cleanup: { status: 'not_required', summary: 'QA did not begin.', error: null },
+    artifacts: [],
+    runtime: { model_id: 'unknown', model_version: null, browser_name: 'chromium', browser_version: 'unknown' },
+    cost: { usage: null, usd: null, source: 'unknown' },
+    warnings: [],
+  };
+}
+
+function runPreflight() {
+  const phase = process.env.JUROR_QA_PREFLIGHT_PHASE || '';
+  const message = preflightPhases.get(phase);
+  const outputPath = safeControlPath(process.env.GITHUB_OUTPUT);
+  const summaryPath = safeControlPath(process.env.GITHUB_STEP_SUMMARY);
+  if (!message || !outputPath || !summaryPath) {
+    throw new Error('QA preflight could not safely publish its control output');
+  }
+
+  const repository = process.env.GITHUB_REPOSITORY || '';
+  const pr = process.env.PR_NUMBER || '';
+  const repositoryAvailable = repository.length > 0;
+  const prAvailable = pr.length > 0;
+  if ((repositoryAvailable && !validRepository(repository)) || (prAvailable && !positivePr(pr))) {
+    throw new Error('QA preflight received invalid trusted run identity');
+  }
+  const reportPath = process.env.JUROR_QA_PREFLIGHT_WRITE_REPORT === 'true'
+    ? safeNewReportPath(process.env.REPORT_PATH)
+    : null;
+  if (process.env.JUROR_QA_PREFLIGHT_WRITE_REPORT === 'true' && (!reportPath || !repositoryAvailable || !prAvailable)) {
+    throw new Error('QA preflight could not safely create its report');
+  }
+  if (reportPath) fs.writeFileSync(reportPath, `${JSON.stringify(preflightReport(repository, Number(pr)), null, 2)}\n`, { mode: 0o600 });
+
+  const identity = repositoryAvailable && prAvailable ? `- Pull request: #${pr}\n` : '- Pull request: unavailable\n';
+  const summary = `## 🛑 Juror QA — Setup failure\n\n` +
+    `> [!CAUTION]\n` +
+    `> No product verdict was produced because Juror could not safely begin QA.\n\n` +
+    `### What needs attention\n\n${message.title}. ${message.detail}\n\n` +
+    `<details><summary>Run details</summary>\n\n` +
+    `- Outcome: \`infrastructure_error\`\n${identity}` +
+    `- Phase: \`${phase}\`\n` +
+    `- Browser issues retained: 0\n\n</details>\n`;
+  fs.appendFileSync(summaryPath, summary);
+  const values = {
+    outcome: 'infrastructure_error', issues: 0, scenarios: 0, 'target-kind': 'none',
+    'target-sha': 'unverified', 'cost-usd': 'unknown', 'artifact-url': '',
+    // This report exists only to support the best-effort sticky; it is not a semantic output.
+    'report-path': '', 'exit-code': 1,
+  };
+  for (const [key, value] of Object.entries(values)) fs.appendFileSync(outputPath, `${key}=${value}\n`);
+}
+
+if (process.env.JUROR_QA_PREFLIGHT_MODE === 'true') {
+  runPreflight();
+  process.exit(0);
+}
+
+const { isQaRunResult } = await import('../src/qa/result-validator.js');
 
 const outcomes = new Set([
   'passed',

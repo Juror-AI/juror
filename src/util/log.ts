@@ -87,10 +87,12 @@ function redactPatterns(text: string, marker: string): string {
   return out;
 }
 
-function collisionSafeMarker(secrets: readonly string[]): string {
+/** Select a readable marker that cannot reproduce any exact value it replaces. */
+export function safeRedactionMarker(secrets: Iterable<string>): string {
+  const values = [...new Set([...secrets].filter((value) => value.length > 0))];
   const readable = ['[redacted]', '[secret removed]', '[credential omitted]'];
   for (const candidate of readable) {
-    if (secrets.every((secret) => !candidate.includes(secret) && !secret.includes(candidate))) {
+    if (values.every((secret) => !candidate.includes(secret) && !secret.includes(candidate))) {
       return candidate;
     }
   }
@@ -99,7 +101,7 @@ function collisionSafeMarker(secrets: readonly string[]): string {
   // choices without ever reproducing one of those exact values.
   for (let codePoint = 0xe000; codePoint <= 0xf8ff; codePoint++) {
     const candidate = String.fromCodePoint(codePoint);
-    if (secrets.every((secret) => !candidate.includes(secret) && !secret.includes(candidate))) {
+    if (values.every((secret) => !candidate.includes(secret) && !secret.includes(candidate))) {
       return candidate;
     }
   }
@@ -108,17 +110,23 @@ function collisionSafeMarker(secrets: readonly string[]): string {
   throw new Error('Unable to select a collision-free redaction marker');
 }
 
-/** Redact known live secret values (from env) in addition to shape-based matching. */
-export function redactWith(text: string, secrets: Iterable<string>): string {
+/**
+ * Apply exact and shape-based redaction with a caller-selected collision-safe
+ * marker. This is used when another boundary must share that same marker.
+ */
+export function redactWithMarker(
+  text: string,
+  secrets: Iterable<string>,
+  marker: string,
+): string {
+  const exact = [...new Set([...secrets].filter((value) => value.length > 0))]
+    .sort((left, right) => right.length - left.length);
+  if (exact.length === 0) return redactPatterns(text, marker);
+
   // QA credentials may intentionally be short fixture values. Sort longest-first
   // and merge every match range so overlapping values are still removed. Existing
   // redaction markers are protected from another pass, making artifact/controller
   // pipelines idempotent even for a canary such as `a` or `redacted`.
-  const exact = [...new Set([...secrets].filter((value) => value.length > 0))]
-    .sort((left, right) => right.length - left.length);
-  if (exact.length === 0) return redact(text);
-
-  const marker = collisionSafeMarker(exact);
   const protectedMarkers: Array<{ start: number; end: number }> = [];
   for (let offset = 0; offset < text.length;) {
     const start = text.indexOf(marker, offset);
@@ -163,4 +171,11 @@ export function redactWith(text: string, secrets: Iterable<string>): string {
     cursor = range.end;
   }
   return redactPatterns(out + text.slice(cursor), marker);
+}
+
+/** Redact known live secret values (from env) in addition to shape-based matching. */
+export function redactWith(text: string, secrets: Iterable<string>): string {
+  const exact = [...new Set([...secrets].filter((value) => value.length > 0))];
+  if (exact.length === 0) return redact(text);
+  return redactWithMarker(text, exact, safeRedactionMarker(exact));
 }

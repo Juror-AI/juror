@@ -1,10 +1,14 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { finalizeQaEvidence, markQaInfrastructureError } from '../src/qa/finalize.js';
+import {
+  finalizeQaEvidence,
+  markQaInfrastructureError,
+  normalizeQaArtifactUrl,
+} from '../src/qa/finalize.js';
 import { isQaRunResult } from '../src/qa/result-validator.js';
 import { QA_RUN_RESULT_JSON_SCHEMA } from '../src/qa/schema.js';
 import type { QaRunResult } from '../src/qa/types.js';
@@ -31,9 +35,41 @@ function result(): QaRunResult {
     duration_ms: 1_000,
     outcome: 'passed',
     conclusion: 'success',
-    target: null,
-    plan: null,
-    attempts: [],
+    target: {
+      kind: 'staging-deployment',
+      url: 'https://staging.example.test/',
+      allowed_origin: 'https://staging.example.test',
+      environment: 'staging',
+      deployment_id: 1,
+      deployment_status_id: 2,
+      revision: {
+        verified_against: 'merge', expected_sha: 'a'.repeat(40), observed_sha: 'a'.repeat(40),
+        relation: 'exact', method: 'deployment-sha', contains_merge_sha: true,
+        additional_commits: [], additional_commits_truncated: false,
+      },
+      stability: 'stable', verdict_eligible: true,
+      resolved_at: '2026-08-19T00:00:00.000Z', ready_at: '2026-08-19T00:00:01.000Z',
+    },
+    plan: {
+      schema_version: 1, impact_assessment: 'The settings save flow changed.', testability: 'testable',
+      no_testable_surface_reason: null, surfaces: ['Settings'],
+      scenarios: [{
+        id: 'save-settings', title: 'Save settings', rationale: 'Exercise the affected form.',
+        viewport: { kind: 'desktop', width: 1000, height: 700, justification: 'Desktop form.' },
+        preconditions: [], seeded_state: [],
+        checkpoints: [{
+          id: 'saved', description: 'The saved indicator appears.', expected: 'Saved',
+          assertion: { kind: 'text', locator: { by: 'test_id', value: 'saved', name: null, exact: false, nth: null }, url_contains: null },
+        }],
+        allowed_mutations: ['none'], cleanup_expectations: [],
+      }],
+      risk_notes: [], blind_spots: [],
+    },
+    attempts: [{
+      scenario_id: 'save-settings', attempt: 1, status: 'passed', started_at: '2026-08-19T00:00:00.000Z', duration_ms: 1,
+      operations: [], checkpoints: [{ checkpoint_id: 'saved', status: 'passed', expected: 'Saved', observed: 'Saved' }],
+      observations: [], evidence_artifact_ids: [],
+    }],
     issues: [],
     cleanup: { status: 'not_required', summary: 'No browser state.', error: null },
     artifacts: [{
@@ -54,6 +90,36 @@ function result(): QaRunResult {
     cost: { usage: null, usd: null, source: 'unknown' },
     warnings: [],
   };
+}
+
+function productIssueResult(): QaRunResult {
+  const current = result();
+  current.outcome = 'product_issue';
+  current.conclusion = 'failure';
+  current.attempts = [1, 2].map((attempt) => ({
+    scenario_id: 'save-settings',
+    attempt: attempt as 1 | 2,
+    status: 'failed' as const,
+    started_at: '2026-08-19T00:00:00.000Z',
+    duration_ms: 1,
+    operations: [],
+    checkpoints: [{ checkpoint_id: 'saved', status: 'failed' as const, expected: 'Saved', observed: 'Not saved' }],
+    observations: [],
+    evidence_artifact_ids: [],
+  }));
+  current.issues = [{
+    id: 'save-settings-saved',
+    scenario_id: 'save-settings',
+    checkpoint_id: 'saved',
+    severity: 'P1',
+    classification: 'verified',
+    reproducible: true,
+    title: 'Settings did not save',
+    expected: 'Saved',
+    actual: 'Not saved',
+    attempt_numbers: [1, 2],
+  }];
+  return current;
 }
 
 function fallbackEnvironment(
@@ -81,7 +147,188 @@ function fallbackEnvironment(
   };
 }
 
+function preflightEnvironment(
+  reportPath: string,
+  summaryPath: string,
+  outputPath: string,
+  extra: Record<string, string> = {},
+): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    GITHUB_REPOSITORY: 'owner/repo',
+    GITHUB_RUN_ID: '7',
+    PR_NUMBER: '42',
+    REPORT_PATH: reportPath,
+    GITHUB_STEP_SUMMARY: summaryPath,
+    GITHUB_OUTPUT: outputPath,
+    JUROR_QA_PREFLIGHT_MODE: 'true',
+    JUROR_QA_PREFLIGHT_PHASE: 'image',
+    JUROR_QA_PREFLIGHT_WRITE_REPORT: 'false',
+    ...extra,
+  };
+}
+
 describe('finalizeQaEvidence', () => {
+  it.each([
+    ['image', 'released QA image could not be verified'],
+    ['runtime', 'isolated QA runtime could not be prepared'],
+    ['policy', 'trusted QA policy could not be evaluated'],
+  ])('publishes static preflight %s failure output without reflecting environment text', (phase, expected) => {
+    const scratch = mkdtempSync(join(tmpdir(), 'juror-qa-preflight-'));
+    try {
+      const reportPath = join(scratch, 'report.json');
+      const summaryPath = join(scratch, 'summary.md');
+      const outputPath = join(scratch, 'output.txt');
+      writeFileSync(summaryPath, '');
+      writeFileSync(outputPath, '');
+      const secret = 'preflight-secret-canary';
+      const execution = spawnSync(process.execPath, [fallbackScript], {
+        cwd: root,
+        encoding: 'utf8',
+        env: preflightEnvironment(reportPath, summaryPath, outputPath, {
+          JUROR_QA_PREFLIGHT_PHASE: phase,
+          JUROR_QA_ACTION_FINALIZATION_ERROR: secret,
+          JUROR_QA_SECRETS_B64: secretBundle(secret),
+        }),
+      });
+
+      expect(execution.status, execution.stderr).toBe(0);
+      const summary = readFileSync(summaryPath, 'utf8');
+      expect(summary).toContain('## 🛑 Juror QA — Setup failure');
+      expect(summary).toContain(expected);
+      expect(summary).not.toContain(secret);
+      const output = readFileSync(outputPath, 'utf8');
+      expect(output).toContain('outcome=infrastructure_error\n');
+      expect(output).toContain('issues=0\n');
+      expect(output).toContain('scenarios=0\n');
+      expect(output).toContain('target-kind=none\n');
+      expect(output).toContain('target-sha=unverified\n');
+      expect(output).toContain('cost-usd=unknown\n');
+      expect(output).toContain('artifact-url=\n');
+      expect(output).toContain('report-path=\n');
+      expect(output).toContain('exit-code=1\n');
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects an untrusted preflight phase without publishing arbitrary text', () => {
+    const scratch = mkdtempSync(join(tmpdir(), 'juror-qa-preflight-invalid-'));
+    try {
+      const summaryPath = join(scratch, 'summary.md');
+      const outputPath = join(scratch, 'output.txt');
+      writeFileSync(summaryPath, '');
+      writeFileSync(outputPath, '');
+      const untrusted = 'image\nsecret-value';
+      const execution = spawnSync(process.execPath, [fallbackScript], {
+        cwd: root,
+        encoding: 'utf8',
+        env: preflightEnvironment(join(scratch, 'report.json'), summaryPath, outputPath, {
+          JUROR_QA_PREFLIGHT_PHASE: untrusted,
+        }),
+      });
+      expect(execution.status).toBe(1);
+      expect(execution.stderr).not.toContain(untrusted);
+      expect(readFileSync(summaryPath, 'utf8')).toBe('');
+      expect(readFileSync(outputPath, 'utf8')).toBe('');
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
+  it('creates a schema-valid synthetic preflight report only when requested', () => {
+    const scratch = mkdtempSync(join(tmpdir(), 'juror-qa-preflight-report-'));
+    try {
+      const reportPath = join(scratch, 'report.json');
+      const summaryPath = join(scratch, 'summary.md');
+      const outputPath = join(scratch, 'output.txt');
+      writeFileSync(summaryPath, '');
+      writeFileSync(outputPath, '');
+      const execution = spawnSync(process.execPath, [fallbackScript], {
+        cwd: root,
+        encoding: 'utf8',
+        env: preflightEnvironment(reportPath, summaryPath, outputPath, {
+          JUROR_QA_PREFLIGHT_PHASE: 'policy',
+          JUROR_QA_PREFLIGHT_WRITE_REPORT: 'true',
+        }),
+      });
+      expect(execution.status, execution.stderr).toBe(0);
+      const report = JSON.parse(readFileSync(reportPath, 'utf8')) as QaRunResult;
+      expect(isQaRunResult(report)).toBe(true);
+      expect(report.outcome).toBe('infrastructure_error');
+      expect(readFileSync(outputPath, 'utf8')).toContain('report-path=\n');
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
+  it('creates absent absolute GitHub control files beneath real directories', () => {
+    const scratch = mkdtempSync(join(tmpdir(), 'juror-qa-preflight-controls-'));
+    try {
+      const outputPath = join(scratch, 'runner-output');
+      const summaryPath = join(scratch, 'runner-summary');
+      const execution = spawnSync(process.execPath, [fallbackScript], {
+        cwd: root,
+        encoding: 'utf8',
+        env: preflightEnvironment(join(scratch, 'report.json'), summaryPath, outputPath),
+      });
+
+      expect(execution.status, execution.stderr).toBe(0);
+      expect(existsSync(outputPath)).toBe(true);
+      expect(existsSync(summaryPath)).toBe(true);
+      expect(readFileSync(outputPath, 'utf8')).toContain('outcome=infrastructure_error\n');
+      expect(readFileSync(summaryPath, 'utf8')).toContain('Setup failure');
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    'missing-output', 'missing-summary', 'relative-output', 'relative-summary',
+    'symlink-parent', 'symlink-leaf', 'directory-leaf',
+  ])(
+    'rejects unsafe %s preflight control paths',
+    (kind) => {
+      const scratch = mkdtempSync(join(tmpdir(), 'juror-qa-preflight-unsafe-'));
+      try {
+        const outputPath = join(scratch, 'output');
+        const summaryPath = join(scratch, 'summary');
+        writeFileSync(outputPath, '');
+        writeFileSync(summaryPath, '');
+        const env: Record<string, string> = {};
+        if (kind === 'missing-output') env.GITHUB_OUTPUT = '';
+        if (kind === 'missing-summary') env.GITHUB_STEP_SUMMARY = '';
+        if (kind === 'relative-output') env.GITHUB_OUTPUT = 'output.txt';
+        if (kind === 'relative-summary') env.GITHUB_STEP_SUMMARY = 'summary.md';
+        if (kind === 'symlink-parent') {
+          const actual = join(scratch, 'actual');
+          const linked = join(scratch, 'linked');
+          mkdirSync(actual);
+          symlinkSync(actual, linked);
+          env.GITHUB_OUTPUT = join(linked, 'output');
+        }
+        if (kind === 'symlink-leaf') {
+          const target = join(scratch, 'target-output');
+          writeFileSync(target, '');
+          rmSync(outputPath);
+          symlinkSync(target, outputPath);
+        }
+        if (kind === 'directory-leaf') {
+          rmSync(summaryPath);
+          mkdirSync(summaryPath);
+        }
+        const execution = spawnSync(process.execPath, [fallbackScript], {
+          cwd: root,
+          encoding: 'utf8',
+          env: preflightEnvironment(join(scratch, 'report.json'), summaryPath, outputPath, env),
+        });
+        expect(execution.status).toBe(1);
+        expect(execution.stderr).toContain('could not safely publish its control output');
+      } finally {
+        rmSync(scratch, { recursive: true, force: true });
+      }
+    },
+  );
   it('records successful artifact delivery without mutating the controller result', () => {
     const original = result();
     const finalized = finalizeQaEvidence(original, {
@@ -123,6 +370,12 @@ describe('finalizeQaEvidence', () => {
       artifactName: 'artifact',
       artifactUrl: 'file:///tmp/evidence',
     })).toThrow(/must use HTTP/);
+    expect(() => finalizeQaEvidence(result(), {
+      artifactName: 'artifact',
+      artifactUrl: 'https://token@github.com/owner/repo/artifact',
+    })).toThrow(/must not contain credentials/);
+    expect(() => normalizeQaArtifactUrl('https://user:password@example.test/artifact'))
+      .toThrow(/must not contain credentials/);
   });
 
   it('preserves a delivered artifact when later publication fails', () => {
@@ -186,6 +439,11 @@ describe('finalizeQaEvidence', () => {
       risk_notes: [],
       blind_spots: [],
     };
+    valid.attempts = [{
+      scenario_id: 'save-settings', attempt: 1, status: 'passed', started_at: valid.started_at, duration_ms: 1,
+      operations: [], checkpoints: [{ checkpoint_id: 'saved', status: 'passed', expected: 'Saved', observed: 'Saved' }],
+      observations: [], evidence_artifact_ids: [],
+    }];
 
     expect(isQaRunResult(valid)).toBe(true);
     valid.plan.scenarios[0]!.checkpoints[0]!.assertion.url_contains = '/unplanned';
@@ -223,7 +481,7 @@ describe('finalizeQaEvidence', () => {
       const persisted = JSON.parse(readFileSync(reportPath, 'utf8')) as QaRunResult;
       expect(persisted.artifacts[0]?.upload?.url).toContain('/artifacts/8');
       expect(readFileSync(summaryPath, 'utf8')).toContain(
-        '[View evidence & video](https://github.com/owner/repo/actions/runs/7/artifacts/8)',
+        '[View evidence &amp; video](https://github.com/owner/repo/actions/runs/7/artifacts/8)',
       );
     } finally {
       rmSync(scratch, { recursive: true, force: true });
@@ -355,7 +613,7 @@ describe('finalizeQaEvidence', () => {
       expect(persisted.artifacts[0]?.upload).toEqual(original.artifacts[0]?.upload);
       expect(isQaRunResult(persisted)).toBe(true);
       expect(readFileSync(summaryPath, 'utf8')).toContain(
-        '[View evidence & video](https://github.com/owner/repo/actions/runs/7/artifacts/8)',
+        '[View evidence &amp; video](https://github.com/owner/repo/actions/runs/7/artifacts/8)',
       );
     } finally {
       rmSync(scratch, { recursive: true, force: true });
@@ -411,9 +669,7 @@ describe('finalizeQaEvidence', () => {
     const scratch = mkdtempSync(join(tmpdir(), 'juror-qa-finalize-product-issue-'));
     try {
       const reportPath = join(scratch, 'report.json');
-      const productIssue = result();
-      productIssue.outcome = 'product_issue';
-      productIssue.conclusion = 'failure';
+      const productIssue = productIssueResult();
       writeFileSync(reportPath, JSON.stringify(productIssue));
       const execution = spawnSync(
         join(root, 'node_modules', '.bin', 'vite-node'),
@@ -454,7 +710,7 @@ describe('finalizeQaEvidence', () => {
       const reportPath = join(scratch, 'report.json');
       const summaryPath = join(scratch, 'summary.md');
       const outputPath = join(scratch, 'output.txt');
-      const original = result();
+      const original = outcome === 'product_issue' ? productIssueResult() : result();
       original.outcome = outcome;
       original.conclusion = conclusion;
       writeFileSync(reportPath, JSON.stringify(original));
@@ -643,7 +899,7 @@ describe('finalizeQaEvidence', () => {
       const reportPath = join(scratch, 'report.json');
       const summaryPath = join(scratch, 'summary.md');
       const outputPath = join(scratch, 'output.txt');
-      const original = finalizeQaEvidence(result(), {
+      const original = finalizeQaEvidence(outcome === 'product_issue' ? productIssueResult() : result(), {
         artifactName: 'juror-qa-evidence-pr-42-7',
         artifactUrl: 'https://github.com/owner/repo/actions/runs/7/artifacts/8',
       });

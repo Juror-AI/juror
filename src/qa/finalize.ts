@@ -1,6 +1,7 @@
 /** Finalize controller-owned evidence only after the Actions artifact step is known. */
 
 import type { QaRunResult } from './types.js';
+import { isQaRunResult } from './result-validator.js';
 
 export interface QaEvidenceUploadResult {
   artifactName?: string | null;
@@ -25,7 +26,7 @@ export function markQaInfrastructureError(
   return result;
 }
 
-function artifactUrl(raw: string): string {
+export function normalizeQaArtifactUrl(raw: string): string {
   let parsed: URL;
   try {
     parsed = new URL(raw);
@@ -35,7 +36,17 @@ function artifactUrl(raw: string): string {
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
     throw new Error('QA artifact URL must use HTTP(S)');
   }
+  if (parsed.username || parsed.password) {
+    throw new Error('QA artifact URL must not contain credentials');
+  }
   return parsed.toString();
+}
+
+function validatedFinalResult(result: QaRunResult): QaRunResult {
+  if (!isQaRunResult(result)) {
+    throw new Error('Finalized QA report does not match the persisted v1 result shape');
+  }
+  return result;
 }
 
 /**
@@ -50,11 +61,11 @@ export function finalizeQaEvidence(
   const error = upload.error?.trim();
 
   if (error) {
-    return markQaInfrastructureError(
+    return validatedFinalResult(markQaInfrastructureError(
       result,
       `Evidence upload failed after QA outcome ${result.outcome}: ${error}`,
       { clearArtifactUploads: true },
-    );
+    ));
   }
 
   const name = upload.artifactName?.trim();
@@ -62,10 +73,10 @@ export function finalizeQaEvidence(
   if (!name || name.length > 200 || !rawUrl) {
     throw new Error('Successful QA evidence finalization requires an artifact name and URL');
   }
-  const url = artifactUrl(rawUrl);
+  const url = normalizeQaArtifactUrl(rawUrl);
   result.artifacts = result.artifacts.map((artifact) => ({
     ...artifact,
     upload: { name, url },
   }));
-  return result;
+  return validatedFinalResult(result);
 }
