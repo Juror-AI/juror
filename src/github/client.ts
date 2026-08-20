@@ -22,6 +22,15 @@ export interface PullMeta {
   baseRef: string;
   headRef: string;
   draft: boolean;
+  state: 'open' | 'closed';
+  merged: boolean;
+  mergedAt: string | null;
+  mergeCommitSha: string | null;
+  /** Number of commits GitHub associates with the PR before merge. */
+  commitCount: number;
+  htmlUrl: string;
+  baseRepo: string;
+  headRepo: string;
 }
 
 export interface IssueComment {
@@ -56,7 +65,16 @@ export interface GitHubClientOptions {
   repo: string;
   /** Juror's version, for the User-Agent. */
   version?: string;
+  /** Optional transport for callers that need a different connection policy. */
+  fetchImpl?: GitHubFetch;
+  /** Cancel requests and retry backoff when the owning command is terminating. */
+  signal?: AbortSignal;
 }
+
+export type GitHubFetch = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
 
 /**
  * The surface `publishReview` depends on. Publishing is the one place where a wrong call
@@ -67,14 +85,22 @@ export interface GitHubApi {
   readonly repo: string;
   request<T>(method: string, path: string, body?: unknown): Promise<T>;
   getPull(n: number): Promise<PullMeta>;
+  /** Authoritative diff retained by GitHub for a specific pull request. */
+  getPullDiff(n: number): Promise<string>;
   /** Immutable three-dot comparison for one captured pull-request snapshot. */
   getCompareDiff(baseSha: string, headSha: string): Promise<string>;
+  /** Ordered commit parents, first-parent first. */
+  getCommitParents(sha: string): Promise<string[]>;
+  /** Authoritative graph relationship from base to head. */
+  getCommitRelationship(baseSha: string, headSha: string): Promise<CommitRelationship>;
   listIssueComments(n: number): Promise<IssueComment[]>;
   listReviewComments(n: number): Promise<ReviewComment[]>;
   createIssueComment(n: number, body: string): Promise<{ id: number }>;
   updateIssueComment(id: number, body: string): Promise<void>;
   createReview(n: number, o: CreateReviewOptions): Promise<void>;
 }
+
+export type CommitRelationship = 'ahead' | 'behind' | 'diverged' | 'identical';
 
 /** Carries the status and parsed body so `publish.ts` can tell a 422 from a 403. */
 export class GitHubApiError extends Error {
@@ -165,6 +191,8 @@ export class GitHubClient implements GitHubApi {
   /** Never logged, never interpolated into an error, never handed to a child process. */
   readonly #token: string;
   readonly #userAgent: string;
+  readonly #fetch: GitHubFetch;
+  readonly #signal?: AbortSignal;
 
   constructor(o: GitHubClientOptions) {
     if (!/^[^/\s]+\/[^/\s]+$/.test(o.repo)) {
@@ -175,6 +203,8 @@ export class GitHubClient implements GitHubApi {
     this.apiBase = base.replace(/\/+$/, '');
     this.#token = o.token;
     this.#userAgent = o.version ? `juror/${o.version}` : 'juror';
+    this.#fetch = o.fetchImpl ?? fetch;
+    this.#signal = o.signal;
   }
 
   async request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -195,6 +225,13 @@ export class GitHubClient implements GitHubApi {
     return toPullMeta(await this.request<unknown>('GET', path), path);
   }
 
+  async getPullDiff(n: number): Promise<string> {
+    if (!Number.isSafeInteger(n) || n < 1) throw new Error(`Invalid pull request number ${n}`);
+    const path = `/repos/${this.#repoPath()}/pulls/${n}`;
+    const { text } = await this.#send('GET', path, undefined, 'application/vnd.github.v3.diff');
+    return text;
+  }
+
   async getCompareDiff(baseSha: string, headSha: string): Promise<string> {
     // Both sides are commit ids captured from `getPull()`. Unlike `/pulls/{n}`, this path
     // cannot start returning a newer diff if the author pushes while the request is in flight.
@@ -207,6 +244,36 @@ export class GitHubClient implements GitHubApi {
       'application/vnd.github.v3.diff',
     );
     return text;
+  }
+
+  async getCommitParents(sha: string): Promise<string[]> {
+    if (!/^[0-9a-f]{40}$/i.test(sha)) throw new Error('Commit SHA must be 40 hexadecimal characters');
+    const path = `/repos/${this.#repoPath()}/commits/${encodeURIComponent(sha)}`;
+    const payload = asRecord(await this.request<unknown>('GET', path));
+    const parents = payload?.parents;
+    if (!Array.isArray(parents)) throw new Error(`Unexpected commit payload from ${path}`);
+    const shas = parents
+      .map((parent) => asString(asRecord(parent)?.sha).toLowerCase())
+      .filter((parent) => /^[0-9a-f]{40}$/.test(parent));
+    if (shas.length !== parents.length) throw new Error(`Unexpected parent SHA in ${path}`);
+    return shas;
+  }
+
+  async getCommitRelationship(baseSha: string, headSha: string): Promise<CommitRelationship> {
+    if (!/^[0-9a-f]{40}$/i.test(baseSha) || !/^[0-9a-f]{40}$/i.test(headSha)) {
+      throw new Error('Commit relationship requires two full 40-character SHAs');
+    }
+    const comparison = `${encodeURIComponent(baseSha)}...${encodeURIComponent(headSha)}`;
+    // We need only the graph status. GitHub includes up to 300 changed-file patches only on the
+    // first paginated page, so ask for the second one and a single commit while retaining the
+    // top-level relationship fields.
+    const path = `/repos/${this.#repoPath()}/compare/${comparison}?per_page=1&page=2`;
+    const payload = asRecord(await this.request<unknown>('GET', path));
+    const status = asString(payload?.status);
+    if (status !== 'ahead' && status !== 'behind' && status !== 'diverged' && status !== 'identical') {
+      throw new Error(`Unexpected commit relationship from ${path}`);
+    }
+    return status;
   }
 
   async listIssueComments(n: number): Promise<IssueComment[]> {
@@ -314,20 +381,23 @@ export class GitHubClient implements GitHubApi {
     let lastNetworkError: unknown = null;
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      this.#signal?.throwIfAborted();
       let res: Response;
       let text: string;
       try {
-        res = await fetch(url, {
+        res = await this.#fetch(url, {
           method,
           headers: this.#headers(accept, hasBody),
           body: hasBody ? JSON.stringify(body) : undefined,
+          ...(this.#signal ? { signal: this.#signal } : {}),
         });
         text = await res.text();
       } catch (e) {
+        this.#signal?.throwIfAborted();
         // DNS, TLS, socket reset: transient often enough to be worth the same budget.
         lastNetworkError = e;
         if (attempt === MAX_ATTEMPTS) break;
-        await sleep(backoffMs(attempt));
+        await sleep(backoffMs(attempt), undefined, this.#signal ? { signal: this.#signal } : {});
         continue;
       }
 
@@ -338,7 +408,7 @@ export class GitHubClient implements GitHubApi {
       log.debug(
         `github: ${res.status} on ${method} ${path}; retrying in ${Math.round(wait / 100) / 10}s (${attempt}/${MAX_ATTEMPTS})`,
       );
-      await sleep(wait);
+      await sleep(wait, undefined, this.#signal ? { signal: this.#signal } : {});
     }
 
     throw new Error(
@@ -415,6 +485,7 @@ function toPullMeta(v: unknown, path: string): PullMeta {
   const base = asRecord(o?.base);
   const head = asRecord(o?.head);
   if (!o || !base || !head) throw new Error(`Unexpected pull payload from ${path}`);
+  const commitCount = asNumber(o.commits);
   return {
     number: asNumber(o.number),
     title: asString(o.title),
@@ -424,5 +495,13 @@ function toPullMeta(v: unknown, path: string): PullMeta {
     baseRef: asString(base.ref),
     headRef: asString(head.ref),
     draft: o.draft === true,
+    state: o.state === 'closed' ? 'closed' : 'open',
+    merged: o.merged === true || typeof o.merged_at === 'string',
+    mergedAt: typeof o.merged_at === 'string' ? o.merged_at : null,
+    mergeCommitSha: typeof o.merge_commit_sha === 'string' && o.merge_commit_sha ? o.merge_commit_sha : null,
+    commitCount: Number.isSafeInteger(commitCount) && commitCount > 0 ? commitCount : 0,
+    htmlUrl: asString(o.html_url),
+    baseRepo: asString(asRecord(base.repo)?.full_name),
+    headRepo: asString(asRecord(head.repo)?.full_name),
   };
 }

@@ -6,6 +6,8 @@
  * developed and tested against each other without circular imports.
  */
 
+import type { QaConfig } from './qa/types.js';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Findings
 // ─────────────────────────────────────────────────────────────────────────────
@@ -457,6 +459,8 @@ export interface JurorConfig {
     cost_receipt: boolean;
     suppressed_findings: 'collapsed' | 'hidden' | 'inline';
   };
+  /** Opt-in post-merge browser QA. Disabled by default. */
+  qa: QaConfig;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

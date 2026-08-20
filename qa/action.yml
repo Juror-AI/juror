@@ -1,0 +1,984 @@
+name: Juror Post-Merge QA
+description: Plan and execute affected browser journeys against a merged pull request deployment.
+author: juror-ai
+
+inputs:
+  github-token:
+    description: GitHub token for pull/deployment reads, image verification, and the QA sticky comment.
+    required: true
+    default: ${{ github.token }}
+  pr-number:
+    description: Merged pull request number. Defaults to the triggering pull request.
+    required: false
+  target-url:
+    description: Optional explicit staging or immutable deployment URL.
+    required: false
+  target-sha:
+    description: Optional deployed commit SHA used to verify an explicit target.
+    required: false
+  storage-state:
+    description: Optional trusted Playwright storage-state file on the runner.
+    required: false
+  post:
+    description: Update the Juror QA sticky comment.
+    required: false
+    default: 'true'
+  image:
+    description: Optional Juror QA GHCR tag or digest. Defaults to the image matching this Action release.
+    required: false
+
+outputs:
+  outcome:
+    description: Juror semantic QA outcome, or disabled when QA is opted out.
+    value: ${{ steps.finalize.outputs.outcome || steps.preflight.outputs.outcome || steps.disabled.outputs.outcome }}
+  issues:
+    description: Number of verified or advisory QA issues.
+    value: ${{ steps.finalize.outputs.issues || steps.preflight.outputs.issues || steps.disabled.outputs.issues }}
+  scenarios:
+    description: Number of planned scenarios.
+    value: ${{ steps.finalize.outputs.scenarios || steps.preflight.outputs.scenarios || steps.disabled.outputs.scenarios }}
+  target-kind:
+    description: Resolved target kind.
+    value: ${{ steps.finalize.outputs.target-kind || steps.preflight.outputs.target-kind || steps.disabled.outputs.target-kind }}
+  target-sha:
+    description: Observed deployed revision, when verified.
+    value: ${{ steps.finalize.outputs.target-sha || steps.preflight.outputs.target-sha || steps.disabled.outputs.target-sha }}
+  cost-usd:
+    description: Model cost, or unknown when the provider does not report it.
+    value: ${{ steps.finalize.outputs.cost-usd || steps.preflight.outputs.cost-usd || steps.disabled.outputs.cost-usd }}
+  artifact-url:
+    description: GitHub Actions artifact containing diagnostics and permitted unauthenticated videos.
+    value: ${{ steps.finalize.outputs.artifact-url || steps.preflight.outputs.artifact-url || steps.evidence.outputs.artifact-url }}
+  report-path:
+    description: Path to the versioned JSON QA report on the runner.
+    value: ${{ steps.finalize.outputs.report-path || steps.preflight.outputs.report-path || steps.disabled.outputs.report-path }}
+  image-digest:
+    description: Exact attested OCI image reference that executed Juror QA.
+    value: ${{ steps.image.outputs.ref }}
+
+runs:
+  using: composite
+  steps:
+    # The caller supplies QA credentials through the composite Action environment. Override
+    # every supported provider/application secret here so image resolution and provenance
+    # verification happen before any of those credentials are injected into a container.
+    - name: Resolve and verify the released QA image
+      id: image
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REQUESTED_IMAGE: ${{ inputs.image }}
+        ACTION_REF: ${{ github.action_ref }}
+        JUROR_OPENAI_API_KEY: ''
+        OPENAI_API_KEY: ''
+        JUROR_ANTHROPIC_API_KEY: ''
+        ANTHROPIC_API_KEY: ''
+        JUROR_XAI_API_KEY: ''
+        XAI_API_KEY: ''
+        JUROR_FIREWORKS_API_KEY: ''
+        FIREWORKS_API_KEY: ''
+        JUROR_OPENROUTER_API_KEY: ''
+        OPENROUTER_API_KEY: ''
+        JUROR_QA_SECRETS_B64: ''
+        CODEX_HOME: ''
+      run: |
+        set -euo pipefail
+
+        PACKAGE_JSON="$GITHUB_ACTION_PATH/../package.json"
+        VERSION="$(PACKAGE_JSON="$PACKAGE_JSON" node -p 'require(process.env.PACKAGE_JSON).version')"
+        if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+          echo "::error::The Juror Action package has an invalid release version: $VERSION"
+          exit 1
+        fi
+
+        SOURCE_IMAGE="$REQUESTED_IMAGE"
+        if [ -z "$SOURCE_IMAGE" ]; then
+          SOURCE_IMAGE="ghcr.io/juror-ai/juror-qa:v$VERSION"
+        fi
+        case "$SOURCE_IMAGE" in
+          ghcr.io/juror-ai/juror-qa:*|ghcr.io/juror-ai/juror-qa@sha256:*) ;;
+          *)
+            echo "::error::QA image must be published from ghcr.io/juror-ai/juror-qa"
+            exit 1
+            ;;
+        esac
+
+        # Pull through an empty Docker client configuration: the release workflow proves the
+        # package is publicly readable, and no caller registry credential is trusted here.
+        export DOCKER_CONFIG="$RUNNER_TEMP/juror-qa-empty-docker-config"
+        mkdir -p "$DOCKER_CONFIG"
+        chmod 0700 "$DOCKER_CONFIG"
+        docker pull --quiet "$SOURCE_IMAGE" >/dev/null
+
+        EXACT_IMAGE=''
+        while IFS= read -r candidate; do
+          if [[ "$candidate" =~ ^ghcr\.io/juror-ai/juror-qa@sha256:[0-9a-f]{64}$ ]]; then
+            EXACT_IMAGE="$candidate"
+            break
+          fi
+        done < <(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$SOURCE_IMAGE")
+        if [ -z "$EXACT_IMAGE" ]; then
+          echo "::error::Could not resolve the QA image to an exact sha256 digest"
+          exit 1
+        fi
+
+        VERIFY_ARGS=(
+          "oci://$EXACT_IMAGE"
+          --bundle-from-oci
+          --repo Juror-AI/juror
+          --signer-workflow Juror-AI/juror/.github/workflows/release-qa-image.yml
+          --source-ref "refs/tags/v$VERSION"
+          --deny-self-hosted-runners
+          --format json
+        )
+        if [[ "$ACTION_REF" =~ ^[0-9a-f]{40}$ ]]; then
+          VERIFY_ARGS+=(--source-digest "$ACTION_REF")
+        else
+          echo "::notice::Action source is not a full commit; enforcing the release tag and signer workflow identity"
+        fi
+        gh attestation verify "${VERIFY_ARGS[@]}" > "$RUNNER_TEMP/juror-qa-image-attestation.json"
+
+        IMAGE_REVISION="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$EXACT_IMAGE")"
+        IMAGE_VERSION="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$EXACT_IMAGE")"
+        if [[ "$ACTION_REF" =~ ^[0-9a-f]{40}$ ]] && [ "$IMAGE_REVISION" != "$ACTION_REF" ]; then
+          echo "::error::Attested image revision $IMAGE_REVISION does not match Action revision $ACTION_REF"
+          exit 1
+        fi
+        if [ "$IMAGE_VERSION" != "v$VERSION" ]; then
+          echo "::error::Attested image version $IMAGE_VERSION does not match Action release v$VERSION"
+          exit 1
+        fi
+
+        {
+          echo "ref=$EXACT_IMAGE"
+          echo "version=$VERSION"
+        } >> "$GITHUB_OUTPUT"
+        echo "::notice::Verified Juror QA image: $EXACT_IMAGE"
+
+    - name: Prepare isolated QA runtime
+      id: runtime
+      shell: bash
+      env:
+        INPUT_PR: ${{ inputs.pr-number }}
+        EVENT_PR: ${{ github.event.pull_request.number }}
+        INPUT_STORAGE_STATE: ${{ inputs.storage-state }}
+        JUROR_OPENAI_API_KEY: ''
+        OPENAI_API_KEY: ''
+        JUROR_QA_SECRETS_B64: ''
+      run: |
+        set -euo pipefail
+        PR="$INPUT_PR"
+        if [ -z "$PR" ]; then PR="$EVENT_PR"; fi
+        if ! [[ "$PR" =~ ^[1-9][0-9]*$ ]]; then
+          echo "::error::A positive merged pull request number is required"
+          exit 1
+        fi
+
+        RUNNER_UID="$(id -u)"
+        RUNNER_GID="$(id -g)"
+        if ! [[ "$RUNNER_UID" =~ ^[0-9]+$ ]] || ! [[ "$RUNNER_GID" =~ ^[0-9]+$ ]]; then
+          echo "::error::Could not determine a safe numeric runner UID and GID"
+          exit 1
+        fi
+        RUNTIME_USER="$RUNNER_UID:$RUNNER_GID"
+
+        EVIDENCE_DIR="$RUNNER_TEMP/juror-qa-evidence"
+        mkdir -p "$EVIDENCE_DIR"
+        chmod 0777 "$EVIDENCE_DIR"
+
+        STORAGE_SOURCE=''
+        if [ -n "$INPUT_STORAGE_STATE" ]; then
+          if [ ! -f "$INPUT_STORAGE_STATE" ]; then
+            echo "::error::Playwright storage-state file does not exist: $INPUT_STORAGE_STATE"
+            exit 1
+          fi
+          STORAGE_SOURCE="$(realpath "$INPUT_STORAGE_STATE")"
+        fi
+
+        {
+          echo "pr-number=$PR"
+          echo "evidence-dir=$EVIDENCE_DIR"
+          echo "report-path=$EVIDENCE_DIR/report.json"
+          echo "summary-path=$EVIDENCE_DIR/summary.md"
+          echo "storage-source=$STORAGE_SOURCE"
+          echo "runtime-user=$RUNTIME_USER"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Read trusted QA policy before credential handoff
+      id: policy
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        GITHUB_API_URL: ${{ github.api_url }}
+        GITHUB_SERVER_URL: ${{ github.server_url }}
+        EXACT_IMAGE: ${{ steps.image.outputs.ref }}
+        PR_NUMBER: ${{ steps.runtime.outputs.pr-number }}
+        RUNTIME_USER: ${{ steps.runtime.outputs.runtime-user }}
+        INPUT_TARGET_URL: ${{ inputs.target-url }}
+        INPUT_TARGET_SHA: ${{ inputs.target-sha }}
+        TARGET_REPOSITORY: ${{ github.repository }}
+        JUROR_OPENAI_API_KEY: ''
+        OPENAI_API_KEY: ''
+        JUROR_ANTHROPIC_API_KEY: ''
+        ANTHROPIC_API_KEY: ''
+        JUROR_XAI_API_KEY: ''
+        XAI_API_KEY: ''
+        JUROR_FIREWORKS_API_KEY: ''
+        FIREWORKS_API_KEY: ''
+        JUROR_OPENROUTER_API_KEY: ''
+        OPENROUTER_API_KEY: ''
+        JUROR_QA_SECRETS_B64: ''
+        CODEX_HOME: ''
+      run: |
+        set -euo pipefail
+        if ! [[ "$RUNTIME_USER" =~ ^[0-9]+:[0-9]+$ ]]; then
+          echo "::error::Prepared QA policy user must be a numeric UID:GID"
+          exit 1
+        fi
+        if [ -n "$INPUT_TARGET_SHA" ] && [ -z "$INPUT_TARGET_URL" ]; then
+          echo "::error::target-sha requires target-url"
+          exit 1
+        fi
+        ARGS=(qa-policy --pr "$PR_NUMBER" --repo "$TARGET_REPOSITORY" --repo-dir /workspace)
+        if [ -n "$INPUT_TARGET_URL" ]; then ARGS+=(--target-url "$INPUT_TARGET_URL"); fi
+        POLICY_FILE="$RUNNER_TEMP/juror-qa-policy.json"
+        POLICY_SUFFIX="${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-$$"
+        POLICY_NAME="juror-qa-policy-$POLICY_SUFFIX"
+        POLICY_ATTACH_PID=''
+        cleanup_policy_container() {
+          local status=$?
+          trap - EXIT
+          trap '' INT TERM
+          docker rm -f "$POLICY_NAME" >/dev/null 2>&1 || true
+          if [ -n "$POLICY_ATTACH_PID" ]; then
+            wait "$POLICY_ATTACH_PID" >/dev/null 2>&1 || true
+          fi
+          exit "$status"
+        }
+        cancel_policy_container() {
+          case "$1" in
+            INT) exit 130 ;;
+            TERM) exit 143 ;;
+          esac
+        }
+        trap cleanup_policy_container EXIT
+        trap 'cancel_policy_container INT' INT
+        trap 'cancel_policy_container TERM' TERM
+        docker create \
+          --name "$POLICY_NAME" \
+          --init \
+          --pull=never \
+          --read-only \
+          --tmpfs /tmp:rw,nosuid,nodev,size=64m \
+          --tmpfs /home/pwuser:rw,nosuid,nodev,size=32m \
+          --user "$RUNTIME_USER" \
+          --cap-drop=ALL \
+          --security-opt no-new-privileges \
+          --pids-limit=128 \
+          --memory=512m \
+          --cpus=1 \
+          --mount "type=bind,src=$GITHUB_WORKSPACE,dst=/workspace,readonly" \
+          --env GITHUB_TOKEN \
+          --env GITHUB_API_URL \
+          --env GITHUB_SERVER_URL \
+          --entrypoint node \
+          "$EXACT_IMAGE" \
+          /opt/juror/dist/cli.js "${ARGS[@]}" >/dev/null
+        docker start --attach "$POLICY_NAME" > "$POLICY_FILE" &
+        POLICY_ATTACH_PID=$!
+        set +e
+        wait "$POLICY_ATTACH_PID"
+        POLICY_STATUS=$?
+        set -e
+        docker rm -f "$POLICY_NAME" >/dev/null 2>&1 || true
+        POLICY_ATTACH_PID=''
+        trap - EXIT INT TERM
+        if [ "$POLICY_STATUS" -ne 0 ]; then exit "$POLICY_STATUS"; fi
+        jq -e '.schema_version == 1 and (.enabled | type == "boolean") and (.allowed_origins | type == "array")' "$POLICY_FILE" >/dev/null
+        ENABLED="$(jq -r '.enabled' "$POLICY_FILE")"
+        ORIGINS_B64="$(jq -c '.allowed_origins' "$POLICY_FILE" | base64 | tr -d '\n')"
+        RETENTION="$(jq -r '.retention_days' "$POLICY_FILE")"
+        {
+          echo "enabled=$ENABLED"
+          echo "origins-b64=$ORIGINS_B64"
+          echo "retention-days=$RETENTION"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Publish QA setup failure
+      id: preflight
+      if: ${{ failure() && (steps.image.outcome == 'failure' || steps.runtime.outcome == 'failure' || steps.policy.outcome == 'failure') }}
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        GITHUB_API_URL: ${{ github.api_url }}
+        GITHUB_SERVER_URL: ${{ github.server_url }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        GITHUB_RUN_ID: ${{ github.run_id }}
+        PR_NUMBER: ${{ steps.runtime.outputs.pr-number }}
+        REPORT_PATH: ${{ steps.runtime.outputs.report-path }}
+        EVIDENCE_DIR: ${{ steps.runtime.outputs.evidence-dir }}
+        EXACT_IMAGE: ${{ steps.image.outputs.ref }}
+        IMAGE_VERIFIED: ${{ steps.image.outcome == 'success' }}
+        RUNTIME_USER: ${{ steps.runtime.outputs.runtime-user }}
+        RUNTIME_PREPARED: ${{ steps.runtime.outcome == 'success' }}
+        INPUT_POST: ${{ inputs.post }}
+        JUROR_QA_PREFLIGHT_PHASE: ${{ steps.image.outcome == 'failure' && 'image' || steps.runtime.outcome == 'failure' && 'runtime' || 'policy' }}
+        JUROR_OPENAI_API_KEY: ''
+        OPENAI_API_KEY: ''
+        JUROR_ANTHROPIC_API_KEY: ''
+        ANTHROPIC_API_KEY: ''
+        JUROR_XAI_API_KEY: ''
+        XAI_API_KEY: ''
+        JUROR_FIREWORKS_API_KEY: ''
+        FIREWORKS_API_KEY: ''
+        JUROR_OPENROUTER_API_KEY: ''
+        OPENROUTER_API_KEY: ''
+        JUROR_QA_SECRETS_B64: ''
+        CODEX_HOME: ''
+      run: |
+        set -euo pipefail
+        WRITE_REPORT=false
+        if [ "$IMAGE_VERIFIED" = 'true' ] && [ "$RUNTIME_PREPARED" = 'true' ] && [ -n "$EXACT_IMAGE" ] && [ -d "$EVIDENCE_DIR" ] && [ -n "$REPORT_PATH" ] && [ -n "$PR_NUMBER" ] && [[ "$RUNTIME_USER" =~ ^[0-9]+:[0-9]+$ ]]; then
+          WRITE_REPORT=true
+        fi
+        JUROR_QA_PREFLIGHT_MODE=true \
+          JUROR_QA_PREFLIGHT_WRITE_REPORT="$WRITE_REPORT" \
+          node "$GITHUB_ACTION_PATH/finalize-fallback.mjs"
+
+        # Only a verified image and a prepared runtime may publish a sticky. The static host
+        # summary above is authoritative even if this best-effort transition fails.
+        if [ "$WRITE_REPORT" = 'true' ] && [ "$INPUT_POST" = 'true' ]; then
+          set +e
+          docker run --rm --init \
+            --pull=never \
+            --read-only \
+            --tmpfs /tmp:rw,nosuid,nodev,size=32m \
+            --user "$RUNTIME_USER" \
+            --cap-drop=ALL \
+            --security-opt no-new-privileges \
+            --pids-limit=128 \
+            --memory=512m \
+            --cpus=1 \
+            --mount "type=bind,src=$EVIDENCE_DIR,dst=/evidence,readonly" \
+            --env GITHUB_TOKEN \
+            --env GITHUB_API_URL \
+            --env GITHUB_SERVER_URL \
+            --env GITHUB_REPOSITORY \
+            --env GITHUB_RUN_ID \
+            --entrypoint node \
+            "$EXACT_IMAGE" \
+            /opt/juror/dist/cli.js qa-publish-final --report /evidence/report.json --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER"
+          STICKY_STATUS=$?
+          set -e
+          if [ "$STICKY_STATUS" -ne 0 ]; then echo '::warning::Could not publish the QA setup-failure sticky'; fi
+        fi
+
+    - name: Record disabled QA outcome
+      id: disabled
+      if: steps.policy.outcome == 'success' && steps.policy.outputs.enabled == 'false'
+      shell: bash
+      env:
+        REPORT_PATH: ${{ steps.runtime.outputs.report-path }}
+        JUROR_OPENAI_API_KEY: ''
+        OPENAI_API_KEY: ''
+        JUROR_QA_SECRETS_B64: ''
+      run: |
+        {
+          echo 'outcome=disabled'
+          echo 'issues=0'
+          echo 'scenarios=0'
+          echo 'target-kind=none'
+          echo 'target-sha=unverified'
+          echo 'cost-usd=unknown'
+          echo "report-path=$REPORT_PATH"
+          echo 'exit-code=0'
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Run Juror QA in the verified image
+      id: qa
+      if: steps.policy.outputs.enabled == 'true'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        INPUT_TARGET_URL: ${{ inputs.target-url }}
+        INPUT_TARGET_SHA: ${{ inputs.target-sha }}
+        TARGET_REPOSITORY: ${{ github.repository }}
+        GITHUB_API_URL: ${{ github.api_url }}
+        EXACT_IMAGE: ${{ steps.image.outputs.ref }}
+        PR_NUMBER: ${{ steps.runtime.outputs.pr-number }}
+        EVIDENCE_DIR: ${{ steps.runtime.outputs.evidence-dir }}
+        REPORT_PATH: ${{ steps.runtime.outputs.report-path }}
+        SUMMARY_PATH: ${{ steps.runtime.outputs.summary-path }}
+        STORAGE_SOURCE: ${{ steps.runtime.outputs.storage-source }}
+        RUNTIME_USER: ${{ steps.runtime.outputs.runtime-user }}
+        EGRESS_ALLOW_B64: ${{ steps.policy.outputs.origins-b64 }}
+        POLICY_RETENTION: ${{ steps.policy.outputs.retention-days }}
+      run: |
+        set -euo pipefail
+
+        if ! [[ "$RUNTIME_USER" =~ ^[0-9]+:[0-9]+$ ]]; then
+          echo "::error::Prepared QA runtime user must be a numeric UID:GID"
+          exit 1
+        fi
+
+        # Create the non-semantic payload marker before any cancellable work. The completed
+        # status below replaces it, but this initial file preserves a legitimate cancelled or
+        # pre-browser blocked outcome even when no scenario evidence exists.
+        node -e '
+          const fs = require("fs");
+          const path = `${process.env.EVIDENCE_DIR}/payload-status.json`;
+          fs.writeFileSync(path, `${JSON.stringify({
+            schema_version: 1,
+            report_present: false,
+            runtime_status: null,
+          }, null, 2)}\n`, { mode: 0o600 });
+        '
+
+        ARGS=(
+          --pr "$PR_NUMBER"
+          --repo "$TARGET_REPOSITORY"
+          --repo-dir /workspace
+          --evidence-dir /evidence
+          --json /evidence/report.json
+          --markdown /evidence/summary.md
+        )
+        if [ -n "$INPUT_TARGET_URL" ]; then ARGS+=(--target-url "$INPUT_TARGET_URL"); fi
+        if [ -n "$INPUT_TARGET_SHA" ]; then ARGS+=(--target-sha "$INPUT_TARGET_SHA"); fi
+
+        MOUNTS=(
+          --mount "type=bind,src=$GITHUB_WORKSPACE,dst=/workspace,readonly"
+          --mount "type=bind,src=$EVIDENCE_DIR,dst=/evidence"
+        )
+        if [ -n "$STORAGE_SOURCE" ]; then
+          MOUNTS+=(--mount "type=bind,src=$STORAGE_SOURCE,dst=/run/juror-storage-state.json,readonly")
+          ARGS+=(--storage-state /run/juror-storage-state.json)
+        fi
+
+        ENVIRONMENT=(
+          --env GITHUB_TOKEN
+          --env GITHUB_API_URL
+          --env JUROR_OPENAI_API_KEY
+          --env OPENAI_API_KEY
+          --env JUROR_QA_SECRETS_B64
+          --env GITHUB_ACTIONS
+          --env RUNNER_ENVIRONMENT
+          --env GITHUB_SERVER_URL
+          --env GITHUB_REPOSITORY
+          --env GITHUB_RUN_ID
+          --env HTTP_PROXY=http://juror-qa-proxy:8080
+          --env HTTPS_PROXY=http://juror-qa-proxy:8080
+          --env NODE_OPTIONS=--use-env-proxy
+          --env NODE_USE_ENV_PROXY=1
+          --env JUROR_QA_BROWSER_PROXY=http://juror-qa-proxy:8080
+        )
+
+        SUFFIX="${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-$$"
+        EGRESS_NETWORK="juror-qa-egress-$SUFFIX"
+        INTERNAL_NETWORK="juror-qa-internal-$SUFFIX"
+        PROXY_NAME="juror-qa-proxy-$SUFFIX"
+        RUNTIME_NAME="juror-qa-runtime-$SUFFIX"
+        RUNTIME_ATTACH_PID=''
+        cleanup_runtime() {
+          local status=$?
+          # GitHub escalates cancellation from SIGINT to SIGTERM after 7.5s.
+          # Ignore that second signal while this bounded, idempotent cleanup runs;
+          # the runner still retains its final hard-kill deadline.
+          trap - EXIT
+          trap '' INT TERM
+          # The runtime receives SIGTERM first so its controller can cancel the
+          # browser, reset the sandbox, and flush partial evidence. Only then is
+          # its egress path dismantled. Five seconds stays below GitHub's first
+          # escalation window and leaves time to force-remove every resource.
+          docker stop --time 5 "$RUNTIME_NAME" >/dev/null 2>&1 || true
+          docker rm -f "$RUNTIME_NAME" >/dev/null 2>&1 || true
+          if [ -n "$RUNTIME_ATTACH_PID" ]; then
+            wait "$RUNTIME_ATTACH_PID" >/dev/null 2>&1 || true
+          fi
+          docker rm -f "$PROXY_NAME" >/dev/null 2>&1 || true
+          docker network rm "$INTERNAL_NETWORK" >/dev/null 2>&1 || true
+          docker network rm "$EGRESS_NETWORK" >/dev/null 2>&1 || true
+          exit "$status"
+        }
+        cancel_runtime() {
+          case "$1" in
+            INT) exit 130 ;;
+            TERM) exit 143 ;;
+          esac
+        }
+        trap cleanup_runtime EXIT
+        trap 'cancel_runtime INT' INT
+        trap 'cancel_runtime TERM' TERM
+        docker network create "$EGRESS_NETWORK" >/dev/null
+        docker network create --internal "$INTERNAL_NETWORK" >/dev/null
+        docker run --detach --rm --init \
+          --name "$PROXY_NAME" \
+          --network "$EGRESS_NETWORK" \
+          --read-only \
+          --tmpfs /tmp:rw,nosuid,nodev,size=32m \
+          --user pwuser \
+          --cap-drop=ALL \
+          --security-opt no-new-privileges \
+          --pids-limit=128 \
+          --memory=256m \
+          --cpus=1 \
+          --env JUROR_QA_EGRESS_ALLOW_B64="$EGRESS_ALLOW_B64" \
+          --entrypoint node \
+          "$EXACT_IMAGE" \
+          /opt/juror/qa/egress-proxy.mjs >/dev/null
+        docker network connect --gw-priority -1 --alias juror-qa-proxy "$INTERNAL_NETWORK" "$PROXY_NAME"
+        for _ in $(seq 1 40); do
+          if docker logs "$PROXY_NAME" 2>&1 | grep -q 'juror-qa-egress-proxy ready'; then break; fi
+          sleep 0.25
+        done
+        if ! docker logs "$PROXY_NAME" 2>&1 | grep -q 'juror-qa-egress-proxy ready'; then
+          docker logs "$PROXY_NAME" >&2 || true
+          echo '::error::Juror QA egress proxy did not become ready'
+          exit 1
+        fi
+
+        set +e
+        docker create \
+          --name "$RUNTIME_NAME" \
+          --init \
+          --pull=never \
+          --network "$INTERNAL_NETWORK" \
+          --read-only \
+          --tmpfs /tmp:rw,nosuid,nodev,size=1g \
+          --tmpfs /home/pwuser:rw,nosuid,nodev,size=256m \
+          --shm-size=1g \
+          --user "$RUNTIME_USER" \
+          --cap-drop=ALL \
+          --cap-add=SYS_CHROOT \
+          --security-opt "seccomp=$GITHUB_ACTION_PATH/seccomp_profile.json" \
+          --pids-limit=512 \
+          --memory=4g \
+          --cpus=2 \
+          "${MOUNTS[@]}" \
+          "${ENVIRONMENT[@]}" \
+          "$EXACT_IMAGE" \
+          "${ARGS[@]}" >/dev/null
+        STATUS=$?
+        if [ "$STATUS" -eq 0 ]; then
+          # Waiting on a background attach is interruptible by Bash traps. A
+          # cancellation therefore reaches cleanup_runtime, which stops the
+          # already-created named container instead of orphaning it.
+          docker start --attach "$RUNTIME_NAME" &
+          RUNTIME_ATTACH_PID=$!
+          wait "$RUNTIME_ATTACH_PID"
+          STATUS=$?
+          docker rm -f "$RUNTIME_NAME" >/dev/null 2>&1 || true
+          RUNTIME_ATTACH_PID=''
+        fi
+        set -e
+
+        if [ -f "$REPORT_PATH" ]; then
+          STATUS_VALUE="$STATUS" node -e '
+            const fs = require("fs");
+            const r = JSON.parse(fs.readFileSync(process.env.REPORT_PATH, "utf8"));
+            const configuredRetention = r.artifacts?.find((artifact) => Number.isInteger(artifact.retention_days))?.retention_days;
+            const policyRetention = Number(process.env.POLICY_RETENTION);
+            const fallbackRetention = Number.isInteger(policyRetention) ? policyRetention : 14;
+            const retention = Math.min(14, Math.max(1, configuredRetention ?? fallbackRetention));
+            const values = {
+              outcome: r.outcome,
+              issues: r.issues.length,
+              scenarios: r.plan?.scenarios?.length ?? 0,
+              "target-kind": r.target?.kind ?? "none",
+              "target-sha": r.target?.revision?.observed_sha ?? "unverified",
+              "cost-usd": r.cost?.usd ?? "unknown",
+              "report-path": process.env.REPORT_PATH,
+              "retention-days": retention,
+              "pr-number": process.env.PR_NUMBER,
+              "exit-code": process.env.STATUS_VALUE,
+            };
+            for (const [key, value] of Object.entries(values)) fs.appendFileSync(process.env.GITHUB_OUTPUT, `${key}=${value}\n`);
+          '
+        else
+          if [ "$STATUS" -eq 0 ]; then OUTCOME=disabled; else OUTCOME=infrastructure_error; fi
+          {
+            echo "outcome=$OUTCOME"
+            echo "issues=0"
+            echo "scenarios=0"
+            echo "target-kind=none"
+            echo "target-sha=unverified"
+            echo "cost-usd=unknown"
+            echo "report-path=$REPORT_PATH"
+            echo "retention-days=${POLICY_RETENTION:-14}"
+            echo "pr-number=$PR_NUMBER"
+            echo "exit-code=$STATUS"
+          } >> "$GITHUB_OUTPUT"
+        fi
+        STATUS_VALUE="$STATUS" node -e '
+          const fs = require("fs");
+          const path = `${process.env.EVIDENCE_DIR}/payload-status.json`;
+          const status = Number(process.env.STATUS_VALUE);
+          const manifest = {
+            schema_version: 1,
+            report_present: fs.existsSync(process.env.REPORT_PATH),
+            runtime_status: Number.isInteger(status) ? status : 1,
+          };
+          const temporary = `${path}.tmp`;
+          fs.writeFileSync(temporary, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
+          fs.renameSync(temporary, path);
+        '
+        exit 0
+
+    - name: Stage validated QA evidence payload
+      id: stage_evidence
+      if: always() && steps.runtime.outputs.evidence-dir != '' && steps.policy.outputs.enabled == 'true'
+      continue-on-error: true
+      shell: bash
+      env:
+        EVIDENCE_DIR: ${{ steps.runtime.outputs.evidence-dir }}
+      run: |
+        set -euo pipefail
+        STAGED_PAYLOAD_DIR="$RUNNER_TEMP/juror-qa-payload-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}"
+        node "$GITHUB_ACTION_PATH/stage-evidence.mjs" "$EVIDENCE_DIR" "$STAGED_PAYLOAD_DIR"
+        echo "path=$STAGED_PAYLOAD_DIR" >> "$GITHUB_OUTPUT"
+
+    - name: Upload QA evidence payload
+      id: evidence
+      if: always() && steps.stage_evidence.outcome == 'success' && steps.runtime.outputs.evidence-dir != '' && steps.policy.outputs.enabled == 'true'
+      continue-on-error: true
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: juror-qa-evidence-pr-${{ steps.runtime.outputs.pr-number }}-${{ github.run_id }}-${{ github.run_attempt }}
+        # This directory contains only strict, hash-verified report-ledger entries. The completion
+        # marker, semantic report, and summary are validated but deliberately excluded.
+        path: ${{ steps.stage_evidence.outputs.path }}
+        if-no-files-found: error
+        retention-days: ${{ steps.qa.outputs.retention-days || 14 }}
+
+    - name: Finalize and publish QA result
+      id: publication
+      if: always() && steps.runtime.outputs.evidence-dir != '' && steps.policy.outputs.enabled == 'true'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        GITHUB_API_URL: ${{ github.api_url }}
+        GITHUB_SERVER_URL: ${{ github.server_url }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        GITHUB_RUN_ID: ${{ github.run_id }}
+        EXACT_IMAGE: ${{ steps.image.outputs.ref }}
+        RUNTIME_USER: ${{ steps.runtime.outputs.runtime-user }}
+        EVIDENCE_DIR: ${{ steps.runtime.outputs.evidence-dir }}
+        REPORT_PATH: ${{ steps.runtime.outputs.report-path }}
+        SUMMARY_PATH: ${{ steps.runtime.outputs.summary-path }}
+        PR_NUMBER: ${{ steps.runtime.outputs.pr-number }}
+        INPUT_POST: ${{ inputs.post }}
+        ARTIFACT_NAME: juror-qa-evidence-pr-${{ steps.runtime.outputs.pr-number }}-${{ github.run_id }}-${{ github.run_attempt }}
+        ARTIFACT_URL: ${{ steps.evidence.outputs.artifact-url }}
+        UPLOAD_OUTCOME: ${{ steps.evidence.outcome }}
+      run: |
+        set -euo pipefail
+        PAYLOAD_DELIVERED=false
+        if [ "$UPLOAD_OUTCOME" = "success" ] && [ -n "$ARTIFACT_URL" ]; then
+          PAYLOAD_DELIVERED=true
+        fi
+
+        FINAL_STATUS=1
+        if [ -f "$REPORT_PATH" ]; then
+          ARGS=(
+            qa-finalize
+            --report /evidence/report.json
+            --markdown /evidence/summary.md
+            --repo "$GITHUB_REPOSITORY"
+            --pr "$PR_NUMBER"
+          )
+          if [ "$PAYLOAD_DELIVERED" = "true" ]; then
+            ARGS+=(--artifact-name "$ARTIFACT_NAME" --artifact-url "$ARTIFACT_URL")
+          else
+            ARGS+=(--artifact-upload-error "GitHub Actions evidence payload upload concluded ${UPLOAD_OUTCOME:-without a result}")
+          fi
+          if [ "$INPUT_POST" = "true" ]; then ARGS+=(--post-pending); fi
+
+          set +e
+          docker run --rm --init \
+            --pull=never \
+            --read-only \
+            --tmpfs /tmp:rw,nosuid,nodev,size=32m \
+            --user "$RUNTIME_USER" \
+            --cap-drop=ALL \
+            --security-opt no-new-privileges \
+            --pids-limit=128 \
+            --memory=512m \
+            --cpus=1 \
+            --mount "type=bind,src=$EVIDENCE_DIR,dst=/evidence" \
+            --env GITHUB_TOKEN \
+            --env GITHUB_API_URL \
+            --env GITHUB_SERVER_URL \
+            --env GITHUB_REPOSITORY \
+            --env GITHUB_RUN_ID \
+            --env JUROR_QA_SECRETS_B64 \
+            --entrypoint node \
+            "$EXACT_IMAGE" \
+            /opt/juror/dist/cli.js "${ARGS[@]}"
+          FINAL_STATUS=$?
+          set -e
+        fi
+
+        FINALIZATION_ERROR=''
+        if [ "$FINAL_STATUS" -ne 0 ]; then
+          FINALIZATION_ERROR="QA finalization command failed with status $FINAL_STATUS"
+          echo "::error::$FINALIZATION_ERROR"
+        fi
+        # The host fallback validates the finalized report and is the sole producer of this
+        # step's semantic outputs. Pass the runner-managed output file explicitly; the
+        # containerized finalizer intentionally never receives that host control path.
+        GITHUB_OUTPUT="$GITHUB_OUTPUT" \
+          JUROR_QA_ACTION_PAYLOAD_DELIVERED="$PAYLOAD_DELIVERED" \
+          JUROR_QA_ACTION_READ_ONLY=false \
+          JUROR_QA_ACTION_REQUIRE_INFRASTRUCTURE_ERROR=false \
+          JUROR_QA_ACTION_FINALIZATION_ERROR="$FINALIZATION_ERROR" \
+          node "$GITHUB_ACTION_PATH/finalize-fallback.mjs"
+
+        if [ "$FINAL_STATUS" -ne 0 ] && [ "$INPUT_POST" = "true" ]; then
+          # The independent host fallback has already made the result an infrastructure error.
+          # Best-effort a truthful final sticky in case only the finalizer command crashed.
+          PUBLISH_ARGS=(
+            qa-publish-final
+            --report /evidence/report.json
+            --repo "$GITHUB_REPOSITORY"
+            --pr "$PR_NUMBER"
+          )
+          if [ "$PAYLOAD_DELIVERED" = "true" ]; then
+            PUBLISH_ARGS+=(--artifact-url "$ARTIFACT_URL")
+          fi
+          set +e
+          docker run --rm --init \
+            --pull=never \
+            --read-only \
+            --tmpfs /tmp:rw,nosuid,nodev,size=32m \
+            --user "$RUNTIME_USER" \
+            --cap-drop=ALL \
+            --security-opt no-new-privileges \
+            --pids-limit=128 \
+            --memory=512m \
+            --cpus=1 \
+            --mount "type=bind,src=$EVIDENCE_DIR,dst=/evidence,readonly" \
+            --env GITHUB_TOKEN \
+            --env GITHUB_API_URL \
+            --env GITHUB_SERVER_URL \
+            --env GITHUB_REPOSITORY \
+            --env GITHUB_RUN_ID \
+            --env JUROR_QA_SECRETS_B64 \
+            --entrypoint node \
+            "$EXACT_IMAGE" \
+            /opt/juror/dist/cli.js "${PUBLISH_ARGS[@]}"
+          RECOVERY_PUBLICATION_STATUS=$?
+          set -e
+          if [ "$RECOVERY_PUBLICATION_STATUS" -ne 0 ]; then
+            echo "::warning::Could not publish the recovered infrastructure-error QA sticky"
+          fi
+        fi
+        exit 0
+
+    - name: Upload finalized QA report
+      id: result_evidence
+      if: always() && steps.publication.outcome == 'success' && steps.runtime.outputs.evidence-dir != '' && steps.policy.outputs.enabled == 'true'
+      continue-on-error: true
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: juror-qa-result-pr-${{ steps.runtime.outputs.pr-number }}-${{ github.run_id }}-${{ github.run_attempt }}
+        path: |
+          ${{ steps.runtime.outputs.evidence-dir }}/report.json
+          ${{ steps.runtime.outputs.evidence-dir }}/summary.md
+        if-no-files-found: error
+        retention-days: ${{ steps.qa.outputs.retention-days || 14 }}
+
+    - name: Reconcile final QA outcome
+      id: finalize
+      if: always() && steps.runtime.outputs.evidence-dir != '' && steps.policy.outputs.enabled == 'true'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        GITHUB_API_URL: ${{ github.api_url }}
+        GITHUB_SERVER_URL: ${{ github.server_url }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        GITHUB_RUN_ID: ${{ github.run_id }}
+        EXACT_IMAGE: ${{ steps.image.outputs.ref }}
+        RUNTIME_USER: ${{ steps.runtime.outputs.runtime-user }}
+        EVIDENCE_DIR: ${{ steps.runtime.outputs.evidence-dir }}
+        REPORT_PATH: ${{ steps.runtime.outputs.report-path }}
+        SUMMARY_PATH: ${{ steps.runtime.outputs.summary-path }}
+        PR_NUMBER: ${{ steps.runtime.outputs.pr-number }}
+        INPUT_POST: ${{ inputs.post }}
+        ARTIFACT_NAME: juror-qa-evidence-pr-${{ steps.runtime.outputs.pr-number }}-${{ github.run_id }}-${{ github.run_attempt }}
+        ARTIFACT_URL: ${{ steps.evidence.outputs.artifact-url }}
+        PAYLOAD_UPLOAD_OUTCOME: ${{ steps.evidence.outcome }}
+        RESULT_UPLOAD_OUTCOME: ${{ steps.result_evidence.outcome }}
+        PUBLICATION_OUTCOME: ${{ steps.publication.outputs.outcome }}
+        PUBLICATION_ISSUES: ${{ steps.publication.outputs.issues }}
+        PUBLICATION_SCENARIOS: ${{ steps.publication.outputs.scenarios }}
+        PUBLICATION_TARGET_KIND: ${{ steps.publication.outputs.target-kind }}
+        PUBLICATION_TARGET_SHA: ${{ steps.publication.outputs.target-sha }}
+        PUBLICATION_COST_USD: ${{ steps.publication.outputs.cost-usd }}
+        PUBLICATION_ARTIFACT_URL: ${{ steps.publication.outputs.artifact-url }}
+        PUBLICATION_REPORT_PATH: ${{ steps.publication.outputs.report-path }}
+        PUBLICATION_EXIT_CODE: ${{ steps.publication.outputs.exit-code }}
+      run: |
+        set -euo pipefail
+        SUMMARY_TRUSTED=true
+        FINAL_STICKY_WARNING=false
+        emit_hard_failure() {
+          SUMMARY_TRUSTED=false
+          {
+            echo 'outcome=infrastructure_error'
+            echo 'issues=0'
+            echo 'scenarios=0'
+            echo 'target-kind=none'
+            echo 'target-sha=unverified'
+            echo 'cost-usd=unknown'
+            if [ "$PAYLOAD_DELIVERED" = "true" ]; then
+              echo "artifact-url=$ARTIFACT_URL"
+            else
+              echo 'artifact-url='
+            fi
+            echo "report-path=$REPORT_PATH"
+            echo 'exit-code=1'
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo '## 🛑 Juror QA — Infrastructure error'
+            echo
+            echo '> [!CAUTION]'
+            echo '> No product verdict was produced because the trusted runner could not validate or persist the final QA result.'
+          } >> "$GITHUB_STEP_SUMMARY"
+        }
+
+        PAYLOAD_DELIVERED=false
+        if [ "$PAYLOAD_UPLOAD_OUTCOME" = "success" ] && [ -n "$ARTIFACT_URL" ]; then
+          PAYLOAD_DELIVERED=true
+        fi
+
+        if [ "$RESULT_UPLOAD_OUTCOME" = "success" ]; then
+          # The result artifact is now immutable. Forward only the semantic values that were
+          # validated before upload; do not read, validate, or rewrite semantic files here.
+          {
+            echo "outcome=$PUBLICATION_OUTCOME"
+            echo "issues=$PUBLICATION_ISSUES"
+            echo "scenarios=$PUBLICATION_SCENARIOS"
+            echo "target-kind=$PUBLICATION_TARGET_KIND"
+            echo "target-sha=$PUBLICATION_TARGET_SHA"
+            echo "cost-usd=$PUBLICATION_COST_USD"
+            echo "artifact-url=$PUBLICATION_ARTIFACT_URL"
+            echo "report-path=$PUBLICATION_REPORT_PATH"
+            echo "exit-code=$PUBLICATION_EXIT_CODE"
+          } >> "$GITHUB_OUTPUT"
+          if [ "$INPUT_POST" = "true" ]; then
+            # The immutable result is authoritative. If this best-effort transition fails, the
+            # existing sticky remains explicitly pending instead of showing a false pass.
+            PUBLISH_ARGS=(
+              qa-publish-final
+              --report /evidence/report.json
+              --repo "$GITHUB_REPOSITORY"
+              --pr "$PR_NUMBER"
+            )
+            if [ "$PAYLOAD_DELIVERED" = "true" ]; then
+              PUBLISH_ARGS+=(--artifact-url "$ARTIFACT_URL")
+            fi
+            set +e
+            docker run --rm --init \
+              --pull=never \
+              --read-only \
+              --tmpfs /tmp:rw,nosuid,nodev,size=32m \
+              --user "$RUNTIME_USER" \
+              --cap-drop=ALL \
+              --security-opt no-new-privileges \
+              --pids-limit=128 \
+              --memory=512m \
+              --cpus=1 \
+              --mount "type=bind,src=$EVIDENCE_DIR,dst=/evidence,readonly" \
+              --env GITHUB_TOKEN \
+              --env GITHUB_API_URL \
+              --env GITHUB_SERVER_URL \
+              --env GITHUB_REPOSITORY \
+              --env GITHUB_RUN_ID \
+              --env JUROR_QA_SECRETS_B64 \
+              --entrypoint node \
+              "$EXACT_IMAGE" \
+              /opt/juror/dist/cli.js "${PUBLISH_ARGS[@]}"
+            FINAL_PUBLICATION_STATUS=$?
+            set -e
+            if [ "$FINAL_PUBLICATION_STATUS" -ne 0 ]; then
+              echo "::warning::Final QA sticky update failed; the existing comment remains non-final"
+              FINAL_STICKY_WARNING=true
+            fi
+          fi
+        else
+          RECONCILE_STATUS=1
+          if [ -f "$REPORT_PATH" ]; then
+            ARGS=(
+              qa-finalize
+              --report /evidence/report.json
+              --markdown /evidence/summary.md
+              --repo "$GITHUB_REPOSITORY"
+              --pr "$PR_NUMBER"
+              --finalization-error "Final QA result artifact upload concluded ${RESULT_UPLOAD_OUTCOME:-without a result}"
+            )
+            if [ "$PAYLOAD_DELIVERED" = "true" ]; then
+              ARGS+=(--artifact-name "$ARTIFACT_NAME" --artifact-url "$ARTIFACT_URL")
+            fi
+            if [ "$INPUT_POST" = "true" ]; then ARGS+=(--post); fi
+
+            set +e
+            docker run --rm --init \
+              --pull=never \
+              --read-only \
+              --tmpfs /tmp:rw,nosuid,nodev,size=32m \
+              --user "$RUNTIME_USER" \
+              --cap-drop=ALL \
+              --security-opt no-new-privileges \
+              --pids-limit=128 \
+              --memory=512m \
+              --cpus=1 \
+              --mount "type=bind,src=$EVIDENCE_DIR,dst=/evidence" \
+              --env GITHUB_TOKEN \
+              --env GITHUB_API_URL \
+              --env GITHUB_SERVER_URL \
+              --env GITHUB_REPOSITORY \
+              --env GITHUB_RUN_ID \
+              --env JUROR_QA_SECRETS_B64 \
+              --entrypoint node \
+              "$EXACT_IMAGE" \
+              /opt/juror/dist/cli.js "${ARGS[@]}"
+            RECONCILE_STATUS=$?
+            set -e
+          fi
+
+          FINALIZATION_ERROR=''
+          if [ "$RECONCILE_STATUS" -ne 0 ]; then
+            FINALIZATION_ERROR="QA result-upload reconciliation command failed with status $RECONCILE_STATUS"
+            echo "::error::$FINALIZATION_ERROR"
+          fi
+          set +e
+          GITHUB_OUTPUT="$GITHUB_OUTPUT" \
+            JUROR_QA_ACTION_PAYLOAD_DELIVERED="$PAYLOAD_DELIVERED" \
+            JUROR_QA_ACTION_READ_ONLY=false \
+            JUROR_QA_ACTION_REQUIRE_INFRASTRUCTURE_ERROR=true \
+            JUROR_QA_ACTION_FINALIZATION_ERROR="$FINALIZATION_ERROR" \
+            node "$GITHUB_ACTION_PATH/finalize-fallback.mjs"
+          FALLBACK_STATUS=$?
+          set -e
+          if [ "$FALLBACK_STATUS" -ne 0 ]; then emit_hard_failure; fi
+        fi
+
+        if [ "$SUMMARY_TRUSTED" = "true" ] && [ -f "$SUMMARY_PATH" ]; then
+          cat "$SUMMARY_PATH" >> "$GITHUB_STEP_SUMMARY" || true
+        fi
+        if [ "$FINAL_STICKY_WARNING" = "true" ]; then
+          {
+            echo
+            echo '> [!WARNING]'
+            echo '> The PR comment could not be finalized. The immutable result artifact remains authoritative.'
+          } >> "$GITHUB_STEP_SUMMARY"
+        fi
+        exit 0
+
+    - name: Apply QA conclusion
+      if: always()
+      shell: bash
+      env:
+        EXIT_CODE: ${{ steps.finalize.outputs.exit-code || steps.preflight.outputs.exit-code || steps.disabled.outputs.exit-code }}
+      run: |
+        if ! [[ "$EXIT_CODE" =~ ^[0-9]+$ ]]; then exit 1; fi
+        exit "$EXIT_CODE"

@@ -30,7 +30,11 @@
     "juror": "node --experimental-strip-types src/cli.ts"
   },
   "dependencies": {
-    "yaml": "^2.6.1"
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "playwright": "1.62.1",
+    "undici": "6.28.0",
+    "yaml": "^2.6.1",
+    "zod": "3.25.76"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

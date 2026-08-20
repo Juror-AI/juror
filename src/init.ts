@@ -8,10 +8,12 @@ import { createInterface } from 'node:readline/promises';
 import { applyReviewPreset, loadConfig, readSecret } from './config.js';
 import type { HarnessId, JurorConfig, ModelConfig, ReviewPreset } from './types.js';
 import { run, type RunOptions } from './util/proc.js';
+import { isIpLiteralHostname, isLoopbackHostname } from './util/url.js';
 import { repoRoot } from './util/workspace.js';
 
 const MANAGED_PREFIX = '# juror:init:managed sha256:';
 const ACTION_REPOSITORY = 'Juror-AI/juror';
+const QA_SECRETS_BUNDLE = 'JUROR_QA_SECRETS_B64';
 
 export interface ProviderReadiness {
   canonicalName: string;
@@ -61,6 +63,12 @@ export interface InitCommandOptions {
   dryRun?: boolean;
   setSecrets?: boolean;
   yes?: boolean;
+  /** Install the opt-in post-merge browser QA workflow and config block. */
+  qa?: boolean;
+  /** Static staging/preview URL used by the generated QA policy. */
+  targetUrl?: string | null;
+  /** Exact browser origins added to the generated QA policy. */
+  allowOrigins?: readonly string[];
   runner?: CommandRunner;
   write?: (text: string) => void;
   confirm?: (question: string) => Promise<boolean>;
@@ -76,6 +84,8 @@ export interface InitCommandResult {
   actionSha: string;
   readiness: CredentialReadiness;
   workflow: WorkflowInstallResult;
+  qaWorkflow: WorkflowInstallResult | null;
+  qaConfig: WorkflowInstallResult | null;
   uploadedSecrets: string[];
 }
 
@@ -169,6 +179,173 @@ export function renderManagedWorkflow(options: {
   return `${MANAGED_PREFIX}${digest}\n${body}`;
 }
 
+export function renderManagedQaWorkflow(options: { actionSha: string; version: string }): string {
+  assertActionSha(options.actionSha);
+  const body = `# Juror QA v${options.version}\n` +
+    `# Edit .juror.yml for QA policy. Run \`juror init --qa\` to refresh this managed workflow.\n` +
+    `name: Juror QA\n\n` +
+    `on:\n` +
+    `  pull_request:\n` +
+    `    types: [closed]\n\n` +
+    `permissions:\n` +
+    `  actions: read\n` +
+    `  attestations: read\n` +
+    `  contents: read\n` +
+    `  deployments: read\n` +
+    `  packages: read\n` +
+    `  pull-requests: write\n\n` +
+    `concurrency:\n` +
+    // GitHub concurrency groups retain at most one pending run. Group by PR so a
+    // burst of merges cannot silently replace an older PR's pending QA run.
+    `  group: juror-qa-\${{ github.repository }}-\${{ github.event.pull_request.number }}\n` +
+    `  cancel-in-progress: false\n\n` +
+    `jobs:\n` +
+    `  qa:\n` +
+    `    if: github.event.pull_request.merged == true && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.ref == github.event.repository.default_branch\n` +
+    `    runs-on: ubuntu-latest\n` +
+    // Trusted policy permits up to 60 minutes of deployment readiness plus a
+    // 20-minute QA run. Keep enough job headroom for checkout, image startup,
+    // the final reset/recheck, evidence finalization, and comment publication.
+    `    timeout-minutes: 95\n` +
+    `    steps:\n` +
+    `      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0\n` +
+    `        with:\n` +
+    `          fetch-depth: 0\n` +
+    `          persist-credentials: false\n` +
+    `      - uses: juror-ai/juror/qa@${options.actionSha} # v${options.version}\n` +
+    `        with:\n` +
+    `          github-token: \${{ secrets.GITHUB_TOKEN }}\n` +
+    `          pr-number: \${{ github.event.pull_request.number }}\n` +
+    `        env:\n` +
+    `          JUROR_OPENAI_API_KEY: \${{ secrets.JUROR_OPENAI_API_KEY }}\n` +
+    `          JUROR_QA_SECRETS_B64: \${{ secrets.JUROR_QA_SECRETS_B64 }}\n`;
+  const digest = createHash('sha256').update(body).digest('hex');
+  return `${MANAGED_PREFIX}${digest}\n${body}`;
+}
+
+export interface QaInitConfigOptions {
+  targetUrl?: string | null;
+  allowOrigins?: readonly string[];
+}
+
+interface NormalizedQaInitConfig {
+  enabled: boolean;
+  targetUrl: string | null;
+  allowedOrigins: string[];
+}
+
+function normalizeQaInitConfig(options: QaInitConfigOptions = {}): NormalizedQaInitConfig {
+  const targetUrl = options.targetUrl === null || options.targetUrl === undefined
+    ? null
+    : qaTargetUrl(options.targetUrl);
+  const allowedOrigins: string[] = [];
+  for (const raw of options.allowOrigins ?? []) {
+    const origin = qaAllowedOrigin(raw);
+    if (!allowedOrigins.includes(origin)) allowedOrigins.push(origin);
+  }
+  if (targetUrl) {
+    const targetOrigin = new URL(targetUrl).origin;
+    if (!allowedOrigins.includes(targetOrigin)) allowedOrigins.unshift(targetOrigin);
+  }
+  if (allowedOrigins.length > 50) {
+    throw new Error('QA setup accepts at most 50 distinct --allow-origin values, including the target origin');
+  }
+  return {
+    enabled: targetUrl !== null || allowedOrigins.length > 0,
+    targetUrl,
+    allowedOrigins,
+  };
+}
+
+function qaTargetUrl(raw: string): string {
+  const parsed = parseSafeQaUrl(raw, '--target-url');
+  return parsed.toString();
+}
+
+function qaAllowedOrigin(raw: string): string {
+  const parsed = parseSafeQaUrl(raw, '--allow-origin');
+  if (parsed.pathname !== '/' || parsed.search || parsed.hash) {
+    throw new Error(`--allow-origin must be an exact HTTPS origin (or localhost HTTP): ${raw}`);
+  }
+  return parsed.origin;
+}
+
+function parseSafeQaUrl(raw: string, option: '--target-url' | '--allow-origin'): URL {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(
+      `${option} must be an absolute HTTPS URL without credentials, query, or fragment ` +
+        `(or localhost HTTP): ${raw}`,
+    );
+  }
+  const local = isLoopbackHostname(parsed.hostname);
+  const secure = parsed.protocol === 'https:' || (local && parsed.protocol === 'http:');
+  if (
+    !secure ||
+    !parsed.hostname ||
+    parsed.hostname.includes('*') ||
+    (parsed.protocol === 'https:' && isIpLiteralHostname(parsed.hostname)) ||
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    throw new Error(
+      `${option} must be an absolute HTTPS URL without credentials, query, or fragment ` +
+        `(or localhost HTTP): ${raw}`,
+    );
+  }
+  return parsed;
+}
+
+export function renderQaConfigBlock(options: QaInitConfigOptions = {}): string {
+  const normalized = normalizeQaInitConfig(options);
+  const allowedOrigins = normalized.allowedOrigins.length === 0
+    ? ['    allowed_origins: []']
+    : [
+        '    allowed_origins:',
+        ...normalized.allowedOrigins.map((origin) => `      - ${JSON.stringify(origin)}`),
+      ];
+  return [
+    'qa:',
+    `  enabled: ${normalized.enabled}`,
+    '  model:',
+    '    id: gpt-5.6-luna',
+    '    reasoning_effort: medium',
+    '  testability:',
+    '    early_exit_paths: []',
+    '  target:',
+    '    strategy: staging-first',
+    '    environment: staging',
+    `    static_url: ${normalized.targetUrl === null ? 'null' : JSON.stringify(normalized.targetUrl)}`,
+    '    readiness_path: /',
+    '    readiness_statuses: null',
+    '    commit_probe: null',
+    '    preview_fallback: true',
+    '    wait_seconds: 900',
+    '  auth:',
+    '    session_bootstrap: null',
+    '    browser_secret_headers: []',
+    '    steps: []',
+    '  sandbox:',
+    ...allowedOrigins,
+    '    reset: null',
+    '  limits:',
+    '    max_scenarios: 6',
+    '    max_browser_operations: 40',
+    '    timeout_seconds: 1200',
+    '    mobile_when_relevant: true',
+    '  evidence:',
+    '    video: all',
+    '    trace: failure',
+    '    screenshot: failure',
+    '    retention_days: 14',
+    '',
+  ].join('\n');
+}
+
 export function managedWorkflowIsPristine(text: string): boolean {
   const newline = text.indexOf('\n');
   if (newline < 0) return false;
@@ -185,8 +362,9 @@ export async function installManagedWorkflow(
   repoDir: string,
   desired: string,
   dryRun: boolean,
+  filename = 'juror.yml',
 ): Promise<WorkflowInstallResult> {
-  const workflowPath = path.join(repoDir, '.github', 'workflows', 'juror.yml');
+  const workflowPath = path.join(repoDir, '.github', 'workflows', filename);
   let existing: string | null = null;
   try {
     existing = await readFile(workflowPath, 'utf8');
@@ -208,6 +386,33 @@ export async function installManagedWorkflow(
   await mkdir(path.dirname(workflowPath), { recursive: true });
   await writeFile(workflowPath, desired, { encoding: 'utf8', mode: 0o644 });
   return { path: workflowPath, outcome: existing === null ? 'created' : 'updated' };
+}
+
+export async function installQaConfig(
+  repoDir: string,
+  existingPath: string | null,
+  dryRun: boolean,
+  options: QaInitConfigOptions = {},
+): Promise<WorkflowInstallResult> {
+  const configPath = existingPath ?? path.join(repoDir, '.juror.yml');
+  let existing: string | null = null;
+  try {
+    existing = await readFile(configPath, 'utf8');
+  } catch (error) {
+    if (!isNotFound(error)) throw error;
+  }
+  if (existing && /^qa\s*:/m.test(existing)) {
+    return { path: configPath, outcome: 'unchanged' };
+  }
+  const desired = existing === null
+    ? `version: 1\n\n${renderQaConfigBlock(options)}`
+    : `${existing.trimEnd()}\n\n${renderQaConfigBlock(options)}`;
+  if (dryRun) {
+    return { path: configPath, outcome: existing === null ? 'planned-create' : 'planned-update' };
+  }
+  await mkdir(path.dirname(configPath), { recursive: true });
+  await writeFile(configPath, desired, { encoding: 'utf8', mode: 0o644 });
+  return { path: configPath, outcome: existing === null ? 'created' : 'updated' };
 }
 
 export async function uploadProviderSecrets(
@@ -237,9 +442,44 @@ export async function uploadProviderSecrets(
   return uploaded;
 }
 
+/**
+ * Upload the opaque browser-auth bundle used only by post-merge QA.
+ *
+ * Init deliberately does not decode or validate this value. Decoding belongs to the trusted QA
+ * controller at runtime; onboarding only detects the exact dedicated variable and sends its value
+ * to GitHub over stdin after the caller has confirmed the upload.
+ */
+export async function uploadQaSecretsBundle(
+  env: Record<string, string | undefined>,
+  repo: string,
+  runner: CommandRunner = run,
+): Promise<string[]> {
+  const value = env[QA_SECRETS_BUNDLE];
+  if (typeof value !== 'string' || !value.trim()) return [];
+  const io = await runner(
+    ['gh', 'secret', 'set', QA_SECRETS_BUNDLE, '--repo', repo],
+    { stdin: value, timeoutMs: 120_000 },
+  );
+  if (io.exitCode !== 0) {
+    // Do not include stdout/stderr: a failing third-party CLI is allowed to echo stdin.
+    throw new Error(`Could not set GitHub secret ${QA_SECRETS_BUNDLE} (exit ${io.exitCode ?? 'unknown'})`);
+  }
+  return [QA_SECRETS_BUNDLE];
+}
+
 export async function runInitCommand(options: InitCommandOptions): Promise<InitCommandResult> {
   const runner = options.runner ?? run;
   const write = options.write ?? ((text: string) => process.stdout.write(text));
+  const hasQaTargetOptions =
+    (options.targetUrl !== null && options.targetUrl !== undefined) ||
+    (options.allowOrigins?.length ?? 0) > 0;
+  if (!options.qa && hasQaTargetOptions) {
+    throw new Error('--target-url and --allow-origin are only meaningful with `juror init --qa`');
+  }
+  // Normalize before any writes so a malformed or unsafe target cannot leave a partial setup.
+  const qaInitConfig = options.qa
+    ? normalizeQaInitConfig({ targetUrl: options.targetUrl, allowOrigins: options.allowOrigins })
+    : null;
   const root = await repoRoot(options.repoDir);
   const inside = await runner(['git', 'rev-parse', '--is-inside-work-tree'], {
     cwd: root,
@@ -255,9 +495,20 @@ export async function runInitCommand(options: InitCommandOptions): Promise<InitC
   const loaded = loadConfig(root);
   const config = options.preset ? applyReviewPreset(loaded.config, options.preset) : loaded.config;
   const readiness = credentialReadiness(options.env, config);
+  const openAiCredentialAvailable = Boolean(readSecret(options.env, 'JUROR_OPENAI_API_KEY').value);
+  if (options.qa && options.setSecrets && !openAiCredentialAvailable) {
+    throw new Error(
+      '--qa --set-secrets requires JUROR_OPENAI_API_KEY (or legacy OPENAI_API_KEY); ' +
+        'the managed QA planner currently uses OpenAI',
+    );
+  }
   const availableNames = readiness.providers
     .filter((provider) => provider.available)
     .map((provider) => provider.canonicalName);
+  // Browser credentials are independent from model-provider credentials and are considered only
+  // for an explicitly requested QA install. Never decode, normalize, or print this opaque bundle.
+  const qaSecretsBundleAvailable = options.qa && Boolean(options.env[QA_SECRETS_BUNDLE]?.trim());
+  const uploadableSecretCount = availableNames.length + (qaSecretsBundleAvailable ? 1 : 0);
 
   write('Juror init\n\n');
   write(`Repository: ${repo ?? '(origin is not a GitHub repository)'}\n`);
@@ -272,6 +523,18 @@ export async function runInitCommand(options: InitCommandOptions): Promise<InitC
         `${provider.available ? `available via ${provider.source}` : `missing ${provider.canonicalName}`}\n`,
     );
   }
+  if (options.qa) {
+    write(
+      `  ${qaSecretsBundleAvailable ? '✓' : '·'} QA browser auth: ` +
+        `${qaSecretsBundleAvailable ? `available via ${QA_SECRETS_BUNDLE} (opaque; not inspected)` : `missing optional ${QA_SECRETS_BUNDLE}`}\n`,
+    );
+    if (!openAiCredentialAvailable) {
+      write(
+        '  · QA planner: missing JUROR_OPENAI_API_KEY (or OPENAI_API_KEY); ' +
+          'configure it before managed QA can run\n',
+      );
+    }
+  }
   write(`${jurySummary(readiness)}\n`);
 
   let secretUploadConfirmed = false;
@@ -280,32 +543,99 @@ export async function runInitCommand(options: InitCommandOptions): Promise<InitC
     if (!gh.installed || !gh.authenticated) {
       throw new Error('--set-secrets needs an authenticated GitHub CLI; run `gh auth login` first');
     }
-    if (availableNames.length === 0) {
-      throw new Error('--set-secrets found no provider keys; add them to the environment or repo .env first');
+    if (uploadableSecretCount === 0) {
+      throw new Error(
+        options.qa
+          ? `--set-secrets found no provider keys or ${QA_SECRETS_BUNDLE}; add them to the environment or repo .env first`
+          : '--set-secrets found no provider keys; add them to the environment or repo .env first',
+      );
     }
     secretUploadConfirmed = options.yes || await (options.confirm ?? confirmInTerminal)(
-      `Upload ${availableNames.length} detected provider secret(s) to ${repo}?`,
+      `Upload ${uploadableSecretCount} detected Juror secret(s) to ${repo}` +
+        `${qaSecretsBundleAvailable ? `, including the opaque ${QA_SECRETS_BUNDLE} browser-auth bundle` : ''}?`,
     );
   }
   const actionSha = await resolveActionSha(options.actionSha, options.version, runner);
   const workflowText = renderManagedWorkflow({ actionSha, version: options.version, preset: options.preset });
   const workflow = await installManagedWorkflow(root, workflowText, options.dryRun ?? false);
   write(`${workflowSummary(workflow, root)}\n`);
+  let qaWorkflow: WorkflowInstallResult | null = null;
+  let qaConfig: WorkflowInstallResult | null = null;
+  if (options.qa) {
+    qaWorkflow = await installManagedWorkflow(
+      root,
+      renderManagedQaWorkflow({ actionSha, version: options.version }),
+      options.dryRun ?? false,
+      'juror-qa.yml',
+    );
+    qaConfig = await installQaConfig(
+      root,
+      loaded.sourcePath,
+      options.dryRun ?? false,
+      { targetUrl: options.targetUrl, allowOrigins: options.allowOrigins },
+    );
+    write(`QA ${workflowSummary(qaWorkflow, root)}\n`);
+    write(`QA config: ${path.relative(root, qaConfig.path)} (${qaConfig.outcome})\n`);
+    const existingQaPolicyPreserved = qaConfig.outcome === 'unchanged';
+    const effectiveEnabled = existingQaPolicyPreserved
+      ? config.qa.enabled
+      : qaInitConfig?.enabled ?? false;
+    const effectiveOrigins = existingQaPolicyPreserved
+      ? config.qa.sandbox.allowed_origins
+      : qaInitConfig?.allowedOrigins ?? [];
+    if (existingQaPolicyPreserved && hasQaTargetOptions) {
+      write(
+        'QA target flags were not applied because the existing qa block is user-managed; ' +
+          `edit ${path.relative(root, qaConfig.path)} directly.\n`,
+      );
+    }
+    if (!effectiveEnabled) {
+      if (existingQaPolicyPreserved) {
+        write(
+          `QA remains disabled by the existing user-managed qa block in ${path.relative(root, qaConfig.path)}. ` +
+            'Review its target and exact allowed origins, then set `qa.enabled: true`.\n',
+        );
+      } else {
+        write(
+          'QA remains disabled because no target URL or allowed origin is configured. ' +
+            'Re-run `juror init --qa --target-url https://staging.example.com` or edit the qa block, ' +
+            'then set `qa.enabled: true`.\n',
+        );
+      }
+    } else if (effectiveOrigins.length === 0) {
+      write(
+        'QA is enabled but has no allowed browser origin. Add an exact HTTPS origin under ' +
+          '`qa.sandbox.allowed_origins` before the workflow runs.\n',
+      );
+    } else {
+      write(`QA target policy enabled for ${effectiveOrigins.length} exact browser origin(s).\n`);
+      const resetConfigured = existingQaPolicyPreserved && config.qa.sandbox.reset !== null;
+      if (!resetConfigured) {
+        write(
+          'QA starts in navigation/read-only mode. Configure a trusted qa.sandbox.reset hook ' +
+            'to enable click, fill, press, select, and check actions safely.\n',
+        );
+      }
+    }
+  }
 
   let uploadedSecrets: string[] = [];
   if (options.setSecrets) {
     if (options.dryRun) {
-      write(`Dry run: would upload ${availableNames.length} detected provider secret(s); no values were sent.\n`);
+      write(`Dry run: would upload ${uploadableSecretCount} detected Juror secret(s); no values were sent.\n`);
     } else {
       if (secretUploadConfirmed) {
         if (!repo) throw new Error('internal init error: confirmed secret upload has no repository');
         uploadedSecrets = await uploadProviderSecrets(options.env, availableNames, repo, runner);
-        write(`Uploaded ${uploadedSecrets.length} provider secret(s) using dedicated JUROR_ names.\n`);
+        if (options.qa) {
+          uploadedSecrets.push(...await uploadQaSecretsBundle(options.env, repo, runner));
+        }
+        write(`Uploaded ${uploadedSecrets.length} Juror secret(s) using dedicated JUROR_ names.\n`);
       } else {
         write('Secret upload skipped. No credential values were sent.\n');
       }
     }
-  } else if (availableNames.length > 0) {
+  } else if (uploadableSecretCount > 0) {
     write('Secrets were not uploaded. Re-run with --set-secrets to confirm and upload detected values.\n');
   }
 
@@ -313,11 +643,29 @@ export async function runInitCommand(options: InitCommandOptions): Promise<InitC
   else if (workflow.outcome === 'preserved') {
     write('Existing workflow has user changes and was preserved; merge the generated setup manually.\n');
   } else {
-    write(`Next: commit ${path.relative(root, workflow.path)} and open a pull request.\n`);
+    write(`Next: review and commit ${path.relative(root, workflow.path)} and open a pull request.\n`);
     write(
       `First local review (uses provider APIs): juror review` +
         `${options.preset ? ` --preset ${options.preset}` : ''} --base ${defaultBranch}\n`,
     );
+  }
+  if (!options.dryRun && options.qa && qaWorkflow && qaConfig) {
+    write(
+      `QA setup: review and commit ${humanList([
+        path.relative(root, qaWorkflow.path),
+        path.relative(root, qaConfig.path),
+      ])}.\n`,
+    );
+    write(
+      `Post-merge QA is opt-in through ${path.relative(root, qaConfig.path)} and, when enabled, runs from ` +
+        `${path.relative(root, qaWorkflow.path)} after a same-repository PR merges to ${defaultBranch}.\n`,
+    );
+    if (!qaSecretsBundleAvailable) {
+      write(
+        `Browser login is optional. When configured, set the opaque ${QA_SECRETS_BUNDLE} ` +
+          'base64 JSON map before re-running with --qa --set-secrets.\n',
+      );
+    }
   }
 
   return {
@@ -330,6 +678,8 @@ export async function runInitCommand(options: InitCommandOptions): Promise<InitC
     actionSha,
     readiness,
     workflow,
+    qaWorkflow,
+    qaConfig,
     uploadedSecrets,
   };
 }
@@ -453,6 +803,12 @@ function workflowSummary(workflow: WorkflowInstallResult, repoDir: string): stri
     'planned-update': 'would be updated',
   };
   return `Workflow: ${relative} ${descriptions[workflow.outcome]} (Juror is pinned to an immutable SHA).`;
+}
+
+function humanList(values: string[]): string {
+  if (values.length <= 1) return values[0] ?? '';
+  if (values.length === 2) return `${values[0]} and ${values[1]}`;
+  return `${values.slice(0, -1).join(', ')}, and ${values.at(-1)}`;
 }
 
 async function confirmInTerminal(question: string): Promise<boolean> {

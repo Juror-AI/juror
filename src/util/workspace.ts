@@ -119,10 +119,14 @@ function isScratchPath(candidate: string, prefix: string | null): boolean {
 }
 
 /** Resolve the repository root, so a run started in a subdirectory still anchors correctly. */
-export async function repoRoot(dir: string): Promise<string> {
+export async function repoRoot(dir: string, signal?: AbortSignal): Promise<string> {
   try {
-    return (await runOrThrow(['git', 'rev-parse', '--show-toplevel'], { cwd: dir })).trim();
+    return (await runOrThrow(['git', 'rev-parse', '--show-toplevel'], {
+      cwd: dir,
+      ...(signal ? { signal } : {}),
+    })).trim();
   } catch {
+    signal?.throwIfAborted();
     return dir;
   }
 }
@@ -132,10 +136,13 @@ export async function repoRoot(dir: string): Promise<string> {
  * worktrees use a pointer file there, and attempting to mkdir beneath it fails with
  * ENOTDIR. The common directory also makes rolling spend shared by every workspace.
  */
-export async function gitStateDir(repoDir: string): Promise<string> {
+export async function gitStateDir(repoDir: string, signal?: AbortSignal): Promise<string> {
   try {
     const common = (
-      await runOrThrow(['git', 'rev-parse', '--git-common-dir'], { cwd: repoDir })
+      await runOrThrow(['git', 'rev-parse', '--git-common-dir'], {
+        cwd: repoDir,
+        ...(signal ? { signal } : {}),
+      })
     ).trim();
     if (common) {
       const absolute = path.resolve(repoDir, common);
@@ -143,6 +150,7 @@ export async function gitStateDir(repoDir: string): Promise<string> {
       return path.join(physical, 'juror');
     }
   } catch {
+    signal?.throwIfAborted();
     // Non-git callers still get the old best-effort location; ledger I/O never throws.
   }
   return path.join(repoDir, '.git', 'juror');

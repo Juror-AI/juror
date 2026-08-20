@@ -1,5 +1,13 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -58,6 +66,49 @@ function bloblessClone(origin: string, o: { promisorReachable?: boolean } = {}):
 }
 
 describe('loadAgentInstructions', () => {
+  it('cancels an in-flight trusted instruction tree walk', async () => {
+    const repo = newRepo();
+    const base = commit(repo, 'base', {
+      'AGENTS.md': 'Trusted rule.\n',
+      'src/app.ts': 'export const app = true;\n',
+    });
+    const wrapperDir = join(repo, 'slow-git');
+    const marker = join(repo, 'instruction-walk-started');
+    const realGit = execFileSync('/usr/bin/env', ['which', 'git'], { encoding: 'utf8' }).trim();
+    mkdirSync(wrapperDir);
+    writeFileSync(
+      join(wrapperDir, 'git'),
+      '#!/bin/sh\n' +
+        'for juror_arg in "$@"; do\n' +
+        '  if [ "$juror_arg" = ls-tree ]; then\n' +
+        `    printf started > ${JSON.stringify(marker)}\n` +
+        '    sleep 30\n' +
+        '  fi\n' +
+        'done\n' +
+        `exec ${JSON.stringify(realGit)} "$@"\n`,
+      'utf8',
+    );
+    chmodSync(join(wrapperDir, 'git'), 0o755);
+
+    const priorPath = process.env.PATH;
+    process.env.PATH = `${wrapperDir}:${priorPath ?? ''}`;
+    const controller = new AbortController();
+    try {
+      const pending = loadAgentInstructions(repo, base, ['src/app.ts'], controller.signal);
+      const deadline = Date.now() + 2_000;
+      while (!existsSync(marker) && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      const walkStarted = existsSync(marker);
+      controller.abort();
+      await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+      expect(walkStarted).toBe(true);
+    } finally {
+      if (priorPath === undefined) delete process.env.PATH;
+      else process.env.PATH = priorPath;
+    }
+  }, 15_000);
+
   it('loads root and nested instructions that apply to changed paths', async () => {
     const repo = newRepo();
     const base = commit(repo, 'base', {
@@ -119,6 +170,21 @@ describe('loadAgentInstructions', () => {
 
     expect(loaded.paths).toEqual([]);
     expect(loaded.rendered).toContain('No applicable AGENTS.md');
+    expect(loaded.problems).toEqual([
+      'ignored AGENTS.md because it does not exist at the review base',
+    ]);
+  });
+
+  it('does not follow a newly added instruction symlink while ignoring it', async () => {
+    const repo = newRepo();
+    const base = commit(repo, 'base', { 'src/app.ts': 'export const app = true;\n' });
+    symlinkSync('/dev/zero', join(repo, 'AGENTS.md'));
+    git(repo, ['add', 'AGENTS.md']);
+    git(repo, ['commit', '-qm', 'add untrusted instruction symlink']);
+
+    const loaded = await loadAgentInstructions(repo, base, ['AGENTS.md', 'src/app.ts']);
+
+    expect(loaded.paths).toEqual([]);
     expect(loaded.problems).toEqual([
       'ignored AGENTS.md because it does not exist at the review base',
     ]);
