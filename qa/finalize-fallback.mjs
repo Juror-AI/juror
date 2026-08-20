@@ -83,6 +83,13 @@ function safeWarning(raw) {
     .slice(0, 500) || 'QA infrastructure finalization failed';
 }
 
+function markdownText(raw) {
+  return String(raw)
+    .replace(/<!--/g, '&lt;!--')
+    .replace(/<\/(details|summary)>/gi, '&lt;/$1&gt;')
+    .replace(/`{3,}/g, '`');
+}
+
 function fallbackReport(repository, prNumber) {
   const now = new Date().toISOString();
   return {
@@ -184,14 +191,18 @@ function deliveryMatches(report, delivered, artifactName, artifactUrl) {
 }
 
 function infrastructureSummary(report, reason, artifactUrl) {
-  const evidenceLink = markdownLink('open artifact', artifactUrl);
-  const evidence = evidenceLink ? `\n- Evidence payload: ${evidenceLink}` : '';
-  return `### Juror QA — Infrastructure error\n\n` +
-    `Juror could not produce a trustworthy final QA result.\n\n` +
+  const evidenceLink = markdownLink('View evidence', artifactUrl);
+  const evidence = evidenceLink ? `\n\n### Evidence\n\n${evidenceLink}` : '';
+  return `## 🛑 Juror QA — Infrastructure error\n\n` +
+    `> [!CAUTION]\n` +
+    `> No product verdict was produced because Juror could not create a trustworthy final result.\n\n` +
+    `### Why QA stopped\n\n` +
+    `${markdownText(reason)}${evidence}\n\n` +
+    `<details><summary>Run details</summary>\n\n` +
     `- Outcome: \`infrastructure_error\`\n` +
     `- Pull request: #${report.pr_number}\n` +
-    `- Browser issues retained: ${report.issues.length}${evidence}\n\n` +
-    `Warning: ${reason}\n`;
+    `- Browser issues retained: ${report.issues.length}\n\n` +
+    `</details>\n`;
 }
 
 function markInfrastructureError(report, reason, delivered, artifactName, artifactUrl) {

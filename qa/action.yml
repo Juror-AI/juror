@@ -153,7 +153,7 @@ runs:
           echo "ref=$EXACT_IMAGE"
           echo "version=$VERSION"
         } >> "$GITHUB_OUTPUT"
-        echo "Verified Juror QA image: $EXACT_IMAGE" >> "$GITHUB_STEP_SUMMARY"
+        echo "::notice::Verified Juror QA image: $EXACT_IMAGE"
 
     - name: Prepare isolated QA runtime
       id: runtime
@@ -750,6 +750,7 @@ runs:
       run: |
         set -euo pipefail
         SUMMARY_TRUSTED=true
+        FINAL_STICKY_WARNING=false
         emit_hard_failure() {
           SUMMARY_TRUSTED=false
           {
@@ -768,9 +769,10 @@ runs:
             echo 'exit-code=1'
           } >> "$GITHUB_OUTPUT"
           {
-            echo '### Juror QA — Infrastructure error'
+            echo '## 🛑 Juror QA — Infrastructure error'
             echo
-            echo 'The trusted runner could not validate or persist the final QA result.'
+            echo '> [!CAUTION]'
+            echo '> No product verdict was produced because the trusted runner could not validate or persist the final QA result.'
           } >> "$GITHUB_STEP_SUMMARY"
         }
 
@@ -830,10 +832,7 @@ runs:
             set -e
             if [ "$FINAL_PUBLICATION_STATUS" -ne 0 ]; then
               echo "::warning::Final QA sticky update failed; the existing comment remains non-final"
-              {
-                echo
-                echo '> The final PR sticky update failed; the immutable report artifact remains authoritative.'
-              } >> "$GITHUB_STEP_SUMMARY"
+              FINAL_STICKY_WARNING=true
             fi
           fi
         else
@@ -896,6 +895,13 @@ runs:
 
         if [ "$SUMMARY_TRUSTED" = "true" ] && [ -f "$SUMMARY_PATH" ]; then
           cat "$SUMMARY_PATH" >> "$GITHUB_STEP_SUMMARY" || true
+        fi
+        if [ "$FINAL_STICKY_WARNING" = "true" ]; then
+          {
+            echo
+            echo '> [!WARNING]'
+            echo '> The PR comment could not be finalized. The immutable result artifact remains authoritative.'
+          } >> "$GITHUB_STEP_SUMMARY"
         fi
         exit 0
 

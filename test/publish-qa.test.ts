@@ -83,7 +83,7 @@ describe('publishQaResult', () => {
     expect(fake.createIssueComment).toHaveBeenCalledTimes(1);
     expect(fake.createIssueComment.mock.calls[0]?.[0]).toBe(9);
     expect(fake.createIssueComment.mock.calls[0]?.[1]).toContain(QA_STICKY_MARKER);
-    expect(fake.createIssueComment.mock.calls[0]?.[1]).toContain('### Juror QA — Passed');
+    expect(fake.createIssueComment.mock.calls[0]?.[1]).toContain('## ✅ Juror QA — Passed');
   });
 
   it('uses a non-final sticky until the immutable result is committed', async () => {
@@ -94,12 +94,12 @@ describe('publishQaResult', () => {
     });
 
     const pending = fake.createIssueComment.mock.calls[0]?.[1];
-    expect(pending).toContain('### Juror QA — Finalizing evidence');
-    expect(pending).toContain('this result is not final yet');
-    expect(pending).not.toContain('### Juror QA — Passed');
+    expect(pending).toContain('## ⏳ Juror QA — Finalizing evidence');
+    expect(pending).toContain('sealing the evidence before publishing a verdict');
+    expect(pending).not.toContain('## ✅ Juror QA — Passed');
 
     await publishQaResult(fake, 9, result());
-    expect(fake.updateIssueComment.mock.calls.at(-1)?.[1]).toContain('### Juror QA — Passed');
+    expect(fake.updateIssueComment.mock.calls.at(-1)?.[1]).toContain('## ✅ Juror QA — Passed');
   });
 
   it('updates the newest bot-owned QA marker idempotently', async () => {
@@ -114,7 +114,7 @@ describe('publishQaResult', () => {
 
     expect(fake.updateIssueComment).toHaveBeenCalledTimes(1);
     expect(fake.updateIssueComment.mock.calls[0]?.[0]).toBe(15);
-    expect(fake.updateIssueComment.mock.calls[0]?.[1]).toContain('### Juror QA — Blocked');
+    expect(fake.updateIssueComment.mock.calls[0]?.[1]).toContain('## ⛔ Juror QA — QA blocked');
     expect(fake.createIssueComment).not.toHaveBeenCalled();
   });
 

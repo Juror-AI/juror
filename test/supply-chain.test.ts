@@ -203,6 +203,7 @@ describe('supply-chain policy', () => {
     const resultUpload = steps.findIndex((step) => step.name === 'Upload finalized QA report');
     const finalize = steps.findIndex((step) => step.name === 'Reconcile final QA outcome');
     const conclusion = steps.findIndex((step) => step.name === 'Apply QA conclusion');
+    const finalizeRun = steps[finalize]?.run ?? '';
 
     expect(qa).toBeGreaterThanOrEqual(0);
     expect(stage).toBeGreaterThan(qa);
@@ -253,6 +254,11 @@ describe('supply-chain policy', () => {
     expect(steps[finalize]?.run).toContain('JUROR_QA_ACTION_READ_ONLY=false');
     expect(steps[finalize]?.run).toContain('GITHUB_OUTPUT="$GITHUB_OUTPUT"');
     expect(steps[finalize]?.run).toContain('JUROR_QA_ACTION_REQUIRE_INFRASTRUCTURE_ERROR=true');
+    expect(steps[finalize]?.env?.['SUMMARY_PATH']).toContain('steps.runtime.outputs.summary-path');
+    expect(steps[finalize]?.run).toContain('cat "$SUMMARY_PATH" >> "$GITHUB_STEP_SUMMARY"');
+    expect(steps[finalize]?.run).not.toMatch(/jq[^\n]*REPORT_PATH[^\n]*GITHUB_STEP_SUMMARY/);
+    expect(finalizeRun.indexOf('cat "$SUMMARY_PATH" >> "$GITHUB_STEP_SUMMARY"'))
+      .toBeLessThan(finalizeRun.indexOf('The PR comment could not be finalized'));
     expect(action.outputs['outcome']?.value).toContain('steps.finalize.outputs.outcome');
   });
 

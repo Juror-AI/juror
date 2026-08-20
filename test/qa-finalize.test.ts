@@ -223,7 +223,7 @@ describe('finalizeQaEvidence', () => {
       const persisted = JSON.parse(readFileSync(reportPath, 'utf8')) as QaRunResult;
       expect(persisted.artifacts[0]?.upload?.url).toContain('/artifacts/8');
       expect(readFileSync(summaryPath, 'utf8')).toContain(
-        '[Evidence and videos](https://github.com/owner/repo/actions/runs/7/artifacts/8)',
+        '[View evidence & video](https://github.com/owner/repo/actions/runs/7/artifacts/8)',
       );
     } finally {
       rmSync(scratch, { recursive: true, force: true });
@@ -355,7 +355,7 @@ describe('finalizeQaEvidence', () => {
       expect(persisted.artifacts[0]?.upload).toEqual(original.artifacts[0]?.upload);
       expect(isQaRunResult(persisted)).toBe(true);
       expect(readFileSync(summaryPath, 'utf8')).toContain(
-        '[Evidence and videos](https://github.com/owner/repo/actions/runs/7/artifacts/8)',
+        '[View evidence & video](https://github.com/owner/repo/actions/runs/7/artifacts/8)',
       );
     } finally {
       rmSync(scratch, { recursive: true, force: true });
@@ -400,7 +400,7 @@ describe('finalizeQaEvidence', () => {
       expect(persisted.outcome).toBe('infrastructure_error');
       expect(persisted.artifacts).toEqual([]);
       expect(readFileSync(summaryPath, 'utf8')).toContain(
-        '[Evidence and videos](https://github.com/owner/repo/actions/runs/7/artifacts/8)',
+        '[View evidence](https://github.com/owner/repo/actions/runs/7/artifacts/8)',
       );
     } finally {
       rmSync(scratch, { recursive: true, force: true });
@@ -479,9 +479,11 @@ describe('finalizeQaEvidence', () => {
         url: 'https://github.com/owner/repo/actions/runs/7/artifacts/8',
       });
       const summary = readFileSync(summaryPath, 'utf8');
-      expect(summary).toContain('Juror QA — Infrastructure error');
+      expect(summary).toContain('## 🛑 Juror QA — Infrastructure error');
+      expect(summary).toContain('> [!CAUTION]');
+      expect(summary).toContain('### Why QA stopped');
       expect(summary).toContain(
-        '[open artifact](<https://github.com/owner/repo/actions/runs/7/artifacts/8>)',
+        '[View evidence](<https://github.com/owner/repo/actions/runs/7/artifacts/8>)',
       );
       expect(readFileSync(outputPath, 'utf8')).toContain('outcome=infrastructure_error\n');
       expect(readFileSync(outputPath, 'utf8')).toContain('exit-code=1\n');

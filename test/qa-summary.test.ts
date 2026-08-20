@@ -174,18 +174,21 @@ describe('renderQaSummary', () => {
       artifactUrl: 'https://github.com/owner/repo/actions/runs/7/artifacts/8',
     });
 
-    expect(markdown.startsWith(`${QA_STICKY_MARKER}\n### Juror QA — Product issue found`)).toBe(true);
-    expect(markdown).toContain('**Change scope:** exact · source base `aaaaaaaaaaaa`');
-    expect(markdown).toContain('[staging-deployment](https://staging.example.test/)');
+    expect(markdown.startsWith(`${QA_STICKY_MARKER}\n## ❌ Juror QA — Product issue found`)).toBe(true);
+    expect(markdown).toContain('Juror reproduced a user-visible issue');
+    expect(markdown).toContain('- Change scope: exact · source base `aaaaaaaaaaaa`');
+    expect(markdown).not.toContain('https://staging.example.test');
     expect(markdown).toContain('`0123456789ab` (exact)');
-    expect(markdown).toContain('**Verdict eligible:** yes');
-    expect(markdown).toContain('**Impact:** The composer toolbar changed at narrow widths.');
-    expect(markdown).toContain('| Narrow composer remains usable | 1 | failed | 1/2 passed |');
-    expect(markdown).toContain('**P1: Send control is clipped**');
-    expect(markdown).toContain('attempts 1 and 2.');
-    expect(markdown).toContain('[Evidence and videos](https://github.com/owner/repo/actions/runs/7/artifacts/8)');
-    expect(markdown).toContain('1 attempt · 1 video · cleanup passed · 12s');
-    expect(markdown).toContain('Run `qa-owner-repo-42-abc123`');
+    expect(markdown).toContain('verdict eligible yes');
+    expect(markdown).toContain('### What changed\n\nThe composer toolbar changed at narrow widths.');
+    expect(markdown).toContain('| Narrow composer remains usable | ❌ Failed | 1/2 | 1 |');
+    expect(markdown).toContain('#### P1 · Send control is clipped');
+    expect(markdown).toContain('**Reproduced:** attempts 1 and 2 · verified');
+    expect(markdown).toContain('[View evidence & video](https://github.com/owner/repo/actions/runs/7/artifacts/8)');
+    expect(markdown).toContain('[Open workflow run](https://github.com/owner/repo/actions/runs/7)');
+    expect(markdown).toContain('2 artifacts · 1 video');
+    expect(markdown).toContain('- Run: `qa-owner-repo-42-abc123`');
+    expect(markdown).toContain('- Cleanup: passed — Dedicated tenant reset.');
     expect(markdown).toContain('Warnings (1)');
     expect(markdown).toContain('Staging included one later documentation commit.');
   });
@@ -201,10 +204,12 @@ describe('renderQaSummary', () => {
       target: { ...base.target!, verdict_eligible: false },
     }));
 
-    expect(markdown).toContain('**Change scope:** conservative');
+    expect(markdown).toContain('| conservative |');
     expect(markdown).toContain('2 policy-base candidates');
-    expect(markdown).toContain('findings are advisory because the range can include earlier changes');
-    expect(markdown).toContain('The tested range can include changes older than this PR');
+    expect(markdown).toContain('target, range, or policy limitations');
+    expect(markdown).toContain('The tested range can include changes older than this PR, so findings are advisory.');
+    expect(markdown).toContain('### Advisory findings');
+    expect(markdown).not.toContain('### Product issues');
   });
 
   it('falls back to the job link and handles plural attempt/video counts', () => {
@@ -214,7 +219,16 @@ describe('renderQaSummary', () => {
       conclusion: 'success',
       attempts: [
         ...base.attempts,
-        { ...base.attempts[0]!, attempt: 2, status: 'passed' },
+        {
+          ...base.attempts[0]!,
+          attempt: 2,
+          status: 'passed',
+          checkpoints: base.attempts[0]!.checkpoints.map((checkpoint) => ({
+            ...checkpoint,
+            status: 'passed' as const,
+            observed: checkpoint.expected,
+          })),
+        },
       ],
       artifacts: [
         ...base.artifacts,
@@ -224,9 +238,14 @@ describe('renderQaSummary', () => {
       warnings: [],
     }), { jobUrl: 'https://github.com/owner/repo/actions/runs/7' });
 
-    expect(markdown).toContain('### Juror QA — Flaky — passed on retry');
-    expect(markdown).toContain('[Workflow run](https://github.com/owner/repo/actions/runs/7)');
-    expect(markdown).toContain('2 attempts · 2 videos');
+    expect(markdown).toContain('## ⚠️ Juror QA — Passed on retry');
+    expect(markdown).toContain('[Open workflow run](https://github.com/owner/repo/actions/runs/7)');
+    expect(markdown).toContain('| Narrow composer remains usable | ✅ Passed | 2/2 | 2 |');
+    expect(markdown).toContain('3 artifacts · 2 videos');
+    expect(markdown).not.toContain('### Why QA stopped');
+    expect(markdown).not.toContain('### Unresolved checks');
+    expect(markdown).toContain('<details><summary>Retry history</summary>');
+    expect(markdown).toContain('Send was clipped outside the composer.');
   });
 
   it('reports the configured video retention instead of a fixed duration', () => {
@@ -235,8 +254,8 @@ describe('renderQaSummary', () => {
       artifacts: base.artifacts.map((artifact) => ({ ...artifact, retention_days: 3 })),
     }));
 
-    expect(markdown).toContain('Videos retained for 3 days.');
-    expect(markdown).not.toContain('Videos retained for 14 days.');
+    expect(markdown).toContain('videos retained for 3 days');
+    expect(markdown).not.toContain('videos retained for 14 days');
   });
 
   it('explains no-testable-surface results without inventing a scenario table', () => {
@@ -261,11 +280,12 @@ describe('renderQaSummary', () => {
       warnings: [],
     }));
 
-    expect(markdown).toContain('### Juror QA — Neutral — no testable browser surface');
-    expect(markdown).toContain('**QA verdict:** Neutral (not scored)');
+    expect(markdown).toContain('## ➖ Juror QA — Browser QA not applicable');
+    expect(markdown).toContain('Neutral — not scored. No browser was launched');
     expect(markdown).toContain('No user-observable browser behavior changed.');
-    expect(markdown).not.toContain('#### Scenarios');
-    expect(markdown).toContain('0 attempts · 0 videos · cleanup not_required');
+    expect(markdown).toContain('| exact | not resolved | 0 | Not run |');
+    expect(markdown).not.toContain('### What Juror tested');
+    expect(markdown).toContain('- Attempts: 0 · artifacts: 0');
   });
 
   it('marks unverified static targets as advisory', () => {
@@ -287,12 +307,12 @@ describe('renderQaSummary', () => {
       },
     }));
 
-    expect(markdown).toContain('### Juror QA — Advisory findings');
-    expect(markdown).toContain('`unverified` (unverified)');
-    expect(markdown).toContain('**Verdict eligible:** no — findings are advisory');
+    expect(markdown).toContain('## ℹ️ Juror QA — Advisory findings');
+    expect(markdown).toContain('staging-static · unverified (unverified)');
+    expect(markdown).toContain('verdict eligible no');
   });
 
-  it('keeps Markdown delimiters inside one normalized HTTP destination', () => {
+  it('never renders the target URL, including an adversarial one', () => {
     const base = qaResult();
     const injected =
       'https://staging.example.test/)[OPEN-EVIDENCE](https://evil.test/phish[a](b)';
@@ -303,14 +323,13 @@ describe('renderQaSummary', () => {
       jobUrl: 'https://user:password@github.com/owner/repo/actions/runs/7',
     });
 
-    expect(markdown).toContain(
-      '[staging-deployment](https://staging.example.test/%29%5BOPEN-EVIDENCE%5D%28https://evil.test/phish%5Ba%5D%28b%29)',
-    );
-    expect(markdown).not.toContain('](https://evil.test');
+    expect(markdown).toContain('Target revision');
+    expect(markdown).not.toContain('staging.example.test');
+    expect(markdown).not.toContain('evil.test');
     expect(markdown).not.toContain('javascript:');
     expect(markdown).not.toContain('user:password');
-    expect(markdown).not.toContain('Evidence and videos');
-    expect(markdown).not.toContain('Workflow run');
+    expect(markdown).not.toContain('View evidence');
+    expect(markdown).not.toContain('Open workflow run');
   });
 
   it('does not activate invalid target, artifact, workflow, or pending URLs', () => {
@@ -323,10 +342,10 @@ describe('renderQaSummary', () => {
     });
     const pending = renderQaPending(qaResult(), { jobUrl: 'javascript:alert(1)' });
 
-    expect(markdown).toContain('**Target:** staging-deployment ·');
+    expect(markdown).toContain('- Target: staging-deployment ·');
     expect(markdown).not.toContain('file:///');
     expect(markdown).not.toContain('data:text');
-    expect(markdown).not.toContain('[Workflow run]');
+    expect(markdown).not.toContain('[Open workflow run]');
     expect(pending).not.toContain('[Open the QA workflow run]');
     expect(renderQaMarkdownLink('unsafe', 'https://user:pass@example.test/')).toBeNull();
   });
@@ -368,12 +387,97 @@ describe('renderQaSummary', () => {
     expect(markdown).toContain('Break \\| table &lt;script>alert(1)&lt;/script>');
   });
 
+  it('explains blocked checkpoints and aggregates retries into one journey row', () => {
+    const base = qaResult();
+    const blocked = {
+      ...base.attempts[0]!,
+      status: 'blocked' as const,
+      checkpoints: base.attempts[0]!.checkpoints.map((checkpoint, index) => ({
+        ...checkpoint,
+        status: index === 0 ? 'passed' as const : 'blocked' as const,
+        observed: index === 0 ? 'Toolbar controls were visible.' : 'Authenticated checkpoint was unavailable.',
+      })),
+    };
+    const failed = {
+      ...blocked,
+      attempt: 2 as const,
+      status: 'failed' as const,
+      checkpoints: blocked.checkpoints.map((checkpoint, index) => ({
+        ...checkpoint,
+        status: index === 0 ? 'passed' as const : 'failed' as const,
+        observed: index === 0 ? checkpoint.observed : 'Authenticated checkpoint did not match.',
+      })),
+    };
+    const markdown = renderQaSummary(qaResult({
+      outcome: 'blocked',
+      issues: [],
+      attempts: [blocked, failed],
+    }));
+
+    expect(markdown).toContain('No product verdict was produced');
+    expect(markdown).toContain('| Narrow composer remains usable | ❌ Failed | 1/2 | 2 |');
+    expect(markdown.match(/\| Narrow composer remains usable \| ❌ Failed/g)).toHaveLength(1);
+    expect(markdown).toContain('### Why QA stopped');
+    expect(markdown).toContain('The final attempt left 1 planned check unresolved.');
+    expect(markdown).toContain('### Unresolved checks');
+    expect(markdown).toContain('Authenticated checkpoint did not match.');
+  });
+
+  it('redacts the target URL and origin when free-text fields echo them', () => {
+    const base = qaResult();
+    const targetUrl = base.target!.url;
+    const targetOrigin = base.target!.allowed_origin;
+    const markdown = renderQaSummary(qaResult({
+      plan: {
+        ...base.plan!,
+        impact_assessment: `Changed ${targetUrl}`,
+      },
+      attempts: base.attempts.map((attempt) => ({
+        ...attempt,
+        checkpoints: attempt.checkpoints.map((checkpoint) => ({
+          ...checkpoint,
+          observed: `Observed at ${targetOrigin}`,
+        })),
+      })),
+      issues: base.issues.map((issue) => ({
+        ...issue,
+        expected: targetUrl,
+        actual: targetOrigin,
+      })),
+      cleanup: { ...base.cleanup, summary: `Reset ${targetUrl}` },
+      warnings: [`Target ${targetOrigin} was advisory.`],
+    }));
+
+    expect(markdown).not.toContain(targetUrl);
+    expect(markdown).not.toContain(targetOrigin);
+    expect(markdown).toContain('[redacted]');
+  });
+
+  it('uses a video-specific CTA only when video evidence exists', () => {
+    const base = qaResult();
+    const markdown = renderQaSummary(qaResult({
+      artifacts: base.artifacts.filter((artifact) => artifact.kind !== 'video'),
+    }), { artifactUrl: 'https://github.com/owner/repo/actions/runs/7/artifacts/8' });
+
+    expect(markdown).toContain('[View evidence](https://github.com/owner/repo/actions/runs/7/artifacts/8)');
+    expect(markdown).not.toContain('View evidence & video');
+  });
+
+  it('does not present retained findings as a product verdict after infrastructure failure', () => {
+    const markdown = renderQaSummary(qaResult({ outcome: 'infrastructure_error' }));
+
+    expect(markdown).toContain('### Retained browser findings');
+    expect(markdown).not.toContain('### Product issues');
+  });
+
   it.each([
-    ['passed', 'Passed'],
-    ['blocked', 'Blocked'],
-    ['infrastructure_error', 'Infrastructure error'],
-    ['cancelled', 'Cancelled'],
-  ] as const)('labels the %s terminal outcome', (outcome, label) => {
-    expect(renderQaSummary(qaResult({ outcome }))).toContain(`### Juror QA — ${label}`);
+    ['passed', '✅', 'Passed'],
+    ['blocked', '⛔', 'QA blocked'],
+    ['infrastructure_error', '🛑', 'Infrastructure error'],
+    ['cancelled', '⏹️', 'Cancelled'],
+  ] as const)('labels the %s terminal outcome', (outcome, icon, label) => {
+    const markdown = renderQaSummary(qaResult({ outcome }));
+    expect(markdown).toContain(`## ${icon} Juror QA — ${label}`);
+    if (outcome === 'cancelled') expect(markdown).toContain('### Why QA stopped');
   });
 });
