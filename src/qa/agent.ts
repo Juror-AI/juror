@@ -45,7 +45,6 @@ const ENV_ALLOWLIST = [
   // proxy. Codex still has no model tool with raw network access.
   'HTTP_PROXY',
   'HTTPS_PROXY',
-  'NO_PROXY',
 ];
 
 function isolate(env: Record<string, string>): Record<string, string | undefined> {
@@ -134,9 +133,19 @@ export async function runQaAgent(options: QaAgentOptions): Promise<QaAgentResult
   }
 
   const config = [
+    // Keep provider traffic on HTTPS so the controller-owned CONNECT proxy is
+    // the only DNS and egress boundary used by the isolated runtime.
+    'model_provider = "juror_openai_https"',
     'default_permissions = "juror-qa"',
     'approval_policy = "never"',
     'web_search = "disabled"',
+    '',
+    '[model_providers.juror_openai_https]',
+    'name = "Juror OpenAI HTTPS"',
+    'base_url = "https://api.openai.com/v1"',
+    'wire_api = "responses"',
+    'requires_openai_auth = true',
+    'supports_websockets = false',
     '',
     '[shell_environment_policy]',
     'inherit = "none"',

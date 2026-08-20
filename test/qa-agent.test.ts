@@ -32,6 +32,9 @@ describe('QA Codex process isolation', () => {
           "fs.writeFileSync(path.join(process.cwd(), 'child-env.json'), JSON.stringify({",
           '  nodeOptions: process.env.NODE_OPTIONS,',
           '  nodeUseEnvProxy: process.env.NODE_USE_ENV_PROXY,',
+          '  httpProxy: process.env.HTTP_PROXY,',
+          '  httpsProxy: process.env.HTTPS_PROXY,',
+          '  noProxy: process.env.NO_PROXY,',
           '}));',
           "process.stdout.write(JSON.stringify({ type: 'turn.completed', usage: {} }) + '\\n');",
           '',
@@ -54,6 +57,7 @@ describe('QA Codex process isolation', () => {
           JUROR_OPENAI_API_KEY: 'sk-test-qa-agent-key',
           HTTP_PROXY: 'http://127.0.0.1:8080',
           HTTPS_PROXY: 'http://127.0.0.1:8080',
+          NO_PROXY: 'api.openai.com',
           NODE_OPTIONS: `--require=${preload}`,
           NODE_USE_ENV_PROXY: 'attacker-controlled',
         },
@@ -63,12 +67,17 @@ describe('QA Codex process isolation', () => {
       const childEnv = JSON.parse(await readFile(path.join(scratchDir, 'child-env.json'), 'utf8')) as {
         nodeOptions?: string;
         nodeUseEnvProxy?: string;
+        httpProxy?: string;
+        httpsProxy?: string;
+        noProxy?: string;
       };
       expect(childEnv).toEqual({
         ...(process.allowedNodeEnvironmentFlags.has('--use-env-proxy')
           ? { nodeOptions: '--use-env-proxy' }
           : {}),
         nodeUseEnvProxy: '1',
+        httpProxy: 'http://127.0.0.1:8080',
+        httpsProxy: 'http://127.0.0.1:8080',
       });
       await expect(readFile(preloadCanary, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
 
@@ -79,7 +88,14 @@ describe('QA Codex process isolation', () => {
         expect(config).not.toContain('NODE_OPTIONS =');
       }
       expect(config).toContain('NODE_USE_ENV_PROXY = "1"');
+      expect(config).not.toContain('NO_PROXY =');
       expect(config).not.toContain(preload);
+      expect(config).toContain('model_provider = "juror_openai_https"');
+      expect(config).toContain('[model_providers.juror_openai_https]');
+      expect(config).toContain('base_url = "https://api.openai.com/v1"');
+      expect(config).toContain('wire_api = "responses"');
+      expect(config).toContain('requires_openai_auth = true');
+      expect(config).toContain('supports_websockets = false');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
