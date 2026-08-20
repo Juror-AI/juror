@@ -12,6 +12,96 @@
 
 </div>
 
+**Juror is a GitHub Action that asks several frontier models to review each pull request in
+parallel. It combines duplicate findings into one report and posts the review, merge score, and
+cost receipt back to GitHub.**
+
+## Add Juror to your repository
+
+Start from the [Juror AI listing in GitHub Marketplace](https://github.com/marketplace/actions/juror-ai):
+click **Use latest version** to add it to a workflow. If you prefer to add it directly, create
+`.github/workflows/juror.yml` with this ready-to-run workflow:
+
+```yaml
+name: Juror
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: juror-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    # Provider secrets are never exposed to code from forks.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - uses: juror-ai/juror@178a16d6fa3a1b868094bc4236d42fb8e442ea6a # v1.3.3
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          JUROR_OPENAI_API_KEY: ${{ secrets.JUROR_OPENAI_API_KEY }}
+          JUROR_FIREWORKS_API_KEY: ${{ secrets.JUROR_FIREWORKS_API_KEY }}
+```
+
+Then add at least one provider key in **Settings → Secrets and variables → Actions**. One key
+starts a review; adding a second provider makes the default `fast` preset a cross-model jury:
+
+```bash
+gh secret set JUROR_OPENAI_API_KEY
+gh secret set JUROR_FIREWORKS_API_KEY
+```
+
+Commit the workflow and open a pull request. Juror immediately posts a sticky *Juror is
+reviewing…* comment, then replaces it with the findings, merge score, and bill. Every Action
+input besides `github-token` is optional; see [`action.yml`](action.yml) for `preset`, `models`,
+`config`, `cost-target-usd`, `post`, and `pr-number`.
+
+The example pins both Actions to immutable commits. The Marketplace's generated snippet is a
+convenient starting point; use an immutable SHA in the committed workflow to keep the reviewed
+Action version fixed.
+
+<details><summary><b>Prefer a guided CLI setup or a local review?</b></summary><br>
+
+The CLI can generate the same SHA-pinned workflow, inspect the plan first, and optionally upload
+provider keys through the GitHub CLI:
+
+```bash
+export JUROR_OPENAI_API_KEY=…
+npx juror-ai init --set-secrets
+
+# Or inspect the planned workflow and secrets without changing anything.
+npx juror-ai init --dry-run
+```
+
+To review an existing pull request locally without creating a workflow:
+
+```bash
+npx juror-ai review --pr 1234 --repo owner/name          # prints to your terminal
+npx juror-ai review --pr 1234 --repo owner/name --post   # also posts the review
+```
+
+The optional `starter` preset uses one `JUROR_OPENROUTER_API_KEY` to reach two model families:
+
+```bash
+npx juror-ai init --preset starter --set-secrets
+```
+
+</details>
+
+---
+
 > ### Benchmark evidence: Juror Fast found 4× more adjudicated P0–P2 defects than Greptile
 >
 > On the bundled production-PR seed, Juror Fast found **4/6 (66.7%)** P0–P2 defects at
@@ -26,89 +116,6 @@
 > benchmark. Inspect the [corpus](benchmarks/platform-10359.json) and
 > [methodology](docs/benchmarking.md), or reproduce it with
 > `juror benchmark --file benchmarks/platform-10359.json`.
-
-```
-npx juror-ai review --pr 1234
-```
-
-**N frontier models review your PR in parallel, each through its own native agent
-harness. Reports about the same defect collapse into one. Every review prints its own
-receipt.**
-
----
-
-## Add it to your repo
-
-No app to install, no account to create, no repository index to build. Put at least one
-provider key in your environment or an untracked `.env`, then run:
-
-```bash
-export JUROR_OPENAI_API_KEY=…
-npx juror-ai init --set-secrets
-```
-
-`init` detects the GitHub repository and default branch, the current `.juror.yml`, GitHub CLI
-authentication, and which configured models can authenticate. It explains whether the result
-is a real multi-model jury or a single-model fallback before asking permission to upload any
-secret. Values travel to `gh secret set` over stdin; they are never printed or written into the
-workflow.
-
-The generated `.github/workflows/juror.yml` pins Juror to the release's full commit SHA with a
-readable version comment. A content hash makes reruns idempotent: Juror refreshes an untouched
-generated workflow, but preserves any workflow you created or edited yourself.
-
-Want to inspect the complete plan without changing a file or secret?
-
-```bash
-npx juror-ai init --dry-run
-```
-
-Without `--set-secrets`, `init` creates only the workflow. You can manage credentials yourself:
-
-```bash
-gh secret set JUROR_OPENAI_API_KEY
-gh secret set JUROR_FIREWORKS_API_KEY   # gives the default fast preset a second model family
-```
-
-Issue Juror its **own** provider keys rather than reusing existing ones. Review spend then
-appears separately in provider billing, and you can rotate or cap it without touching anything
-else you run. The unprefixed names (`OPENAI_API_KEY`, …) still work locally as a fallback, so an
-existing install keeps running; a prefixed key wins when both are set.
-
-Any key used by the selected preset gets you a working review. Missing providers are skipped
-with a note in the receipt. The default `fast` preset becomes a cross-model jury when both
-OpenAI and Fireworks are available. Degrade, never pretend.
-
-Want to evaluate the two-family jury with one credential? The opt-in `starter` preset routes
-fixed OpenAI and DeepSeek model revisions through OpenRouter's OpenAI-compatible API:
-
-```bash
-export JUROR_OPENROUTER_API_KEY=…
-npx juror-ai init --preset starter --set-secrets
-```
-
-`starter` is intentionally not the default yet. It must meet the existing `fast` preset on the
-adjudicated seed and expanded corpus before the onboarding recommendation changes. Direct
-first-party OpenAI, Fireworks, Anthropic, and xAI credentials remain the higher-control path:
-they avoid an aggregator trust boundary and use each vendor's native agent harness.
-
-Open a pull request. Juror posts a sticky *Juror is reviewing…* comment right away,
-then replaces it in place with the findings, the merge score, and the bill.
-
-That's the whole setup — `.juror.yml` is optional, and every default is listed under
-[Configuration](#configuration).
-
-<details><summary><b>Want to try it on a real PR before committing a workflow file?</b></summary><br>
-
-Same binary, same code path, nothing posted unless you ask:
-
-```bash
-export JUROR_OPENAI_API_KEY=…
-npx juror-ai review --pr 1234 --repo owner/name          # prints to your terminal
-npx juror-ai review --pr 1234 --repo owner/name --post   # ...and posts it
-```
-
-</details>
 
 ### Optional post-merge browser QA
 
@@ -269,11 +276,12 @@ leaving a spinner behind forever.
 
 ### GitHub Action
 
-Generate the SHA-pinned workflow with `npx juror-ai init`; the complete setup is in
-[Add it to your repo](#add-it-to-your-repo) above. Beyond
-`github-token`, every Action input is optional: `preset`, `models`, `config`,
-`cost-target-usd`, `post` (set `false` for a dry run), and `pr-number`. They are documented
-with their defaults in [`action.yml`](action.yml).
+Install from the [Juror AI GitHub Marketplace listing](https://github.com/marketplace/actions/juror-ai)
+or copy the [workflow above](#add-juror-to-your-repository). `npx juror-ai init` is an optional
+guided way to generate that workflow and set secrets; it is not required to use the Action.
+Beyond `github-token`, every Action input is optional: `preset`, `models`, `config`,
+`cost-target-usd`, `post` (set `false` for a dry run), and `pr-number`. They are documented with
+their defaults in [`action.yml`](action.yml).
 
 ### Locally
 
