@@ -408,10 +408,11 @@ Evidence policy:
 - Include the final plan and machine-readable result for every run.
 - Do not collect authentication video, passwords, cookies, storage state, request/response bodies by default, authorization headers, private agent homes, or unrestricted scratch directories.
 - Upload only files matching fixed controller-owned artifact manifests. Before upload, require a
-  strict completed report and payload sentinel, rebuild a fresh staging directory solely from the
-  report ledger, and require every entry to be an allowlisted regular file with the reported
-  SHA-256 and no configured secret bytes. Any missing, unlisted, symlinked, mismatched, or canary-
-  bearing entry stages nothing and fails closed. Upload browser evidence as
+  strict completed report and payload sentinel, rebuild a fresh staging directory from the report
+  ledger, and require every entry to be an allowlisted regular file with the reported SHA-256 and
+  no configured secret bytes. If the ledger is empty, add only a static controller-owned upload
+  sentinel so pre-browser results remain deliverable. Any missing, unlisted, symlinked, mismatched,
+  or canary-bearing entry stages nothing and fails closed. Upload browser evidence as
   an immutable payload without `report.json`, `summary.md`, or the completion sentinel; finalize and publish against the
   payload's exact URL, publish a visibly non-final sticky, then upload the finalized report and
   summary as a separate immutable result. Transition the sticky to its final verdict only after the

@@ -13,6 +13,7 @@ import {
   realpath,
   rename,
   rm,
+  writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -21,6 +22,8 @@ import { TextDecoder } from 'node:util';
 import { isQaRunResult } from '../src/qa/result-validator.js';
 
 const MAX_CONTROL_BYTES = 16 * 1024 * 1024;
+const EMPTY_PAYLOAD_FILE = 'payload-empty.json';
+const EMPTY_PAYLOAD_BODY = '{"schema_version":1,"artifacts":[]}\n';
 const ROOT_EVIDENCE_KINDS = new Map([
   ['plan.json', 'plan'],
   ['agent-events.ndjson', 'ledger'],
@@ -371,9 +374,21 @@ export async function stageEvidencePayload(evidenceDirectory, stagingDirectory, 
       await copyFile(source, destination, fsConstants.COPYFILE_EXCL);
       await verifyArtifactFile(destination, artifact.sha256, canaries, temporary);
     }
+    const stagedFiles = artifacts.map((artifact) => artifact.path);
+    if (stagedFiles.length === 0) {
+      // upload-artifact treats an empty directory as an error. Keep the payload
+      // deliverable without promoting this static, Action-owned sentinel into
+      // the semantic artifact ledger.
+      await writeFile(path.join(temporary, EMPTY_PAYLOAD_FILE), EMPTY_PAYLOAD_BODY, {
+        encoding: 'utf8',
+        flag: 'wx',
+        mode: 0o600,
+      });
+      stagedFiles.push(EMPTY_PAYLOAD_FILE);
+    }
     await rename(temporary, staging);
     temporary = null;
-    return { directory: staging, files: artifacts.map((artifact) => artifact.path) };
+    return { directory: staging, files: stagedFiles };
   } catch (error) {
     await rm(staging, { recursive: true, force: true });
     if (error instanceof StageEvidenceError) throw error;

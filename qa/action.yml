@@ -643,8 +643,9 @@ runs:
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: juror-qa-evidence-pr-${{ steps.runtime.outputs.pr-number }}-${{ github.run_id }}-${{ github.run_attempt }}
-        # This directory contains only strict, hash-verified report-ledger entries. The completion
-        # marker, semantic report, and summary are validated but deliberately excluded.
+        # This directory contains strict, hash-verified report-ledger entries, or a static
+        # Action-owned sentinel when that ledger is empty. The completion marker, semantic report,
+        # and summary are validated but deliberately excluded.
         path: ${{ steps.stage_evidence.outputs.path }}
         if-no-files-found: error
         retention-days: ${{ steps.qa.outputs.retention-days || 14 }}

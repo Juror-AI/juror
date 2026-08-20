@@ -456,11 +456,13 @@ Useful evidence files include:
 - `agent-events.ndjson` and `agent-result.json`: redacted agent protocol diagnostics.
 
 In GitHub Actions, Juror first validates the completed `payload-status.json` sentinel and strict
-`report.json`, then reconstructs an immutable payload in a fresh staging directory from only the
-report artifact ledger. Every entry must be an allowlisted regular file whose SHA-256 matches the
-report and whose exact bytes contain none of the configured secrets; an unlisted file, symlink,
-missing entry, hash mismatch, or surviving canary stages nothing and fails closed. The staged
-payload contains browser evidence but no semantic report or completion sentinel. Juror uploads it,
+`report.json`, then reconstructs an immutable payload in a fresh staging directory from the report
+artifact ledger. Every entry must be an allowlisted regular file whose SHA-256 matches the report
+and whose exact bytes contain none of the configured secrets; an unlisted file, symlink, missing
+entry, hash mismatch, or surviving canary stages nothing and fails closed. When the ledger is empty,
+the stager adds a static Action-owned `payload-empty.json` sentinel so the immutable payload remains
+uploadable without adding semantic evidence. The staged payload contains browser evidence or that
+static sentinel, but no semantic report or completion sentinel. Juror uploads it,
 then finalizes the result using that exact payload URL, publishes an
 explicitly non-final sticky, and uploads `report.json` plus `summary.md` as a separate immutable
 result artifact. Only after that succeeds does the sticky transition to the final verdict; if the
