@@ -319,6 +319,7 @@ export function renderQaConfigBlock(options: QaInitConfigOptions = {}): string {
     '  target:',
     '    strategy: staging-first',
     '    environment: staging',
+    '    deployment_environment: null',
     `    static_url: ${normalized.targetUrl === null ? 'null' : JSON.stringify(normalized.targetUrl)}`,
     '    readiness_path: /',
     '    readiness_statuses: null',

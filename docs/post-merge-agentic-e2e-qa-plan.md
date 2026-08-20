@@ -193,7 +193,7 @@ paths are JSON-escaped inside explicit untrusted prompt boundaries.
 
 The resolver polls for up to 15 minutes, then selects the first usable target in this order:
 
-1. A successful GitHub deployment for the configured staging environment whose deployed SHA equals the merge SHA or is a descendant of it.
+1. A successful GitHub deployment for the configured deployment environment (or the `staging` security tier when no separate selector is set) whose deployed SHA equals the merge SHA or is a descendant of it.
 2. The configured static staging URL when its commit probe proves that the live application SHA equals or descends from the merge SHA.
 3. A successful branch/preview deployment tied to the pull request's exact head SHA, when preview fallback is enabled.
 4. A healthy static staging URL whose revision cannot be verified.
@@ -286,8 +286,10 @@ The trusted broker prepares browser state inside each isolated scenario context:
 The support-session path is a staging-only v1 capability. Trusted configuration must require
 `qa.target.environment: staging`, an exact canonical `target_origin`, and
 `qa.target.preview_fallback: false`; runtime target binding rejects production and preview
-deployments even if configuration is inconsistent. This uses a fixed synthetic-monitor endpoint,
-not the retired arbitrary-user testing-login bypass. Target readiness is resolved before secret
+deployments even if configuration is inconsistent. An optional exact
+`qa.target.deployment_environment` selects an isolated GitHub deployment stream without changing
+that staging security tier, and runtime binding requires the resolved record to match it. This uses
+a fixed synthetic-monitor endpoint, not the retired arbitrary-user testing-login bypass. Target readiness is resolved before secret
 handoff, so readiness probes never receive the browser Access service-token pair or WAF header; a
 configured intentional Cloudflare `403` can establish endpoint presence, but only sealed browser
 setup establishes that authentication actually works.
@@ -540,6 +542,7 @@ qa:
   target:
     strategy: staging-first
     environment: staging
+    deployment_environment: null
     static_url: https://staging.example.com
     readiness_path: /health
     readiness_statuses: null # set exact values such as [410] only for intentional tombstones
@@ -577,6 +580,7 @@ qa:
   target:
     strategy: staging-first
     environment: staging
+    deployment_environment: web-staging
     static_url: https://staging.example.com
     readiness_statuses: [403]
     preview_fallback: false
@@ -1000,7 +1004,7 @@ Repositories can aggregate these results from GitHub Actions later. A hosted ana
 | An oversized or repository-shaped patch hides affected files | Generate the textual patch plus an independent name/status manifest through isolated local Git with external drivers disabled; block above 10,000,000 patch bytes or 200,000 manifest bytes |
 | PR metadata or a filename tries to redirect the planner | Label all metadata and paths untrusted, JSON-escape markup/newlines, and place them in explicit data boundaries |
 | Secrets leak through browser evidence | Use identical sealed acknowledgements and hidden `qa_status` outcomes for authenticated runs, suppress their visual/trace evidence, keep auth in the per-attempt broker context, scrub the Chromium child environment, exact-redact final semantic files, allowlist artifacts, and scan after report/summary creation |
-| A staging auth credential reaches production or a branch host | Require `environment: staging`, bind the bootstrap redirect to one exact canonical target origin, reject preview deployments, require `preview_fallback: false`, and inject each browser header only on its reviewed exact origins |
+| A staging auth credential reaches production or a branch host | Require the `environment: staging` security tier, require any separate `deployment_environment` selector to match the resolved record exactly, bind the bootstrap redirect to one exact canonical target origin, reject preview deployments, require `preview_fallback: false`, and inject each browser header only on its reviewed exact origins |
 | A one-time support session is replayed | Fetch after attempt admission, consume it only in that attempt's fresh context, never serialize or reuse the URL, and mint a distinct session for attempt 2 |
 | Concurrent jobs invalidate one fixed user's unconsumed session | Give the staging synthetic identity a single-capacity runner or durable queue until the product supplies an identity pool; keep lossless per-PR workflow groups and mint immediately before redemption |
 | The readiness probe cannot cross the staging Cloudflare gate | Keep target resolution pre-secret; allow a reviewed expected `403` only as endpoint-presence readiness, then make sealed browser bootstrap the authoritative auth check |

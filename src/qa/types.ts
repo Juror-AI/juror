@@ -39,7 +39,10 @@ export interface QaCommitProbeConfig {
 
 export interface QaTargetConfig {
   strategy: 'staging-first';
+  /** Security tier used by authenticated QA policy. */
   environment: string;
+  /** Exact GitHub deployment environment to query; null falls back to `environment`. */
+  deployment_environment: string | null;
   static_url: string | null;
   readiness_path: string;
   /** Exact statuses accepted by readiness probes; null uses the normal 2xx/3xx policy. */

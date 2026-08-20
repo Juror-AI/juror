@@ -12,6 +12,7 @@ describe('post-merge QA configuration', () => {
       target: {
         strategy: 'staging-first',
         environment: 'staging',
+        deployment_environment: null,
         static_url: null,
         readiness_path: '/',
         readiness_statuses: null,
@@ -108,6 +109,7 @@ qa:
       target: {
         strategy: 'staging-first',
         environment: 'staging',
+        deployment_environment: 'web-staging',
         static_url: 'https://app.example.test',
         readiness_path: '/ready?deep=1',
         readiness_statuses: [200, 204, 204],
@@ -189,6 +191,7 @@ qa:
       testability: { early_exit_paths: ['.github/**', 'infra/**'] },
       target: {
         environment: 'staging',
+        deployment_environment: 'web-staging',
         static_url: 'https://app.example.test/',
         readiness_path: '/ready?deep=1',
         readiness_statuses: [200, 204],
@@ -425,6 +428,21 @@ qa:
       expect.stringContaining('qa.target.environment'),
       expect.stringContaining('qa.target.preview_fallback=false'),
     ]));
+    expect(unsafeQaConfigProblems(problems)).toEqual(problems);
+  });
+
+  it('rejects an empty deployment environment selector without changing the fallback', () => {
+    const config = defaultQaConfig();
+    const problems: string[] = [];
+
+    applyQaConfig(config, {
+      target: { deployment_environment: '   ' },
+    }, problems);
+
+    expect(config.target.deployment_environment).toBeNull();
+    expect(problems).toEqual([
+      expect.stringContaining('qa.target.deployment_environment'),
+    ]);
     expect(unsafeQaConfigProblems(problems)).toEqual(problems);
   });
 

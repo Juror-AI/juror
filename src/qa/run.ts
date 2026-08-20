@@ -23,6 +23,7 @@ import {
 } from './browser.js';
 import { startQaRpcServer } from './rpc.js';
 import { boundQaLongText } from './schema.js';
+import { qaDeploymentEnvironment } from './config.js';
 import { preflightQaTestability } from './testability.js';
 import {
   QA_SCHEMA_VERSION,
@@ -305,8 +306,9 @@ function brokerSecretHeaders(
 
 /**
  * Keep support-session authentication on the canonical staging surface. The
- * trusted configuration parser rejects non-staging policy, while this runtime
- * check binds the policy to the deployment that was actually resolved.
+ * trusted configuration parser rejects a non-staging security tier, while this
+ * runtime check binds an optional deployment selector and the canonical origin
+ * to the target that was actually resolved.
  */
 export function stagingAuthTargetProblem(config: QaConfig, target: QaTarget): string | null {
   const bootstrap = config.auth.session_bootstrap;
@@ -321,8 +323,8 @@ export function stagingAuthTargetProblem(config: QaConfig, target: QaTarget): st
   if (target.kind === 'preview-deployment') {
     return 'trusted session bootstrap is not available for preview deployments';
   }
-  if (target.environment !== 'staging') {
-    return 'the resolved deployment is not the configured staging environment';
+  if (target.environment !== qaDeploymentEnvironment(config.target)) {
+    return 'the resolved deployment is not the configured staging deployment environment';
   }
   const staticUrl = config.target.static_url;
   if (!staticUrl) {
