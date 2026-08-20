@@ -43,6 +43,9 @@ jobs:
           npm install --global npm@12.0.2 --ignore-scripts --no-audit --no-fund
           test "$(npm --version)" = "12.0.2"
 
+      - name: Install Chromium for Playwright tests
+        run: npx --no-install playwright install --with-deps chromium
+
       - name: Validate and build
         run: |
           npm run typecheck
@@ -82,7 +85,7 @@ jobs:
             --prefix="juror-ai-$VERSION-action/" \
             --output="$ACTION_ARCHIVE" \
             "$RELEASE_TAG" \
-            action.yml assets scripts src package.json package-lock.json tsconfig.json README.md LICENSE
+            action.yml qa assets scripts src package.json package-lock.json tsconfig.json README.md LICENSE
 
           SBOM="release/juror-ai-$VERSION-sbom.cdx.json"
           npm sbom --omit=dev --sbom-format=cyclonedx > "$SBOM"

@@ -1,0 +1,17 @@
+.git
+.github
+.context
+.env
+.env.*
+!.env.example
+node_modules
+dist
+coverage
+release
+scratch
+tmp
+*.log
+*.key
+*.pem
+secrets
+.juror-secrets*

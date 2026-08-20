@@ -103,11 +103,11 @@ describe('redactWith', () => {
     expect(redactWith(`hold ${key}`, [])).toBe('hold [redacted]');
   });
 
-  it('substitutes a live secret only when it is at least 12 characters', () => {
+  it('substitutes every configured live secret, including short QA fixture values', () => {
     const long = 'supersecret1'; // 12
     const short = 'shortsecret'; // 11
     expect(redactWith(`a=${long} b=${short}`, [long, short])).toBe(
-      'a=[redacted] b=shortsecret',
+      'a=[redacted] b=[redacted]',
     );
   });
 
@@ -127,4 +127,31 @@ describe('redactWith', () => {
       'one=[redacted] two=[redacted]',
     );
   });
+
+  it('is idempotent for short canaries and canaries contained by the marker', () => {
+    const input = 'a=alpha redacted [redacted] tail';
+    const once = redactWith(input, ['a', 'redacted']);
+
+    expect(redactWith(once, ['a', 'redacted'])).toBe(once);
+    expect(once).not.toContain('alpha');
+    expect(once).not.toContain(' redacted ');
+  });
+
+  it('still redacts a secret that spans an existing marker', () => {
+    const secret = 'prefix[redacted]suffix';
+    const once = redactWith(`before ${secret} after`, [secret]);
+
+    expect(once).not.toContain(secret);
+    expect(redactWith(once, [secret])).toBe(once);
+  });
+
+  it.each(['redacted', '[redacted]'])(
+    'never reproduces a configured secret that collides with the default marker: %s',
+    (secret) => {
+      const once = redactWith(`credential=${secret}`, [secret]);
+
+      expect(once).not.toContain(secret);
+      expect(redactWith(once, [secret])).toBe(once);
+    },
+  );
 });

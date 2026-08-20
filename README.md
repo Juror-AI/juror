@@ -110,6 +110,52 @@ npx juror-ai review --pr 1234 --repo owner/name --post   # ...and posts it
 
 </details>
 
+### Optional post-merge browser QA
+
+Juror can also watch merged pull requests, plan affected user journeys, and exercise the live
+staging or branch deployment through Playwright with structured evidence and, for runs without
+authentication or supplied browser state, videos. Authenticated runs still interact with the
+product and evaluate plan-bound checkpoints, but each admitted page-dependent browser call returns the
+same sealed acknowledgement and completed-attempt outcomes stay hidden from the model:
+
+```bash
+npx juror-ai init --qa --set-secrets --target-url https://staging.example.com
+```
+
+For a product that exposes a fixed-identity synthetic support-session endpoint, Juror can mint a
+fresh, single-use login URL for every attempt through `qa.auth.session_bootstrap`. This v1 mode is
+restricted to the configured canonical staging origin: set `qa.target.preview_fallback: false`,
+and do not expect the session to follow a branch deployment with a different origin. Optional
+`qa.auth.browser_secret_headers` are injected only into requests to their exact configured origins,
+which supports a staging Cloudflare Access service token and a separate WAF header without exposing
+either credential to other hosts. All logical secrets remain inside `JUROR_QA_SECRETS_B64`;
+authenticated visual and trace evidence stays off and browser observations stay sealed.
+
+Use the fixed synthetic-session service, not an arbitrary-user testing-login bypass. The
+[post-merge QA quickstart](docs/2026-08-18-post-merge-qa-quickstart.md#staging-support-session-bootstrap)
+includes a generic staging example and the required gateway prerequisite.
+
+Repositories can also configure trusted `qa.testability.early_exit_paths` globs for paths that
+never justify browser QA. Juror returns a neutral, not-scored `no_testable_surface` result before
+deployment lookup, secret loading, model startup, or Playwright only when every path in the
+complete changed-file manifest matches. The default is empty because an infrastructure or docs
+tree can still affect a product in some repositories.
+
+The target's exact origin is added to the browser allowlist automatically; repeat `--allow-origin`
+for any additional API origin the tested product needs. Without either target option, init writes a
+safely disabled QA policy and explains how to enable it. The released action verifies its container
+provenance before credential handoff. See the
+[post-merge QA quickstart](docs/2026-08-18-post-merge-qa-quickstart.md) for the fastest local loop,
+staging target setup, synthetic login credentials, and result meanings.
+
+With no trusted reset hook, QA intentionally runs navigation/read-only journeys only. Configure a
+dedicated synthetic tenant and `qa.sandbox.reset` to enable click, fill, press, select, and check.
+Each checkpoint fixes its assertion kind and exact locator or URL matcher before the browser opens;
+authenticated or supplied-state scenarios always run a second sealed attempt, and the controller
+derives the result from its private ledger. The final report necessarily reveals one bounded
+pass/fail result per predeclared checkpoint, so connect QA only to a synthetic account and tenant
+containing no production data or other sensitive records.
+
 ---
 
 ## Why

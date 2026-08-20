@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 import type { HarnessId, JurorConfig, ModelConfig, ReviewPreset } from './types.js';
 import { SEVERITIES } from './types.js';
+import { applyQaConfig, defaultQaConfig } from './qa/config.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Defaults
@@ -352,6 +353,7 @@ export function defaultConfig(): JurorConfig {
       cost_receipt: true,
       suppressed_findings: 'collapsed',
     },
+    qa: defaultQaConfig(),
   };
 }
 
@@ -429,7 +431,7 @@ function findConfigFile(repoDir: string, overridePath?: string): { path: string 
 // Validation — every branch keeps the default and explains itself
 // ─────────────────────────────────────────────────────────────────────────────
 
-const TOP_KEYS = ['version', 'preset', 'models', 'consensus', 'review', 'budget', 'output'];
+const TOP_KEYS = ['version', 'preset', 'models', 'consensus', 'review', 'budget', 'output', 'qa'];
 
 function applyConfig(config: JurorConfig, raw: Record<string, unknown>, problems: string[]): void {
   reportUnknown(raw, TOP_KEYS, '', problems);
@@ -454,6 +456,7 @@ function applyConfig(config: JurorConfig, raw: Record<string, unknown>, problems
   applyReview(config, raw['review'], problems);
   applyBudget(config, raw['budget'], problems);
   applyOutput(config, raw['output'], problems);
+  applyQaConfig(config.qa, raw['qa'], problems);
   validateConsensusModelRefs(config, problems);
 }
 

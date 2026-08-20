@@ -11,6 +11,7 @@ function read(path) {
 function workflowFiles() {
   return [
     'action.yml',
+    'qa/action.yml',
     ...readdirSync(join(root, '.github/workflows'))
       .filter((name) => name.endsWith('.yml') || name.endsWith('.yaml'))
       .map((name) => `.github/workflows/${name}`),

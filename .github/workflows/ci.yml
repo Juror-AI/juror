@@ -18,6 +18,8 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --no-audit --no-fund
+      - name: Install Chromium for Playwright tests
+        run: npx --no-install playwright install --with-deps chromium
       - run: npm run typecheck
       - run: npm run build
       - run: npm run check:compatibility

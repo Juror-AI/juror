@@ -1,0 +1,229 @@
+name: Release QA image
+
+on:
+  release:
+    types: [published]
+
+concurrency:
+  group: release-qa-image-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  image:
+    if: github.repository == 'Juror-AI/juror' && !github.event.release.prerelease
+    runs-on: ubuntu-latest
+    permissions:
+      attestations: write
+      contents: write
+      id-token: write
+      packages: write
+
+    steps:
+      - name: Check out the exact release tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+
+      - name: Verify tag, package, and commit identity
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          node scripts/verify-release.mjs "$RELEASE_TAG" "$RELEASE_SHA"
+          git fetch --no-tags origin "$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
+          if ! git merge-base --is-ancestor "$RELEASE_SHA" "origin/$DEFAULT_BRANCH"; then
+            echo "::error::Release commit $RELEASE_SHA is not reachable from $DEFAULT_BRANCH"
+            exit 1
+          fi
+
+      - name: Install exact dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Install Chromium for Playwright tests
+        run: npx --no-install playwright install --with-deps chromium
+
+      - name: Validate the release source
+        run: |
+          npm run typecheck
+          npm test
+          npm run check:secure-refs
+          npm run build
+          if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+            echo "::error::Release validation modified tracked source files"
+            git status --short --untracked-files=no
+            exit 1
+          fi
+
+      # The image is built on an amd64 hosted runner for both amd64 and arm64.
+      # Pin both the privileged binfmt installer and its Action before Buildx.
+      - name: Set up ARM64 emulation
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+        with:
+          image: docker.io/tonistiigi/binfmt:qemu-v10.2.3-68@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve immutable release identity
+        id: image
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p 'require("./package.json").version')"
+          if [ "$RELEASE_TAG" != "v$VERSION" ]; then
+            echo "::error::Release tag $RELEASE_TAG does not match package version $VERSION"
+            exit 1
+          fi
+          {
+            echo "name=ghcr.io/juror-ai/juror-qa"
+            echo "tag=ghcr.io/juror-ai/juror-qa:$RELEASE_TAG"
+            echo "version=$VERSION"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push the release image
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: qa/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.image.outputs.tag }}
+          provenance: mode=max
+          sbom: true
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ github.event.release.tag_name }}
+          cache-from: type=gha,scope=juror-qa-image
+          cache-to: type=gha,mode=max,scope=juror-qa-image
+
+      - name: Attest image provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Verify anonymous pull and signed provenance
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE_NAME: ${{ steps.image.outputs.name }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          EXACT_IMAGE="$IMAGE_NAME@$IMAGE_DIGEST"
+
+          # The production Action must work in repositories without package credentials.
+          # Log out before a fresh manifest lookup and pull so a private package fails here.
+          docker logout ghcr.io >/dev/null 2>&1 || true
+          docker buildx imagetools inspect "$EXACT_IMAGE" >/dev/null
+          docker pull --quiet "$EXACT_IMAGE" >/dev/null
+
+          VERIFY_ARGS=(
+            "oci://$EXACT_IMAGE"
+            --bundle-from-oci
+            --repo Juror-AI/juror
+            --signer-workflow Juror-AI/juror/.github/workflows/release-qa-image.yml
+            --source-ref "refs/tags/$RELEASE_TAG"
+            --source-digest "$RELEASE_SHA"
+            --deny-self-hosted-runners
+          )
+          VERIFIED=false
+          for attempt in 1 2 3 4 5; do
+            if gh attestation verify "${VERIFY_ARGS[@]}"; then VERIFIED=true; break; fi
+            if [ "$attempt" -eq 5 ]; then break; fi
+            sleep 5
+          done
+          [ "$VERIFIED" = true ] || exit 1
+
+          docker run --rm --init \
+            --read-only \
+            --tmpfs /tmp:rw,nosuid,nodev,size=256m \
+            --tmpfs /home/pwuser:rw,nosuid,nodev,size=64m \
+            --shm-size=1g \
+            --user pwuser \
+            --cap-drop=ALL \
+            --cap-add=SYS_CHROOT \
+            --security-opt seccomp=qa/seccomp_profile.json \
+            --pids-limit=256 \
+            --memory=2g \
+            --cpus=2 \
+            --entrypoint node \
+            "$EXACT_IMAGE" \
+            -e 'import("/opt/juror/node_modules/playwright/index.mjs").then(({chromium}) => chromium.launch({headless:true,channel:"chromium",chromiumSandbox:true})).then(async browser => { console.log(`sandboxed Chromium ${browser.version()}`); await browser.close(); }).catch(error => { console.error(error); process.exit(1); })'
+
+      - name: Create immutable image manifest
+        id: manifest
+        shell: bash
+        env:
+          IMAGE_NAME: ${{ steps.image.outputs.name }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_SHA: ${{ github.sha }}
+          RELEASE_VERSION: ${{ steps.image.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          FILE="release/juror-qa-image-$RELEASE_VERSION.json"
+          jq -n \
+            --arg schema_version '1' \
+            --arg image "$IMAGE_NAME@$IMAGE_DIGEST" \
+            --arg tag "$IMAGE_NAME:$RELEASE_TAG" \
+            --arg source_repository "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --arg source_commit "$RELEASE_SHA" \
+            --arg signer_workflow "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/.github/workflows/release-qa-image.yml" \
+            '{
+              schema_version: ($schema_version | tonumber),
+              image: $image,
+              tag: $tag,
+              source_repository: $source_repository,
+              source_commit: $source_commit,
+              signer_workflow: $signer_workflow
+            }' > "$FILE"
+          echo "path=$FILE" >> "$GITHUB_OUTPUT"
+
+          {
+            echo '### Juror QA image'
+            echo
+            echo "\`$IMAGE_NAME@$IMAGE_DIGEST\`"
+            echo
+            echo 'The public multi-architecture manifest includes BuildKit SBOM and provenance attestations.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload image manifest as workflow evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: juror-qa-image-${{ github.event.release.tag_name }}
+          path: ${{ steps.manifest.outputs.path }}
+          if-no-files-found: error
+
+      - name: Attach image manifest to the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          MANIFEST_PATH: ${{ steps.manifest.outputs.path }}
+        run: gh release upload "$RELEASE_TAG" "$MANIFEST_PATH" --repo "$GITHUB_REPOSITORY" --clobber

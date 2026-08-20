@@ -7,7 +7,7 @@
  * able to rewrite the rules used to review itself.
  */
 
-import { readFile, readdir } from 'node:fs/promises';
+import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 
 import { run } from './util/proc.js';
@@ -47,7 +47,11 @@ function candidateDirectories(changedPaths: string[]): string[] {
   });
 }
 
-async function listBaseInstructions(repoDir: string, baseSha: string): Promise<string[] | null> {
+async function listBaseInstructions(
+  repoDir: string,
+  baseSha: string,
+  signal?: AbortSignal,
+): Promise<string[] | null> {
   if (!baseSha.trim()) return null;
   // `git ls-tree` does not support pathspec magic such as `icase` or `glob`, so list names
   // once and filter in-process. One tree walk is still much cheaper than two git processes
@@ -55,7 +59,9 @@ async function listBaseInstructions(repoDir: string, baseSha: string): Promise<s
   const io = await run(['git', 'ls-tree', '-r', '--name-only', baseSha], {
     cwd: repoDir,
     timeoutMs: 30_000,
+    ...(signal ? { signal } : {}),
   });
+  signal?.throwIfAborted();
   if (io.exitCode !== 0) return null;
   return io.stdout
     .split('\n')
@@ -63,18 +69,25 @@ async function listBaseInstructions(repoDir: string, baseSha: string): Promise<s
     .filter((line) => line && path.posix.basename(line).toLowerCase() === 'agents.md');
 }
 
-async function readFromBase(repoDir: string, baseSha: string, file: string): Promise<string | null> {
+async function readFromBase(
+  repoDir: string,
+  baseSha: string,
+  file: string,
+  signal?: AbortSignal,
+): Promise<string | null> {
   const io = await run(['git', 'show', `${baseSha}:${file}`], {
     cwd: repoDir,
     timeoutMs: 30_000,
+    ...(signal ? { signal } : {}),
   });
+  signal?.throwIfAborted();
   return io.exitCode === 0 ? io.stdout : null;
 }
 
 async function readFromWorkspace(
   repoDir: string,
   dir: string,
-): Promise<{ path: string; contents: string } | null> {
+): Promise<{ path: string } | null> {
   try {
     const absoluteDir = dir ? path.join(repoDir, ...dir.split('/')) : repoDir;
     const entries = await readdir(absoluteDir, { withFileTypes: true });
@@ -83,7 +96,10 @@ async function readFromWorkspace(
       entries.find((e) => e.name.toLowerCase() === 'agents.md');
     if (!entry || (!entry.isFile() && !entry.isSymbolicLink())) return null;
     const file = dir ? `${dir}/${entry.name}` : entry.name;
-    return { path: file, contents: await readFile(path.join(absoluteDir, entry.name), 'utf8') };
+    // A head-only instruction is untrusted and ignored; only its repository-relative name is
+    // needed for the diagnostic. Never follow or read a PR-controlled symlink here (for example
+    // AGENTS.md -> /dev/zero), which could otherwise create an unbounded pre-agent read.
+    return { path: file };
   } catch {
     return null;
   }
@@ -103,10 +119,12 @@ async function loadUncached(
   repoDir: string,
   baseSha: string,
   changedPaths: string[],
+  signal?: AbortSignal,
 ): Promise<LoadedAgentInstructions> {
+  signal?.throwIfAborted();
   const directories = candidateDirectories(changedPaths);
   const changed = new Set(changedPaths);
-  const basePaths = await listBaseInstructions(repoDir, baseSha);
+  const basePaths = await listBaseInstructions(repoDir, baseSha, signal);
   const reachable = basePaths !== null;
   if (!reachable) {
     // Never promote the checked-out PR head to trusted policy. The visible patch can be
@@ -133,7 +151,7 @@ async function loadUncached(
   for (const dir of directories) {
     const basePath = baseByDirectory.get(dir);
     if (basePath) {
-      const contents = await readFromBase(repoDir, baseSha, basePath);
+      const contents = await readFromBase(repoDir, baseSha, basePath, signal);
       if (contents !== null) {
         files.push({ path: basePath, contents });
       } else {
@@ -161,7 +179,10 @@ export function loadAgentInstructions(
   repoDir: string,
   baseSha: string,
   changedPaths: string[],
+  signal?: AbortSignal,
 ): Promise<LoadedAgentInstructions> {
+  // A command-scoped signal must not poison the process-wide cache for later callers.
+  if (signal) return loadUncached(repoDir, baseSha, changedPaths, signal);
   // Main fan-out and verification use the same context. Keep their policy byte-identical
   // and avoid walking a large repository tree twice during one review process.
   const key = `${repoDir}\0${baseSha}\0${[...new Set(changedPaths)].sort().join('\0')}`;
