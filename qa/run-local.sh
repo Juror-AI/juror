@@ -7,6 +7,13 @@ EVIDENCE_DIR="${JUROR_QA_EVIDENCE_DIR:-$ROOT/.context/qa-evidence}"
 IMAGE="${JUROR_QA_IMAGE:-juror-qa:dev}"
 CONTAINER_USER="${JUROR_QA_CONTAINER_USER:-$(id -u):$(id -g)}"
 
+if ! [[ "$CONTAINER_USER" =~ ^[0-9]+:[0-9]+$ ]]; then
+  echo 'JUROR_QA_CONTAINER_USER must be a numeric UID:GID' >&2
+  exit 2
+fi
+CONTAINER_UID="${CONTAINER_USER%%:*}"
+CONTAINER_GID="${CONTAINER_USER##*:}"
+
 if [ -z "${JUROR_QA_IMAGE:-}" ]; then
   docker build --file "$ROOT/qa/Dockerfile" --tag "$IMAGE" "$ROOT"
 fi
@@ -362,7 +369,7 @@ docker create \
   --init \
   --read-only \
   --tmpfs /tmp:rw,nosuid,nodev,size=64m \
-  --tmpfs /home/pwuser:rw,nosuid,nodev,size=32m \
+  --tmpfs "/home/pwuser:rw,nosuid,nodev,size=32m,uid=$CONTAINER_UID,gid=$CONTAINER_GID,mode=0700" \
   --user "$CONTAINER_USER" \
   --cap-drop=ALL \
   --security-opt no-new-privileges \
@@ -450,7 +457,7 @@ docker create \
   --network "$INTERNAL_NETWORK" \
   --read-only \
   --tmpfs /tmp:rw,nosuid,nodev,size=1g \
-  --tmpfs /home/pwuser:rw,nosuid,nodev,size=256m \
+  --tmpfs "/home/pwuser:rw,nosuid,nodev,size=256m,uid=$CONTAINER_UID,gid=$CONTAINER_GID,mode=0700" \
   --shm-size=1g \
   --user "$CONTAINER_USER" \
   --cap-drop=ALL \

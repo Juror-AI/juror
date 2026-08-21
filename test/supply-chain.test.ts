@@ -447,12 +447,27 @@ esac
 
   it('ships an enabled Chromium sandbox and exact-origin egress boundary', () => {
     const dockerfile = read('qa/Dockerfile');
+    const action = read('qa/action.yml');
+    const localRunner = read('qa/run-local.sh');
+    const imageCi = read('.github/workflows/qa-image-ci.yml');
+    const releaseWorkflow = read('.github/workflows/release-qa-image.yml');
     const browser = read('src/qa/browser.ts');
     const proxy = read('qa/egress-proxy.mjs');
 
-    expect(read('qa/action.yml')).toContain('seccomp=$GITHUB_ACTION_PATH/seccomp_profile.json');
-    expect(read('qa/action.yml')).toContain('--cap-drop=ALL');
-    expect(read('qa/action.yml')).toContain('--cap-add=SYS_CHROOT');
+    expect(action).toContain('seccomp=$GITHUB_ACTION_PATH/seccomp_profile.json');
+    expect(action).toContain('--cap-drop=ALL');
+    expect(action).toContain('--cap-add=SYS_CHROOT');
+    expect(dockerfile).toContain('HOME=/home/pwuser');
+    expect(action.match(/uid=\$RUNTIME_UID,gid=\$RUNTIME_GID,mode=0700/g)).toHaveLength(2);
+    expect(localRunner.match(/uid=\$CONTAINER_UID,gid=\$CONTAINER_GID,mode=0700/g)).toHaveLength(2);
+    expect(releaseWorkflow).toContain('PW_UID="$(docker run --rm --entrypoint id "$EXACT_IMAGE" -u pwuser)"');
+    expect(releaseWorkflow).toContain('uid=$PW_UID,gid=$PW_GID,mode=0700');
+    expect(releaseWorkflow).toContain('--user "$PW_UID:$PW_GID"');
+    expect(releaseWorkflow).not.toContain('uid=1001,gid=1001');
+    expect(dockerfile).toContain('qa/smoke-chromium.mjs');
+    expect(imageCi).toContain('/opt/juror/qa/smoke-chromium.mjs');
+    expect(imageCi).toContain('run_chromium_smoke "$ARBITRARY_UID" "$ARBITRARY_GID"');
+    expect(releaseWorkflow).toContain('/opt/juror/qa/smoke-chromium.mjs');
     expect(read('qa/seccomp_profile.json')).toContain('Allow create user namespaces');
     expect(browser).toContain('chromiumSandbox = true');
     expect(browser).toContain('this.#options.chromiumSandbox ?? true');
@@ -460,6 +475,27 @@ esac
     expect(proxy).toContain('const allowed = new Set');
     expect(proxy).toContain("server.on('connect'");
     expect(proxy).toContain('private address denied');
+  });
+
+  it('runs native QA image CI for every Docker build input', () => {
+    const workflow = parse(read('.github/workflows/qa-image-ci.yml')) as {
+      on: {
+        push: { paths: string[] };
+        pull_request: { paths: string[] };
+      };
+    };
+
+    for (const event of [workflow.on.push, workflow.on.pull_request]) {
+      expect(event.paths).toEqual(expect.arrayContaining([
+        '.dockerignore',
+        'qa/**',
+        'scripts/**',
+        'src/**',
+        'package.json',
+        'package-lock.json',
+        'tsconfig.json',
+      ]));
+    }
   });
 
   it('never embeds locally discovered credentials in Docker argv', () => {

@@ -235,6 +235,8 @@ runs:
           echo "::error::Prepared QA policy user must be a numeric UID:GID"
           exit 1
         fi
+        RUNTIME_UID="${RUNTIME_USER%%:*}"
+        RUNTIME_GID="${RUNTIME_USER##*:}"
         if [ -n "$INPUT_TARGET_SHA" ] && [ -z "$INPUT_TARGET_URL" ]; then
           echo "::error::target-sha requires target-url"
           exit 1
@@ -270,7 +272,7 @@ runs:
           --pull=never \
           --read-only \
           --tmpfs /tmp:rw,nosuid,nodev,size=64m \
-          --tmpfs /home/pwuser:rw,nosuid,nodev,size=32m \
+          --tmpfs "/home/pwuser:rw,nosuid,nodev,size=32m,uid=$RUNTIME_UID,gid=$RUNTIME_GID,mode=0700" \
           --user "$RUNTIME_USER" \
           --cap-drop=ALL \
           --security-opt no-new-privileges \
@@ -420,6 +422,8 @@ runs:
           echo "::error::Prepared QA runtime user must be a numeric UID:GID"
           exit 1
         fi
+        RUNTIME_UID="${RUNTIME_USER%%:*}"
+        RUNTIME_GID="${RUNTIME_USER##*:}"
 
         # Create the non-semantic payload marker before any cancellable work. The completed
         # status below replaces it, but this initial file preserves a legitimate cancelled or
@@ -544,7 +548,7 @@ runs:
           --network "$INTERNAL_NETWORK" \
           --read-only \
           --tmpfs /tmp:rw,nosuid,nodev,size=1g \
-          --tmpfs /home/pwuser:rw,nosuid,nodev,size=256m \
+          --tmpfs "/home/pwuser:rw,nosuid,nodev,size=256m,uid=$RUNTIME_UID,gid=$RUNTIME_GID,mode=0700" \
           --shm-size=1g \
           --user "$RUNTIME_USER" \
           --cap-drop=ALL \

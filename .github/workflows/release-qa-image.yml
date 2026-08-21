@@ -142,6 +142,10 @@ jobs:
           docker logout ghcr.io >/dev/null 2>&1 || true
           docker buildx imagetools inspect "$EXACT_IMAGE" >/dev/null
           docker pull --quiet "$EXACT_IMAGE" >/dev/null
+          PW_UID="$(docker run --rm --entrypoint id "$EXACT_IMAGE" -u pwuser)"
+          PW_GID="$(docker run --rm --entrypoint id "$EXACT_IMAGE" -g pwuser)"
+          [[ "$PW_UID" =~ ^[0-9]+$ ]]
+          [[ "$PW_GID" =~ ^[0-9]+$ ]]
 
           VERIFY_ARGS=(
             "oci://$EXACT_IMAGE"
@@ -163,9 +167,9 @@ jobs:
           docker run --rm --init \
             --read-only \
             --tmpfs /tmp:rw,nosuid,nodev,size=256m \
-            --tmpfs /home/pwuser:rw,nosuid,nodev,size=64m \
+            --tmpfs "/home/pwuser:rw,nosuid,nodev,size=64m,uid=$PW_UID,gid=$PW_GID,mode=0700" \
             --shm-size=1g \
-            --user pwuser \
+            --user "$PW_UID:$PW_GID" \
             --cap-drop=ALL \
             --cap-add=SYS_CHROOT \
             --security-opt seccomp=qa/seccomp_profile.json \
@@ -174,7 +178,7 @@ jobs:
             --cpus=2 \
             --entrypoint node \
             "$EXACT_IMAGE" \
-            -e 'import("/opt/juror/node_modules/playwright/index.mjs").then(({chromium}) => chromium.launch({headless:true,channel:"chromium",chromiumSandbox:true})).then(async browser => { console.log(`sandboxed Chromium ${browser.version()}`); await browser.close(); }).catch(error => { console.error(error); process.exit(1); })'
+            /opt/juror/qa/smoke-chromium.mjs
 
       - name: Create immutable image manifest
         id: manifest
