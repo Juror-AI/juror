@@ -1,0 +1,15 @@
+BETTER_AUTH_SECRET=replace-with-at-least-32-random-characters
+GOOGLE_CLIENT_ID=replace-me
+GOOGLE_CLIENT_SECRET=replace-me
+GITHUB_OAUTH_CLIENT_ID=replace-me
+GITHUB_OAUTH_CLIENT_SECRET=replace-me
+GITHUB_APP_ID=replace-me
+GITHUB_APP_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\nreplace-me\n-----END PRIVATE KEY-----
+GITHUB_WEBHOOK_SECRET=replace-me
+STRIPE_SECRET_KEY=sk_test_replace_me
+STRIPE_WEBHOOK_SECRET=whsec_replace_me
+QA_MASTER_KEY_B64=replace-with-32-random-bytes-as-base64
+CORPUS_MASTER_KEY_B64=replace-with-an-independent-32-random-bytes-as-base64
+EVIDENCE_SIGNING_SECRET=replace-with-independent-random-characters
+OPENAI_API_KEY=replace-me
+FIREWORKS_API_KEY=replace-me

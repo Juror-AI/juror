@@ -27,7 +27,11 @@
     "check:secure-refs": "node scripts/check-action-pins.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "juror": "node --experimental-strip-types src/cli.ts"
+    "juror": "node --experimental-strip-types src/cli.ts",
+    "cloud:dev": "npm --prefix cloud run dev",
+    "cloud:build": "npm --prefix cloud run build",
+    "cloud:typecheck": "npm --prefix cloud run typecheck && npm --prefix cloud run typecheck:worker",
+    "cloud:test": "npm --prefix cloud test"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",

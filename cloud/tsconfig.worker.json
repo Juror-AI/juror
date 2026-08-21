@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "WebWorker"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["@cloudflare/workers-types", "node"],
+    "allowImportingTsExtensions": true
+  },
+  "include": ["worker", "shared", "worker-configuration.d.ts", "../src/cloud", "../src/types.ts", "../src/qa/types.ts", "../src/github/fingerprint.ts"]
+}

@@ -16,6 +16,12 @@
 parallel. It combines duplicate findings into one report and posts the review, merge score, and
 cost receipt back to GitHub.**
 
+## Juror Cloud
+
+This repository also contains [`cloud/`](cloud/), a deployable hosted companion with GitHub and Google sign-in, GitHub App automation, a lean findings and run inbox, isolated Cloudflare Sandbox execution, post-merge staging QA, and transparent Stripe metered billing. The open-source Action and CLI remain independently usable; a repository connected to Cloud explicitly chooses one execution mode so reviews are never duplicated.
+
+See the [Juror Cloud deployment guide](cloud/README.md) for the GitHub App permissions, Cloudflare resources, secrets, billing meter, and verification commands.
+
 ## Add Juror to your repository
 
 Start from the [Juror AI listing in GitHub Marketplace](https://github.com/marketplace/actions/juror-ai):

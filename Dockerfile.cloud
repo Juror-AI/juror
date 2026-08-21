@@ -1,0 +1,46 @@
+FROM docker.io/cloudflare/sandbox:0.12.7 AS builder
+
+USER root
+WORKDIR /opt/juror
+
+COPY package.json package-lock.json tsconfig.json ./
+RUN npm ci
+
+COPY src ./src
+COPY scripts ./scripts
+RUN npm run build
+
+FROM docker.io/cloudflare/sandbox:0.12.7
+
+USER root
+WORKDIR /opt/juror
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends time \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev \
+  && npm cache clean --force
+
+RUN npm install --global @openai/codex@0.146.1 \
+  && npm cache clean --force
+RUN npm install --global @anthropic-ai/claude-code@2.1.223 \
+  && npm cache clean --force
+RUN npm install --global codewhale@0.9.7 \
+  && npm cache clean --force
+RUN npm install --global opencode-ai@1.17.20 \
+  && npm cache clean --force
+RUN npm install --global @moonshot-ai/kimi-code@0.34.0 \
+  && npm cache clean --force
+
+RUN npx playwright install-deps chromium \
+  && rm -rf /var/lib/apt/lists/*
+RUN npx playwright install --only-shell chromium
+
+COPY --from=builder /opt/juror/dist ./dist
+
+COPY cloud/runner ./cloud
+RUN chmod 0555 /opt/juror/cloud/runner.mjs
+
+ENV NODE_ENV=production
