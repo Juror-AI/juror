@@ -14,7 +14,13 @@ function now(): string { return new Date().toISOString(); }
 async function detectActionWorkflow(env: Env, installationId: number, fullName: string): Promise<boolean> {
   const response = await githubApi(env, installationId, `/repos/${fullName}/contents/.github/workflows`);
   if (response.status === 404) return false;
-  if (!response.ok) throw new Error(`Workflow detection failed (${response.status})`);
+  // Action detection only chooses a safe initial execution mode. A transient GitHub API error
+  // must not prevent the installation webhook (or onboarding recovery) from importing the repo.
+  // `false` still provisions it as unresolved and review-disabled, so no hosted run can start.
+  if (!response.ok) {
+    console.warn(JSON.stringify({ event: 'github_action_detection_unavailable', installationId, repository: fullName, status: response.status }));
+    return false;
+  }
   const files = await response.json<Array<{ type: string; name: string; path: string }>>();
   for (const file of files.filter((entry) => entry.type === 'file' && /\.ya?ml$/i.test(entry.name)).slice(0, 30)) {
     const fileResponse = await githubApi(env, installationId, `/repos/${fullName}/contents/${file.path}`);
@@ -46,7 +52,7 @@ async function upsertRepository(env: Env, installationId: number, repository: Js
   return { repositoryId, workspaceId: workspace.id };
 }
 
-export async function provisionInstallation(env: Env, payload: JsonObject): Promise<void> {
+export async function provisionInstallation(env: Env, payload: JsonObject, refreshActionDetection = true): Promise<void> {
   const installation = payload.installation;
   const deleted = await env.DB.prepare('SELECT 1 AS deleted FROM deleted_installation WHERE github_installation_id = ?').bind(installation.id).first();
   if (deleted) return;
@@ -60,7 +66,7 @@ export async function provisionInstallation(env: Env, payload: JsonObject): Prom
     env.DB.prepare(`INSERT INTO installation (id, workspace_id, github_installation_id, account_login, account_type, permissions_json, repository_selection, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(github_installation_id) DO UPDATE SET account_login = excluded.account_login, account_type = excluded.account_type, permissions_json = excluded.permissions_json, repository_selection = excluded.repository_selection, suspended_at = NULL, updated_at = excluded.updated_at`)
       .bind(installationRowId, workspaceId, installation.id, installation.account.login, installation.account.type, JSON.stringify(installation.permissions ?? {}), installation.repository_selection ?? 'selected', timestamp, timestamp),
   ]);
-  for (const repository of payload.repositories ?? []) await upsertRepository(env, installation.id, repository, true);
+  for (const repository of payload.repositories ?? []) await upsertRepository(env, installation.id, repository, refreshActionDetection);
 }
 
 async function upsertPullRequest(env: Env, repositoryId: string, payload: JsonObject): Promise<string> {

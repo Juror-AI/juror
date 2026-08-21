@@ -162,14 +162,12 @@ app.post('/api/onboarding/claim-installation', async (c) => {
   catch { return c.json({ error: { code: 'installation_verification_failed', message: 'GitHub could not verify this installation.' }, requestId: c.get('requestId') }, 403); }
   const installation = installations.find((candidate) => candidate.id === input.installationId);
   if (!installation) return c.json({ error: { code: 'installation_forbidden', message: 'This GitHub installation is not available to your account.' }, requestId: c.get('requestId') }, 403);
-  let workspace = await c.env.DB.prepare('SELECT id FROM workspace WHERE github_installation_id = ?').bind(input.installationId).first<{ id: string }>();
-  if (!workspace) {
-    // A setup callback can beat the installation webhook, and returning users may have installed
-    // the App before this deployment existed. The linked GitHub identity has independently proved
-    // access, so import the same payload the webhook owns and continue without a retry race.
-    await provisionInstallation(c.env, installationProvisioningPayload(installation));
-    workspace = await c.env.DB.prepare('SELECT id FROM workspace WHERE github_installation_id = ?').bind(input.installationId).first<{ id: string }>();
-  }
+  // A setup callback can beat the installation webhook, returning users may have installed the
+  // App before this deployment existed, and an earlier import may have stopped part-way through.
+  // The linked GitHub identity has independently proved access, so idempotently reconcile the
+  // verified payload on every claim. Existing settings skip optional Action detection.
+  await provisionInstallation(c.env, installationProvisioningPayload(installation), false);
+  const workspace = await c.env.DB.prepare('SELECT id FROM workspace WHERE github_installation_id = ?').bind(input.installationId).first<{ id: string }>();
   if (!workspace) return c.json({ error: { code: 'installation_pending', message: 'The GitHub webhook has not arrived yet. Try again in a moment.' }, requestId: c.get('requestId') }, 409);
   const existingMembers = await c.env.DB.prepare('SELECT COUNT(*) AS count FROM membership WHERE workspace_id = ?').bind(workspace.id).first<{ count: number }>();
   await c.env.DB.prepare('INSERT OR IGNORE INTO membership (workspace_id, user_id, role, created_at) VALUES (?, ?, ?, ?)').bind(workspace.id, session.user.id, (existingMembers?.count ?? 0) === 0 ? 'admin' : 'member', new Date().toISOString()).run();
