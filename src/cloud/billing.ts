@@ -1,10 +1,24 @@
 import type { QaOutcome } from '../qa/types.js';
+import type { ReviewPreset } from '../types.js';
 
 export const MICRO_USD_PER_USD = 1_000_000;
 export const SERVICE_FEE_BPS = 2_500;
 export const BPS_DENOMINATOR = 10_000;
 export const TRIAL_CREDIT_MICRO_USD = 10 * MICRO_USD_PER_USD;
 export const DEFAULT_MONTHLY_CAP_MICRO_USD = 100 * MICRO_USD_PER_USD;
+
+const REVIEW_RESERVATION_MICRO_USD: Record<ReviewPreset, number> = {
+  starter: 5 * MICRO_USD_PER_USD,
+  fast: 8 * MICRO_USD_PER_USD,
+  balanced: 30 * MICRO_USD_PER_USD,
+  high: 50 * MICRO_USD_PER_USD,
+  ultra: 100 * MICRO_USD_PER_USD,
+};
+
+/** Maximum customer charge admitted for a hosted run; any operator-cost overflow is non-billable. */
+export function maximumRunReservationMicroUsd(kind: BillableRunKind, preset: ReviewPreset = 'fast'): number {
+  return kind === 'qa' ? 10 * MICRO_USD_PER_USD : REVIEW_RESERVATION_MICRO_USD[preset];
+}
 
 export type BillableRunKind = 'review' | 'qa';
 export type RunBillingOutcome =

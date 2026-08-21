@@ -4,6 +4,7 @@ import {
   canReserveWithinCap,
   consumeTrialCredit,
   isRunBillable,
+  maximumRunReservationMicroUsd,
 } from '../src/cloud/billing.js';
 
 describe('hosted billing', () => {
@@ -34,6 +35,13 @@ describe('hosted billing', () => {
       warningAt80Percent: true,
     });
     expect(canReserveWithinCap({ capMicroUsd: 100, consumedMicroUsd: 80, reservedMicroUsd: 10, estimateMicroUsd: 11 }).allowed).toBe(false);
+  });
+
+  it('uses preset-specific maximum customer charges for admission', () => {
+    expect(maximumRunReservationMicroUsd('review', 'starter')).toBe(5_000_000);
+    expect(maximumRunReservationMicroUsd('review', 'fast')).toBe(8_000_000);
+    expect(maximumRunReservationMicroUsd('review', 'ultra')).toBe(100_000_000);
+    expect(maximumRunReservationMicroUsd('qa', 'ultra')).toBe(10_000_000);
   });
 
   it('depletes the trial before producing invoice usage', () => {

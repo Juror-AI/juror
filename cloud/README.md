@@ -95,7 +95,7 @@ For local UI work, copy `.dev.vars.example` to `.dev.vars`, run `npm run dev:wor
 
 Create a metered recurring Price and a meter whose event name matches `STRIPE_METER_EVENT_NAME`. The meter value is integer micro-USD; configure the Stripe price transformation so `1,000,000` reported units equal `$1.00`. Subscribe the webhook endpoint at `/api/stripe/webhooks` to checkout session, customer subscription, and invoice events.
 
-Every GitHub installation receives one $10 credit. A run starts only if its maximum estimate fits within remaining trial credit or the workspace has active billing, and the monthly committed amount remains below the hard cap. The default cap is $100 and warns at 80%. Direct provider, Sandbox, and retained-storage cost receive a 25% service fee. Cancellation, Juror infrastructure failures, and reviews with no usable model result are not billed.
+Every GitHub installation receives one $10 credit. A run starts only if its preset-specific maximum customer charge fits within remaining trial credit or the workspace has active billing, and the monthly committed amount remains below the hard cap. The default cap is $100 and warns at 80%. Direct provider, Sandbox, and retained-storage cost receive a 25% service fee. Cancellation, Juror infrastructure failures, reviews with no usable model result, and operator-cost overflow beyond the admitted maximum are not billed.
 
 ## Verification
 

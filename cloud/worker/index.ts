@@ -304,7 +304,10 @@ app.get('/api/runs/:id', async (c) => {
   if (!row) return c.json({ error: { code: 'not_found', message: 'Run not found' }, requestId: c.get('requestId') }, 404);
   const events = await c.env.DB.prepare('SELECT sequence, timestamp, phase, status, message, metrics_json FROM run_event WHERE run_id = ? ORDER BY sequence').bind(row.id).all<any>();
   const eventItems = events.results.map((event) => ({ sequence: event.sequence, timestamp: event.timestamp, phase: event.phase, status: event.status, message: event.message, ...JSON.parse(event.metrics_json) }));
-  return envelope(c, { ...runItem(row), events: eventItems, warnings: eventItems.filter((event) => event.status === 'warning').map((event) => event.message), receipt: [{ label: 'Models', amountMicroUsd: row.provider_micro_usd }, { label: 'Sandbox', amountMicroUsd: row.sandbox_micro_usd }, { label: 'Evidence storage', amountMicroUsd: row.storage_micro_usd }, { label: 'Juror service fee', amountMicroUsd: row.service_fee_micro_usd }], terminal: eventItems.map((event) => ({ timestamp: event.timestamp, level: event.status === 'failed' ? 'error' : event.status === 'warning' ? 'warn' : 'info', message: event.message })) });
+  const receipt = [{ label: 'Models', amountMicroUsd: row.provider_micro_usd }, { label: 'Sandbox', amountMicroUsd: row.sandbox_micro_usd }, { label: 'Evidence storage', amountMicroUsd: row.storage_micro_usd }, { label: 'Juror service fee', amountMicroUsd: row.service_fee_micro_usd }];
+  const receiptSubtotal = receipt.reduce((sum, item) => sum + item.amountMicroUsd, 0);
+  if (receiptSubtotal > row.billable_micro_usd) receipt.push({ label: 'Juror infrastructure credit', amountMicroUsd: row.billable_micro_usd - receiptSubtotal });
+  return envelope(c, { ...runItem(row), events: eventItems, warnings: eventItems.filter((event) => event.status === 'warning').map((event) => event.message), receipt, terminal: eventItems.map((event) => ({ timestamp: event.timestamp, level: event.status === 'failed' ? 'error' : event.status === 'warning' ? 'warn' : 'info', message: event.message })) });
 });
 
 app.get('/api/runs/:id/events', async (c) => {

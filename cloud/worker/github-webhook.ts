@@ -1,4 +1,5 @@
-import { canReserveWithinCap } from '../../src/cloud/billing';
+import { canReserveWithinCap, maximumRunReservationMicroUsd } from '../../src/cloud/billing';
+import type { ReviewPreset } from '../../src/types';
 import type { Env } from './env';
 import { appendRunEvent } from './events';
 import { githubApi } from './github';
@@ -77,7 +78,6 @@ async function currentCommitment(env: Env, workspaceId: string): Promise<{ cap: 
 }
 
 export async function createRun(env: Env, input: { kind: 'review' | 'qa'; identity: string; workspaceId: string; repositoryId: string; pullRequestId: string; prNumber: number; sha: string }): Promise<string | null> {
-  const estimate = input.kind === 'review' ? 5_000_000 : 8_000_000;
   const providerReady = input.kind === 'qa'
     ? Boolean(env.OPENAI_API_KEY)
     : Boolean(env.OPENAI_API_KEY || env.ANTHROPIC_API_KEY || env.XAI_API_KEY || env.FIREWORKS_API_KEY || env.OPENROUTER_API_KEY);
@@ -90,6 +90,10 @@ export async function createRun(env: Env, input: { kind: 'review' | 'qa'; identi
     await appendRunEvent(env, runId, 'preparing', 'warning', input.kind === 'qa' ? 'Hosted QA requires an OpenAI provider credential.' : 'No hosted review provider credential is configured.');
     return runId;
   }
+  const settings = await env.DB.prepare('SELECT review_preset FROM repository_settings WHERE repository_id = ?')
+    .bind(input.repositoryId).first<{ review_preset: ReviewPreset }>();
+  if (!settings) throw new Error('Repository settings are missing');
+  const estimate = maximumRunReservationMicroUsd(input.kind, settings.review_preset);
   const commitment = await currentCommitment(env, input.workspaceId);
   const decision = canReserveWithinCap({ capMicroUsd: commitment.cap, consumedMicroUsd: commitment.consumed, reservedMicroUsd: commitment.reserved, estimateMicroUsd: estimate });
   const paymentAllowed = commitment.trialRemaining >= estimate || commitment.billingReady;

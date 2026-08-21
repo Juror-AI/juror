@@ -270,25 +270,23 @@ abstract class HostedWorkflowBase extends WorkflowEntrypoint<Env, HostedWorkflow
         await appendRunEvent(this.env, runId, 'retaining_evidence', 'succeeded', `Sanitized report retained with ${count} finding${count === 1 ? '' : 's'}.`, { findings: count });
         return { key, count, bytes: new TextEncoder().encode(execution.reportJson).byteLength };
       });
-      await step.do('finalize usage ledger', async () => {
+      const settlement = await step.do('finalize usage ledger', async () => {
         const parsed = JSON.parse(execution.reportJson) as HostedReviewReportV1 | QaRunResult;
         const providerUsd = this.kind === 'review' ? (parsed as HostedReviewReportV1).totals.usd : (parsed as QaRunResult).cost.usd;
         const reviewUsable = this.kind === 'review' && (parsed as HostedReviewReportV1).models.some((model) => model.ok && model.report);
         const outcome = this.kind === 'review' ? (reviewUsable ? 'completed' : 'no_usable_model_result') : (parsed as QaRunResult).outcome;
         const reportBytes = new TextEncoder().encode(execution.reportJson).byteLength;
-        await finalizeUsage(this.env, { runId, kind: this.kind, outcome, providerMicroUsd: Math.round((providerUsd ?? 0) * 1_000_000), sandboxMicroUsd: sandboxCostMicroUsd(this.env, this.kind, execution.durationMs, execution.cpuTimeMs), storageMicroUsd: retainedStorageCostMicroUsd(this.env, reportBytes, execution.evidenceBytes) });
-        return { billed: true };
+        return finalizeUsage(this.env, { runId, kind: this.kind, outcome, providerMicroUsd: Math.round((providerUsd ?? 0) * 1_000_000), sandboxMicroUsd: sandboxCostMicroUsd(this.env, this.kind, execution.durationMs, execution.cpuTimeMs), storageMicroUsd: retainedStorageCostMicroUsd(this.env, reportBytes, execution.evidenceBytes) });
       });
       await step.do('complete run', async () => {
         const now = new Date().toISOString();
         const started = await this.env.DB.prepare('SELECT started_at FROM run WHERE id = ?').bind(runId).first<{ started_at: string | null }>();
         const duration = started?.started_at ? Date.now() - new Date(started.started_at).getTime() : execution.durationMs;
-        const parsed = JSON.parse(execution.reportJson) as HostedReviewReportV1 | QaRunResult;
-        const outcome = this.kind === 'review' ? 'completed' : (parsed as QaRunResult).outcome;
+        const outcome = settlement.outcome;
         const status = outcome === 'infrastructure_error' ? 'failed' : outcome === 'cancelled' ? 'cancelled' : outcome === 'passed' || outcome === 'no_testable_surface' || outcome === 'completed' ? 'succeeded' : 'warning';
         const phase = status === 'failed' ? 'failed' : status === 'cancelled' ? 'cancelled' : 'completed';
-        const update = await this.env.DB.prepare(`UPDATE run SET status = ?, phase = ?, outcome = ?, completed_at = ?, duration_ms = ?, updated_at = ? WHERE id = ? AND status != 'cancelled'`).bind(status, phase, outcome, now, duration, now, runId).run();
-        if (update.meta.changes) await appendRunEvent(this.env, runId, phase, status === 'warning' ? 'warning' : status, status === 'succeeded' ? 'Run completed.' : `Run completed with outcome: ${outcome}.`, { durationMs: duration });
+        const update = await this.env.DB.prepare(`UPDATE run SET status = ?, phase = ?, outcome = ?, reserved_micro_usd = 0, completed_at = ?, duration_ms = ?, updated_at = ? WHERE id = ? AND status != 'cancelled'`).bind(status, phase, outcome, now, duration, now, runId).run();
+        if (update.meta.changes) await appendRunEvent(this.env, runId, phase, status === 'warning' ? 'warning' : status, settlement.reservationExceeded ? 'Actual operator cost exceeded the admitted maximum; the run was not billed.' : status === 'succeeded' ? 'Run completed.' : `Run completed with outcome: ${outcome}.`, { durationMs: duration });
         return { completed: Boolean(update.meta.changes) };
       });
       if (this.kind === 'qa') try {

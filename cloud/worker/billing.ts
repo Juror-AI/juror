@@ -11,12 +11,14 @@ interface FinalizeUsageInput {
   storageMicroUsd: number;
 }
 
-export async function finalizeUsage(env: Env, input: FinalizeUsageInput): Promise<void> {
-  const run = await env.DB.prepare('SELECT workspace_id, status FROM run WHERE id = ?').bind(input.runId).first<{ workspace_id: string; status: string }>();
+export async function finalizeUsage(env: Env, input: FinalizeUsageInput): Promise<{ outcome: FinalizeUsageInput['outcome'] | 'cancelled' | 'infrastructure_error'; reservationExceeded: boolean }> {
+  const run = await env.DB.prepare('SELECT workspace_id, status, reserved_micro_usd FROM run WHERE id = ?').bind(input.runId).first<{ workspace_id: string; status: string; reserved_micro_usd: number }>();
   if (!run) throw new Error('Run not found while finalizing usage');
-  const effectiveOutcome = run.status === 'cancelled' ? 'cancelled' : input.outcome;
-  const billable = isRunBillable(input.kind, effectiveOutcome);
   const receipt = calculateRunCost({ providerMicroUsd: input.providerMicroUsd, sandboxMicroUsd: input.sandboxMicroUsd, storageMicroUsd: input.storageMicroUsd });
+  const requestedOutcome = run.status === 'cancelled' ? 'cancelled' : input.outcome;
+  const reservationExceeded = isRunBillable(input.kind, requestedOutcome) && receipt.billableMicroUsd > run.reserved_micro_usd;
+  const effectiveOutcome = reservationExceeded ? 'infrastructure_error' : requestedOutcome;
+  const billable = isRunBillable(input.kind, effectiveOutcome);
   const charged = billable ? receipt.billableMicroUsd : 0;
   const now = new Date().toISOString();
 
@@ -28,7 +30,10 @@ export async function finalizeUsage(env: Env, input: FinalizeUsageInput): Promis
       .bind(input.runId, now, run.workspace_id, input.runId),
     env.DB.prepare('UPDATE usage_ledger SET trial_applied_at = ? WHERE run_id = ? AND trial_applied_at IS NULL')
       .bind(now, input.runId),
-    env.DB.prepare(`UPDATE run SET provider_micro_usd = ?, sandbox_micro_usd = ?, storage_micro_usd = ?, service_fee_micro_usd = ?, billable_micro_usd = ?, reserved_micro_usd = 0, billable = ?, updated_at = ? WHERE id = ?`)
+    // Keep the reservation until the following durable completion step commits the
+    // terminal state. If Workflows replays this step after a crash, the same admitted
+    // ceiling is still available and settlement remains idempotent.
+    env.DB.prepare(`UPDATE run SET provider_micro_usd = ?, sandbox_micro_usd = ?, storage_micro_usd = ?, service_fee_micro_usd = ?, billable_micro_usd = ?, billable = ?, updated_at = ? WHERE id = ?`)
       .bind(input.providerMicroUsd, input.sandboxMicroUsd, input.storageMicroUsd, billable ? receipt.serviceFeeMicroUsd : 0, charged, billable ? 1 : 0, now, input.runId),
   ]);
 
@@ -44,6 +49,7 @@ export async function finalizeUsage(env: Env, input: FinalizeUsageInput): Promis
       console.error(JSON.stringify({ message: 'Stripe meter event enqueue failed', runId: input.runId, error: error instanceof Error ? error.message : String(error) }));
     }
   }
+  return { outcome: effectiveOutcome, reservationExceeded };
 }
 
 export async function emitStripeMeterEvent(env: Env, runId: string): Promise<void> {
