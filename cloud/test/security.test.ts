@@ -112,6 +112,32 @@ describe('webhook security boundaries', () => {
     expect(wrangler).toContain('*/5 * * * *');
   });
 
+  it('claims the per-repository QA slot atomically in every admission path', async () => {
+    const webhook = await readFile(new URL('../worker/github-webhook.ts', import.meta.url), 'utf8');
+    const workflows = await readFile(new URL('../worker/workflows.ts', import.meta.url), 'utf8');
+    expect(webhook).toMatch(/INSERT OR IGNORE INTO run[\s\S]+EXISTS \(SELECT 1 FROM repository admission_repository[\s\S]+admission_repository\.github_access_state = 'active'/);
+    expect(webhook).toContain("FROM repository provider_repository WHERE provider_repository.id = ? AND provider_repository.workspace_id = ? AND provider_repository.github_access_state = 'active'");
+    expect(webhook).toContain("FROM repository blocked_repository WHERE blocked_repository.id = ? AND blocked_repository.workspace_id = ? AND blocked_repository.github_access_state = 'active'");
+    expect(webhook).toMatch(/UPDATE run SET workflow_instance_id[\s\S]+NOT EXISTS \(SELECT 1 FROM run active[\s\S]+active\.repository_id = \?/);
+    expect(webhook).toMatch(/UPDATE run SET workflow_instance_id[\s\S]+EXISTS \(SELECT 1 FROM repository admission_repository[\s\S]+admission_repository\.github_access_state = 'active'/);
+    expect(workflows).toMatch(/UPDATE run SET workflow_instance_id[\s\S]+NOT EXISTS \(SELECT 1 FROM run active[\s\S]+active\.repository_id = \(SELECT repository_id FROM run WHERE id = \?\)/);
+    expect(workflows).toMatch(/UPDATE run SET workflow_instance_id[\s\S]+EXISTS \(SELECT 1 FROM repository admission_repository[\s\S]+admission_repository\.github_access_state = 'active'/);
+  });
+
+  it('cancels admitted workloads when GitHub repository access is revoked', async () => {
+    const webhook = await readFile(new URL('../worker/github-webhook.ts', import.meta.url), 'utf8');
+    expect(webhook).toContain("settings.github_access_state !== 'active'");
+    expect(webhook).toContain("outcome = 'access_revoked'");
+    expect(webhook).toContain('cancellations[index]?.meta.changes');
+    expect(webhook).toContain("'GitHub repository access was revoked.'");
+    expect(webhook).toContain('instance.terminate()');
+    expect(webhook).toContain('instance.status()');
+    expect(webhook).toContain("event: 'access_revocation_terminal_workflow'");
+    expect(webhook).toContain("event: 'access_revocation_termination_failed'");
+    expect(webhook).toContain('terminationFailures.length');
+    expect(webhook).toContain("workflow_instance_id = NULL");
+  });
+
   it('admits only public HTTPS QA origins outside credential-bearing hosts', () => {
     const appUrl = 'https://juror-cloud.example.workers.dev';
     expect(unsafeQaOrigin(['https://staging.example.com'], appUrl)).toBeNull();
