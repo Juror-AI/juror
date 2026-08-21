@@ -6,13 +6,16 @@ type StripeObject = Record<string, any>;
 
 export async function verifyStripeSignature(secret: string, body: string, header: string | null, toleranceSeconds = 300): Promise<boolean> {
   if (!header) return false;
-  const fields = new Map(header.split(',').map((part) => part.split('=', 2) as [string, string]));
-  const timestamp = fields.get('t');
-  const signature = fields.get('v1');
-  if (!timestamp || !signature || !/^\d+$/.test(timestamp)) return false;
+  const fields = header.split(',').map((part) => {
+    const separator = part.indexOf('=');
+    return separator < 1 ? ['', ''] as const : [part.slice(0, separator).trim(), part.slice(separator + 1).trim()] as const;
+  });
+  const timestamp = fields.find(([name]) => name === 't')?.[1];
+  const signatures = fields.filter(([name]) => name === 'v1').map(([, value]) => value);
+  if (!timestamp || !signatures.length || !/^\d+$/.test(timestamp)) return false;
   if (Math.abs(Date.now() / 1000 - Number(timestamp)) > toleranceSeconds) return false;
   const expected = await hmacHex(secret, `${timestamp}.${body}`);
-  return timingSafeEqual(expected, signature);
+  return signatures.some((signature) => timingSafeEqual(expected, signature));
 }
 
 export async function processStripeWebhook(env: Env, event: StripeObject): Promise<void> {

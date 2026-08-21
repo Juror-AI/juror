@@ -20,6 +20,7 @@ describe('webhook security boundaries', () => {
     const timestamp = Math.floor(Date.now() / 1000);
     const signature = await hmacHex('stripe-secret', `${timestamp}.${body}`);
     await expect(verifyStripeSignature('stripe-secret', body, `t=${timestamp},v1=${signature}`)).resolves.toBe(true);
+    await expect(verifyStripeSignature('stripe-secret', body, `t=${timestamp},v1=${signature},v1=${'0'.repeat(64)}`)).resolves.toBe(true);
     await expect(verifyStripeSignature('stripe-secret', body, `t=${timestamp - 601},v1=${signature}`)).resolves.toBe(false);
   });
 
