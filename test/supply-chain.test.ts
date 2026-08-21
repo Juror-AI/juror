@@ -460,9 +460,13 @@ esac
     expect(dockerfile).toContain('HOME=/home/pwuser');
     expect(action.match(/uid=\$RUNTIME_UID,gid=\$RUNTIME_GID,mode=0700/g)).toHaveLength(2);
     expect(localRunner.match(/uid=\$CONTAINER_UID,gid=\$CONTAINER_GID,mode=0700/g)).toHaveLength(2);
-    expect(releaseWorkflow).toContain('uid=1001,gid=1001,mode=0700');
+    expect(releaseWorkflow).toContain('PW_UID="$(docker run --rm --entrypoint id "$EXACT_IMAGE" -u pwuser)"');
+    expect(releaseWorkflow).toContain('uid=$PW_UID,gid=$PW_GID,mode=0700');
+    expect(releaseWorkflow).toContain('--user "$PW_UID:$PW_GID"');
+    expect(releaseWorkflow).not.toContain('uid=1001,gid=1001');
     expect(dockerfile).toContain('qa/smoke-chromium.mjs');
     expect(imageCi).toContain('/opt/juror/qa/smoke-chromium.mjs');
+    expect(imageCi).toContain('run_chromium_smoke "$ARBITRARY_UID" "$ARBITRARY_GID"');
     expect(releaseWorkflow).toContain('/opt/juror/qa/smoke-chromium.mjs');
     expect(read('qa/seccomp_profile.json')).toContain('Allow create user namespaces');
     expect(browser).toContain('chromiumSandbox = true');
@@ -471,6 +475,27 @@ esac
     expect(proxy).toContain('const allowed = new Set');
     expect(proxy).toContain("server.on('connect'");
     expect(proxy).toContain('private address denied');
+  });
+
+  it('runs native QA image CI for every Docker build input', () => {
+    const workflow = parse(read('.github/workflows/qa-image-ci.yml')) as {
+      on: {
+        push: { paths: string[] };
+        pull_request: { paths: string[] };
+      };
+    };
+
+    for (const event of [workflow.on.push, workflow.on.pull_request]) {
+      expect(event.paths).toEqual(expect.arrayContaining([
+        '.dockerignore',
+        'qa/**',
+        'scripts/**',
+        'src/**',
+        'package.json',
+        'package-lock.json',
+        'tsconfig.json',
+      ]));
+    }
   });
 
   it('never embeds locally discovered credentials in Docker argv', () => {

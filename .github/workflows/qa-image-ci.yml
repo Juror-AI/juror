@@ -4,8 +4,10 @@ on:
   push:
     branches: [main]
     paths:
+      - '.dockerignore'
       - 'qa/**'
-      - 'src/qa/**'
+      - 'scripts/**'
+      - 'src/**'
       - 'package.json'
       - 'package-lock.json'
       - 'tsconfig.json'
@@ -13,8 +15,10 @@ on:
       - '.github/workflows/release-qa-image.yml'
   pull_request:
     paths:
+      - '.dockerignore'
       - 'qa/**'
-      - 'src/qa/**'
+      - 'scripts/**'
+      - 'src/**'
       - 'package.json'
       - 'package-lock.json'
       - 'tsconfig.json'
@@ -55,18 +59,32 @@ jobs:
           [[ "$PW_UID" =~ ^[0-9]+$ ]]
           [[ "$PW_GID" =~ ^[0-9]+$ ]]
 
-          docker run --rm --init \
-            --read-only \
-            --tmpfs /tmp:rw,nosuid,nodev,size=256m \
-            --tmpfs "/home/pwuser:rw,nosuid,nodev,size=64m,uid=$PW_UID,gid=$PW_GID,mode=0700" \
-            --shm-size=1g \
-            --user "$PW_UID:$PW_GID" \
-            --cap-drop=ALL \
-            --cap-add=SYS_CHROOT \
-            --security-opt "seccomp=$GITHUB_WORKSPACE/qa/seccomp_profile.json" \
-            --pids-limit=256 \
-            --memory=2g \
-            --cpus=2 \
-            --entrypoint node \
-            juror-qa:ci \
-            /opt/juror/qa/smoke-chromium.mjs
+          run_chromium_smoke() {
+            local runtime_uid="$1"
+            local runtime_gid="$2"
+            docker run --rm --init \
+              --read-only \
+              --tmpfs /tmp:rw,nosuid,nodev,size=256m \
+              --tmpfs "/home/pwuser:rw,nosuid,nodev,size=64m,uid=$runtime_uid,gid=$runtime_gid,mode=0700" \
+              --shm-size=1g \
+              --user "$runtime_uid:$runtime_gid" \
+              --cap-drop=ALL \
+              --cap-add=SYS_CHROOT \
+              --security-opt "seccomp=$GITHUB_WORKSPACE/qa/seccomp_profile.json" \
+              --pids-limit=256 \
+              --memory=2g \
+              --cpus=2 \
+              --entrypoint node \
+              juror-qa:ci \
+              /opt/juror/qa/smoke-chromium.mjs
+          }
+
+          run_chromium_smoke "$PW_UID" "$PW_GID"
+
+          # Composite-action runners can use any numeric host identity. Exercise
+          # that path with IDs which deliberately have no image passwd entry.
+          ARBITRARY_UID="$((PW_UID + 10000))"
+          ARBITRARY_GID="$((PW_GID + 10000))"
+          [ "$ARBITRARY_UID" -ne "$PW_UID" ]
+          [ "$ARBITRARY_GID" -ne "$PW_GID" ]
+          run_chromium_smoke "$ARBITRARY_UID" "$ARBITRARY_GID"

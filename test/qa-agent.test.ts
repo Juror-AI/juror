@@ -92,7 +92,8 @@ describe('QA Codex process isolation', () => {
       expect(config).not.toContain(preload);
       expect(config).toContain('model_provider = "juror_openai_https"');
       expect(config).toContain('[model_providers.juror_openai_https]');
-      expect(config).toContain('base_url = "https://api.openai.com/v1"');
+      expect(config).toContain('name = "OpenAI"');
+      expect(config).not.toContain('base_url =');
       expect(config).toContain('wire_api = "responses"');
       expect(config).toContain('requires_openai_auth = true');
       expect(config).toContain('supports_websockets = false');
