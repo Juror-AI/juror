@@ -20,6 +20,9 @@ import {
 import type { RunOptions } from '../src/util/proc.js';
 
 const dirs: string[] = [];
+const packageVersion = (JSON.parse(
+  readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+) as { version: string }).version;
 
 function tempRepo(): string {
   const dir = mkdtempSync(join(tmpdir(), 'juror-init-'));
@@ -630,7 +633,7 @@ describe('juror init CLI', () => {
     expect(output).toContain('Workflow: .github/workflows/juror.yml created');
     expect(output).not.toContain('test-only-value');
     const workflow = readFileSync(join(repo, '.github/workflows/juror.yml'), 'utf8');
-    expect(workflow).toContain(`juror-ai/juror@${'b'.repeat(40)} # v1.4.1`);
+    expect(workflow).toContain(`juror-ai/juror@${'b'.repeat(40)} # v${packageVersion}`);
   });
 
   it('does not create a workflow when requested secret setup cannot start', () => {
