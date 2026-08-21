@@ -11,6 +11,8 @@ concurrency:
 jobs:
   publish:
     if: github.repository == 'Juror-AI/juror' && !github.event.release.prerelease
+    # npm trusted publishing currently accepts GitHub-hosted runners only.
+    # Keep the OIDC publication boundary here even though validation is host-only.
     runs-on: ubuntu-latest
     permissions:
       attestations: write
