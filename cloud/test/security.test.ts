@@ -9,6 +9,7 @@ import { sandboxGithubRequestAllowed } from '../worker/github-egress';
 import { renderHostedSummary } from '../worker/github-publish';
 import type { HostedReviewReportV1 } from '../../src/cloud/types';
 import { redactSensitiveJson } from '../worker/report-redaction';
+import { qaTargetHosts } from '../worker/sandbox-network';
 
 describe('webhook security boundaries', () => {
   it('accepts only the matching GitHub HMAC', async () => {
@@ -47,6 +48,12 @@ describe('webhook security boundaries', () => {
     expect(runner).toContain('x-access-token:${githubPlaceholder}@github.com');
     expect(runner).not.toContain("'--post'");
     expect(runner).not.toContain('GITHUB_APP_PRIVATE_KEY');
+  });
+
+  it('never routes credential-bearing QA targets into review sandboxes', () => {
+    const origins = ['https://staging.example.com', 'https://staging.example.com:443', 'https://api.example.com'];
+    expect(qaTargetHosts('review', origins)).toEqual([]);
+    expect(qaTargetHosts('qa', origins)).toEqual(['staging.example.com', 'api.example.com']);
   });
 
   it('limits Sandbox GitHub access to repository reads and git upload-pack', () => {

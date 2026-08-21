@@ -9,6 +9,7 @@ import { indexQaFindings, indexReviewFindings } from './indexing';
 import { decryptWorkspaceSecret } from './crypto';
 import { publishHostedReview } from './github-publish';
 import { sanitizeQaReportForRetention } from './report-redaction';
+import { qaTargetHosts } from './sandbox-network';
 
 interface HostedQaConfig {
   enabled: boolean;
@@ -161,7 +162,7 @@ async function executeInSandbox(env: Env, manifest: RunManifest): Promise<{ repo
   const sandbox = getSandbox(namespace, manifest.runId.toLowerCase(), { normalizeId: true, keepAlive: true });
   const started = Date.now();
   try {
-    const targetHosts = manifest.allowedOrigins.map((origin) => new URL(origin).hostname);
+    const targetHosts = qaTargetHosts(manifest.kind, manifest.allowedOrigins);
     const baseHosts = ['github.com', 'api.github.com', 'api.openai.com', 'api.anthropic.com', 'api.x.ai', 'api.deepseek.com', 'api.fireworks.ai', 'openrouter.ai', 'api.moonshot.ai'];
     await sandbox.setAllowedHosts([...new Set([...baseHosts, ...targetHosts])]);
     await sandbox.setOutboundByHosts<RunManifest>({
