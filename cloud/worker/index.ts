@@ -12,7 +12,7 @@ import { createRun } from './github-webhook';
 import { githubApi } from './github';
 import { createBillingPortal, createCheckout, verifyStripeSignature } from './stripe';
 import { verifyHmacHeader, createSignedToken, timingSafeEqual } from './crypto';
-import { startNextRepositoryQa } from './workflows';
+import { enqueueNextRepositoryQa, sweepQueuedQaAdmissions } from './workflows';
 import { corpusExportResponse, runCorpusRetention, type QueueMessage } from './corpus';
 import { processQueueBatch } from './queue';
 import { reconcileStripeMeterEvents } from './billing';
@@ -344,7 +344,7 @@ app.post('/api/runs/:id/cancel', async (c) => {
   const timestamp = new Date().toISOString();
   await c.env.DB.prepare(`UPDATE run SET status = 'cancelled', phase = 'cancelled', outcome = 'cancelled', reserved_micro_usd = 0, completed_at = ?, updated_at = ? WHERE id = ? AND status IN ('queued','running')`).bind(timestamp, timestamp, run.id).run();
   await appendRunEvent(c.env, run.id, 'cancelled', 'cancelled', 'Cancelled by a workspace member.');
-  if (run.kind === 'qa') try { await startNextRepositoryQa(c.env, run.id); } catch { await appendRunEvent(c.env, run.id, 'cancelled', 'warning', 'The next queued QA run remains waiting for an operator retry.'); }
+  if (run.kind === 'qa') try { await enqueueNextRepositoryQa(c.env, run.id); } catch { await appendRunEvent(c.env, run.id, 'cancelled', 'warning', 'The next queued QA run will be recovered by the admission sweep.'); }
   return envelope(c, { id: run.id, status: 'cancelled' });
 });
 
@@ -659,5 +659,8 @@ export type AppType = typeof app;
 export default {
   fetch: app.fetch,
   async queue(batch: MessageBatch<QueueMessage>, env: Env) { await processQueueBatch(batch, env); },
-  scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) { ctx.waitUntil(runRetention(env)); },
+  scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(sweepQueuedQaAdmissions(env));
+    if (controller.cron === '17 3 * * *') ctx.waitUntil(runRetention(env));
+  },
 } satisfies ExportedHandler<Env, QueueMessage>;

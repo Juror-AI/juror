@@ -64,7 +64,12 @@ export interface WorkspaceDeleteMessage {
   jobId: string;
 }
 
-export type QueueMessage = WebhookQueueMessage | CorpusQueueEventMessage | CorpusDeleteMessage | StripeMeterMessage | WorkspaceDeleteMessage;
+export interface QaAdmissionMessage {
+  kind: 'qa_admission';
+  anchorRunId: string;
+}
+
+export type QueueMessage = WebhookQueueMessage | CorpusQueueEventMessage | CorpusDeleteMessage | StripeMeterMessage | WorkspaceDeleteMessage | QaAdmissionMessage;
 
 export interface CorpusContext {
   workspaceId: string;

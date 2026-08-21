@@ -44,6 +44,16 @@ describe('webhook security boundaries', () => {
     expect(runner).not.toContain('GITHUB_APP_PRIVATE_KEY');
   });
 
+  it('recovers serialized QA admission through a durable queue and scheduled sweep', async () => {
+    const workflows = await readFile(new URL('../worker/workflows.ts', import.meta.url), 'utf8');
+    const queue = await readFile(new URL('../worker/queue.ts', import.meta.url), 'utf8');
+    const wrangler = await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
+    expect(workflows).toContain("kind: 'qa_admission'");
+    expect(workflows).toContain('sweepQueuedQaAdmissions');
+    expect(queue).toContain("message.kind === 'qa_admission'");
+    expect(wrangler).toContain('*/5 * * * *');
+  });
+
   it('admits only public HTTPS QA origins outside credential-bearing hosts', () => {
     const appUrl = 'https://juror-cloud.example.workers.dev';
     expect(unsafeQaOrigin(['https://staging.example.com'], appUrl)).toBeNull();

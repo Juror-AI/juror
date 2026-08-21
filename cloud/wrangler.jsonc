@@ -90,6 +90,6 @@
     "head_sampling_rate": 1
   },
   "triggers": {
-    "crons": ["17 3 * * *"]
+    "crons": ["*/5 * * * *", "17 3 * * *"]
   }
 }

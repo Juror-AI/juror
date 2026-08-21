@@ -4,6 +4,7 @@ import { processGitHubWebhook } from './github-webhook';
 import { processStripeWebhook } from './stripe';
 import { emitStripeMeterEvent } from './billing';
 import { deleteWorkspace } from './workspace-delete';
+import { startNextRepositoryQa } from './workflows';
 
 async function markDelivery(env: Env, message: WebhookQueueMessage, status: 'processed' | 'failed', error?: unknown, attempts = 0): Promise<void> {
   await env.DB.prepare(`UPDATE webhook_delivery SET status = ?, processed_at = ?, attempt_count = ?, error = ? WHERE provider = ? AND delivery_id = ?`)
@@ -42,6 +43,8 @@ export async function processQueueBatch(batch: MessageBatch<QueueMessage>, env: 
         await emitStripeMeterEvent(env, message.runId);
       } else if (message.kind === 'workspace_delete') {
         await deleteWorkspace(env, message.workspaceId, message.jobId);
+      } else if (message.kind === 'qa_admission') {
+        await startNextRepositoryQa(env, message.anchorRunId);
       } else {
         await deleteWorkspaceCorpus(env, message.workspaceId, message.jobId);
       }

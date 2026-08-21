@@ -98,7 +98,7 @@ async function loadManifest(env: Env, runId: string): Promise<RunManifest> {
 }
 
 export async function startNextRepositoryQa(env: Env, completedRunId: string): Promise<boolean> {
-  const next = await env.DB.prepare(`SELECT queued.id FROM run current JOIN run queued ON queued.repository_id = current.repository_id JOIN repository_settings settings ON settings.repository_id = queued.repository_id WHERE current.id = ? AND settings.execution_mode = 'cloud' AND settings.qa_enabled = 1 AND settings.qa_security_ready = 1 AND queued.kind = 'qa' AND queued.status = 'queued' AND queued.workflow_instance_id IS NULL ORDER BY queued.created_at LIMIT 1`)
+  const next = await env.DB.prepare(`SELECT queued.id FROM run current JOIN run queued ON queued.repository_id = current.repository_id JOIN repository_settings settings ON settings.repository_id = queued.repository_id WHERE current.id = ? AND settings.execution_mode = 'cloud' AND settings.qa_enabled = 1 AND settings.qa_security_ready = 1 AND queued.kind = 'qa' AND queued.status = 'queued' AND queued.workflow_instance_id IS NULL AND NOT EXISTS (SELECT 1 FROM run active WHERE active.repository_id = queued.repository_id AND active.kind = 'qa' AND active.id != queued.id AND active.status IN ('queued', 'running') AND active.workflow_instance_id IS NOT NULL) ORDER BY queued.created_at, queued.id LIMIT 1`)
     .bind(completedRunId).first<{ id: string }>();
   if (!next) return false;
   const claim = await env.DB.prepare(`UPDATE run SET workflow_instance_id = ?, updated_at = ? WHERE id = ? AND status = 'queued' AND workflow_instance_id IS NULL`)
@@ -117,6 +117,17 @@ export async function startNextRepositoryQa(env: Env, completedRunId: string): P
     if (cancelled) await (await env.QA_WORKFLOW.get(workflowId)).terminate();
   } catch { /* The Workflow itself also refuses a cancelled row before Sandbox admission. */ }
   return true;
+}
+
+export async function enqueueNextRepositoryQa(env: Env, anchorRunId: string): Promise<void> {
+  await env.WEBHOOK_QUEUE.send({ kind: 'qa_admission', anchorRunId }, { contentType: 'json' });
+}
+
+export async function sweepQueuedQaAdmissions(env: Env): Promise<number> {
+  const candidates = await env.DB.prepare(`SELECT queued.id FROM run queued JOIN repository_settings settings ON settings.repository_id = queued.repository_id WHERE settings.execution_mode = 'cloud' AND settings.qa_enabled = 1 AND settings.qa_security_ready = 1 AND queued.kind = 'qa' AND queued.status = 'queued' AND queued.workflow_instance_id IS NULL AND NOT EXISTS (SELECT 1 FROM run active WHERE active.repository_id = queued.repository_id AND active.kind = 'qa' AND active.id != queued.id AND active.status IN ('queued', 'running') AND active.workflow_instance_id IS NOT NULL) AND NOT EXISTS (SELECT 1 FROM run earlier WHERE earlier.repository_id = queued.repository_id AND earlier.kind = 'qa' AND earlier.status = 'queued' AND earlier.workflow_instance_id IS NULL AND (earlier.created_at < queued.created_at OR (earlier.created_at = queued.created_at AND earlier.id < queued.id))) ORDER BY queued.created_at, queued.id LIMIT 50`)
+    .all<{ id: string }>();
+  for (const candidate of candidates.results) await enqueueNextRepositoryQa(env, candidate.id);
+  return candidates.results.length;
 }
 
 const EVIDENCE_ROOT = '/tmp/juror-evidence/';
@@ -243,7 +254,9 @@ abstract class HostedWorkflowBase extends WorkflowEntrypoint<Env, HostedWorkflow
       });
       const cancelled = await step.do('honor cancellation before retention', async () => Boolean(await this.env.DB.prepare(`SELECT 1 AS cancelled FROM run WHERE id = ? AND status = 'cancelled'`).bind(runId).first()));
       if (cancelled) {
-        if (this.kind === 'qa') try { await startNextRepositoryQa(this.env, runId); } catch { /* The next run remains queued. */ }
+        if (this.kind === 'qa') try {
+          await step.do('queue next QA after cancellation', { retries: { limit: 5, delay: '10 seconds', backoff: 'exponential' } }, () => enqueueNextRepositoryQa(this.env, runId));
+        } catch { /* The five-minute admission sweep is the final recovery path. */ }
         return;
       }
       await step.do('sanitize, retain, and index report', async () => {
@@ -278,18 +291,19 @@ abstract class HostedWorkflowBase extends WorkflowEntrypoint<Env, HostedWorkflow
         if (update.meta.changes) await appendRunEvent(this.env, runId, phase, status === 'warning' ? 'warning' : status, status === 'succeeded' ? 'Run completed.' : `Run completed with outcome: ${outcome}.`, { durationMs: duration });
         return { completed: Boolean(update.meta.changes) };
       });
-      if (this.kind === 'qa') await step.do('start next repository QA', async () => {
-        try { return { started: await startNextRepositoryQa(this.env, runId) }; }
-        catch { await appendRunEvent(this.env, runId, 'completed', 'warning', 'The next queued QA run could not be started and will be retried by an operator.'); return { started: false }; }
-      });
+      if (this.kind === 'qa') try {
+        await step.do('queue next repository QA', { retries: { limit: 5, delay: '10 seconds', backoff: 'exponential' } }, () => enqueueNextRepositoryQa(this.env, runId));
+      } catch {
+        await appendRunEvent(this.env, runId, 'completed', 'warning', 'The next queued QA run will be recovered by the admission sweep.');
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown infrastructure error';
       const now = new Date().toISOString();
       const cancelled = await this.env.DB.prepare(`SELECT 1 AS cancelled FROM run WHERE id = ? AND status = 'cancelled'`).bind(runId).first();
-      if (cancelled) { if (this.kind === 'qa') try { await startNextRepositoryQa(this.env, runId); } catch { /* The next run remains queued. */ } return; }
+      if (cancelled) { if (this.kind === 'qa') try { await enqueueNextRepositoryQa(this.env, runId); } catch { /* The admission sweep remains available. */ } return; }
       await this.env.DB.prepare(`UPDATE run SET status = 'failed', phase = 'failed', outcome = 'infrastructure_error', reserved_micro_usd = 0, completed_at = ?, updated_at = ? WHERE id = ?`).bind(now, now, runId).run();
       await appendRunEvent(this.env, runId, 'failed', 'failed', `Juror infrastructure error: ${message}`);
-      if (this.kind === 'qa') try { await startNextRepositoryQa(this.env, runId); } catch { /* The queued run remains claimable for an operator retry. */ }
+      if (this.kind === 'qa') try { await enqueueNextRepositoryQa(this.env, runId); } catch { /* The admission sweep remains available. */ }
       throw error;
     }
   }
