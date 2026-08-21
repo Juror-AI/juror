@@ -440,7 +440,16 @@ docker run --detach --rm --init \
   --entrypoint node \
   "$IMAGE" \
   /opt/juror/qa/egress-proxy.mjs >/dev/null
-docker network connect --gw-priority -1 --alias juror-qa-proxy "$INTERNAL_NETWORK" "$PROXY_NAME"
+docker network connect --gw-priority -1 "$INTERNAL_NETWORK" "$PROXY_NAME"
+# Docker-in-Docker runners can route this private bridge while their embedded DNS
+# fails to resolve container names and aliases. Read the already-created endpoint
+# address from Docker itself, validate that it is private, and avoid that DNS path.
+PROXY_URL="$(
+  docker inspect \
+    --format "{{(index .NetworkSettings.Networks \"$INTERNAL_NETWORK\").IPAddress}}" \
+    "$PROXY_NAME" |
+    node "$ROOT/qa/proxy-url.mjs"
+)"
 for _ in $(seq 1 40); do
   if docker logs "$PROXY_NAME" 2>&1 | grep -q 'juror-qa-egress-proxy ready'; then break; fi
   sleep 0.25
@@ -472,11 +481,11 @@ docker create \
   ${RUNTIME_MOUNTS[@]+"${RUNTIME_MOUNTS[@]}"} \
   ${AUTH_MOUNTS[@]+"${AUTH_MOUNTS[@]}"} \
   ${ENV_ARGS[@]+"${ENV_ARGS[@]}"} \
-  --env HTTP_PROXY=http://juror-qa-proxy:8080 \
-  --env HTTPS_PROXY=http://juror-qa-proxy:8080 \
+  --env "HTTP_PROXY=$PROXY_URL" \
+  --env "HTTPS_PROXY=$PROXY_URL" \
   --env NODE_OPTIONS=--use-env-proxy \
   --env NODE_USE_ENV_PROXY=1 \
-  --env JUROR_QA_BROWSER_PROXY=http://juror-qa-proxy:8080 \
+  --env "JUROR_QA_BROWSER_PROXY=$PROXY_URL" \
   "$IMAGE" \
   --repo-dir /workspace \
   --evidence-dir /evidence \

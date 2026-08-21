@@ -170,7 +170,9 @@ describe('supply-chain policy', () => {
     expect(steps[qaIndex]?.run?.trimStart()).toMatch(/^set -euo pipefail\n/);
     expect(steps[qaIndex]?.run).toContain('"$EXACT_IMAGE"');
     expect(steps[qaIndex]?.run).toContain('docker network create --internal');
-    expect(steps[qaIndex]?.run).toContain('JUROR_QA_BROWSER_PROXY=http://juror-qa-proxy:8080');
+    expect(steps[qaIndex]?.run).toContain('proxy-url.mjs');
+    expect(steps[qaIndex]?.run).toContain('JUROR_QA_BROWSER_PROXY=$PROXY_URL');
+    expect(steps[qaIndex]?.run).not.toContain('--alias juror-qa-proxy');
     expect(steps[qaIndex]?.run).toContain('/opt/juror/qa/egress-proxy.mjs');
     expect(steps[qaIndex]?.run).toContain('runtime_status: null');
     expect(steps[qaIndex]?.run).toContain('payload-status.json');
@@ -453,6 +455,7 @@ esac
     const releaseWorkflow = read('.github/workflows/release-qa-image.yml');
     const browser = read('src/qa/browser.ts');
     const proxy = read('qa/egress-proxy.mjs');
+    const proxyUrl = read('qa/proxy-url.mjs');
 
     expect(action).toContain('seccomp=$GITHUB_ACTION_PATH/seccomp_profile.json');
     expect(action).toContain('--cap-drop=ALL');
@@ -475,6 +478,13 @@ esac
     expect(proxy).toContain('const allowed = new Set');
     expect(proxy).toContain("server.on('connect'");
     expect(proxy).toContain('private address denied');
+    expect(proxyUrl).toContain('net.isIP(address) !== 4');
+    expect(action).toContain('node "$GITHUB_ACTION_PATH/proxy-url.mjs"');
+    expect(localRunner).toContain('node "$ROOT/qa/proxy-url.mjs"');
+    expect(action).not.toContain('--alias juror-qa-proxy');
+    expect(localRunner).not.toContain('--alias juror-qa-proxy');
+    expect(action).toContain('--env "JUROR_QA_BROWSER_PROXY=$PROXY_URL"');
+    expect(localRunner).toContain('--env "JUROR_QA_BROWSER_PROXY=$PROXY_URL"');
   });
 
   it('runs native QA image CI for every Docker build input', () => {
@@ -728,6 +738,9 @@ fi
 if [ "\${1:-}" = 'logs' ]; then
   echo 'juror-qa-egress-proxy ready'
 fi
+if [ "\${1:-}" = 'inspect' ]; then
+  echo '172.19.0.2'
+fi
 `,
       );
       chmodSync(join(fakeBin, 'docker'), 0o755);
@@ -828,6 +841,9 @@ if [ "\${1:-}" = 'start' ] && [ "\${2:-}" = '--attach' ]; then
 fi
 if [ "\${1:-}" = 'logs' ]; then
   echo 'juror-qa-egress-proxy ready'
+fi
+if [ "\${1:-}" = 'inspect' ]; then
+  echo '172.19.0.2'
 fi
 `,
       );
