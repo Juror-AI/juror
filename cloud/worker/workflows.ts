@@ -8,6 +8,7 @@ import { appendRunEvent, updateRunPhase } from './events';
 import { indexQaFindings, indexReviewFindings } from './indexing';
 import { decryptWorkspaceSecret } from './crypto';
 import { publishHostedReview } from './github-publish';
+import { sanitizeQaReportForRetention } from './report-redaction';
 
 interface HostedQaConfig {
   enabled: boolean;
@@ -199,6 +200,7 @@ async function executeInSandbox(env: Env, manifest: RunManifest): Promise<{ repo
     let reportJson = reportFile.content;
     let evidenceBytes = 0;
     if (manifest.kind === 'qa') {
+      reportJson = await sanitizeQaReportForRetention(env, manifest.runId, reportJson);
       const report = JSON.parse(reportJson) as QaRunResult;
       for (const artifact of report.artifacts.slice(0, 50)) {
         if (!artifact.sanitized || artifact.kind === 'report') {

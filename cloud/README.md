@@ -17,7 +17,7 @@ The Action remains fully independent. A connected repository is explicitly set t
 
 Source checkouts, full patches, raw model output, agent scratch files, and chain-of-thought are never persisted. Review diffs are fetched from GitHub only when a user opens them.
 
-The untrusted Sandbox can use only Git's read-only upload-pack protocol and fixed PR, commit, and comparison reads. It never receives or exercises GitHub write routes. The trusted Worker publishes sanitized summary comments, inline findings, and checks after independently confirming that the reviewed base and head are still current.
+The untrusted Sandbox can use only Git's read-only upload-pack protocol and fixed PR, commit, and comparison reads. It never receives or exercises GitHub write routes. The trusted Worker publishes sanitized summary comments, inline findings, and checks after independently confirming that the reviewed base and head are still current. For authenticated QA, the Worker exact-redacts the raw, URL-encoded, and base64 forms of every injected credential and revalidates the versioned report before any report or evidence metadata is retained.
 
 ## GitHub App
 

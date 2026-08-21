@@ -8,6 +8,7 @@ import { unsafeQaOrigin } from '../worker/qa-security';
 import { sandboxGithubRequestAllowed } from '../worker/github-egress';
 import { renderHostedSummary } from '../worker/github-publish';
 import type { HostedReviewReportV1 } from '../../src/cloud/types';
+import { redactSensitiveJson } from '../worker/report-redaction';
 
 describe('webhook security boundaries', () => {
   it('accepts only the matching GitHub HMAC', async () => {
@@ -74,6 +75,24 @@ describe('webhook security boundaries', () => {
     expect(rendered).toContain('&lt;!-- juror-cloud:summary:v1 -->');
     expect(rendered).toContain('@\u200boctocat');
     expect(rendered).not.toContain(secret);
+  });
+
+  it('redacts raw and encoded QA credentials from reflected semantic output', () => {
+    const secret = 'qa secret/value+123';
+    const reflected = { actual: `token=${secret}`, nested: [`encoded=${encodeURIComponent(secret)}`, `base64=${btoa(secret)}`] };
+    const redacted = JSON.stringify(redactSensitiveJson(reflected, [secret]));
+    expect(redacted).not.toContain(secret);
+    expect(redacted).not.toContain(encodeURIComponent(secret));
+    expect(redacted).not.toContain(btoa(secret));
+    expect(redacted).toContain('[redacted]');
+  });
+
+  it('redacts QA reports before any retained report or evidence write', async () => {
+    const workflows = await readFile(new URL('../worker/workflows.ts', import.meta.url), 'utf8');
+    const redaction = workflows.indexOf('reportJson = await sanitizeQaReportForRetention');
+    const retention = workflows.indexOf('await env.REPORTS.put');
+    expect(redaction).toBeGreaterThan(-1);
+    expect(retention).toBeGreaterThan(redaction);
   });
 
   it('recovers serialized QA admission through a durable queue and scheduled sweep', async () => {
