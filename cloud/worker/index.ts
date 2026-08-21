@@ -8,8 +8,9 @@ import { encryptWorkspaceSecret } from './crypto';
 import { createAuth, requireAdmin, requirePrincipal } from './auth';
 import type { Env, Principal } from './env';
 import { appendRunEvent } from './events';
-import { createRun } from './github-webhook';
+import { createRun, provisionInstallation } from './github-webhook';
 import { githubApi } from './github';
+import { discoverGitHubInstallations, installationProvisioningPayload } from './github-installations';
 import { createBillingPortal, createCheckout, verifyStripeSignature } from './stripe';
 import { verifyHmacHeader, createSignedToken, timingSafeEqual } from './crypto';
 import { enqueueNextRepositoryQa, sweepQueuedQaAdmissions } from './workflows';
@@ -19,6 +20,7 @@ import { reconcileStripeMeterEvents } from './billing';
 import type { HostedReviewReportV1 } from '../../src/cloud/types';
 import type { QaRunResult } from '../../src/qa/types';
 import { unsafeQaOrigin } from './qa-security';
+import { anyReviewPresetReady, qaProviderReady, reviewPresetReadiness } from './providers';
 
 export { ContainerProxy, JurorSandbox, QaSandbox, ReviewSandbox } from './sandbox';
 export { HostedQaWorkflow, HostedReviewWorkflow } from './workflows';
@@ -64,15 +66,18 @@ function configured(value: string | undefined, placeholder?: string): boolean {
 function positiveRate(value: string | undefined): boolean { return Number.isFinite(Number(value)) && Number(value) > 0; }
 
 app.get('/api/readiness', (c) => {
+  // Unauthenticated: report only whether each capability is usable, never which secret is unset.
+  const reviewPresets = reviewPresetReadiness(c.env);
   const checks = {
     github: configured(c.env.GITHUB_APP_ID) && configured(c.env.GITHUB_APP_PRIVATE_KEY) && configured(c.env.GITHUB_WEBHOOK_SECRET) && configured(c.env.GITHUB_OAUTH_CLIENT_ID) && configured(c.env.GITHUB_OAUTH_CLIENT_SECRET) && configured(c.env.GITHUB_APP_SLUG),
     google: configured(c.env.GOOGLE_CLIENT_ID) && configured(c.env.GOOGLE_CLIENT_SECRET),
-    reviews: Boolean(c.env.OPENAI_API_KEY || c.env.ANTHROPIC_API_KEY || c.env.XAI_API_KEY || c.env.FIREWORKS_API_KEY || c.env.OPENROUTER_API_KEY),
+    reviews: anyReviewPresetReady(c.env),
+    qa: qaProviderReady(c.env),
     billing: configured(c.env.STRIPE_SECRET_KEY) && configured(c.env.STRIPE_WEBHOOK_SECRET) && configured(c.env.STRIPE_PRICE_ID, 'unconfigured'),
     corpus: configured(c.env.CORPUS_MASTER_KEY_B64),
     costs: positiveRate(c.env.CONTAINER_CPU_MICRO_USD_PER_VCPU_SECOND) && positiveRate(c.env.CONTAINER_MEMORY_MICRO_USD_PER_GIB_SECOND) && positiveRate(c.env.CONTAINER_DISK_MICRO_USD_PER_GB_SECOND) && positiveRate(c.env.R2_STORAGE_MICRO_USD_PER_GB_MONTH),
   };
-  return c.json({ data: { ready: checks.github && checks.reviews && checks.corpus && checks.costs, checks }, requestId: c.get('requestId') });
+  return c.json({ data: { ready: checks.github && checks.reviews && checks.corpus && checks.costs, checks, reviewPresets }, requestId: c.get('requestId') });
 });
 
 async function authSession(c: Context<AppEnv>) {
@@ -81,11 +86,20 @@ async function authSession(c: Context<AppEnv>) {
   return session;
 }
 
+async function installationState(env: Env, userId: string): Promise<string> {
+  const expires = Math.floor(Date.now() / 1000) + 10 * 60;
+  const signature = await createSignedToken(env.EVIDENCE_SIGNING_SECRET, `github-install:${userId}:${expires}`);
+  return btoa(JSON.stringify({ userId, expires, signature })).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+}
+
+async function linkedGithubAccessToken(env: Env, userId: string): Promise<string | null> {
+  const account = await env.DB.prepare(`SELECT accessToken FROM account WHERE userId = ? AND providerId = 'github' ORDER BY updatedAt DESC LIMIT 1`).bind(userId).first<{ accessToken: string | null }>();
+  return account?.accessToken ?? null;
+}
+
 app.get('/api/github/install-url', async (c) => {
   const session = await authSession(c);
-  const expires = Math.floor(Date.now() / 1000) + 10 * 60;
-  const signature = await createSignedToken(c.env.EVIDENCE_SIGNING_SECRET, `github-install:${session.user.id}:${expires}`);
-  const state = btoa(JSON.stringify({ userId: session.user.id, expires, signature })).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  const state = await installationState(c.env, session.user.id);
   const appSlug = c.env.GITHUB_APP_SLUG;
   if (!appSlug || !/^[a-z0-9-]+$/i.test(appSlug)) return c.json({ error: { code: 'missing_app_slug', message: 'The GitHub App slug is not configured.' }, requestId: c.get('requestId') }, 503);
   return envelope(c, { url: `https://github.com/apps/${appSlug}/installations/new?state=${encodeURIComponent(state)}` });
@@ -107,6 +121,29 @@ app.get('/api/onboarding/status', async (c) => {
   return envelope(c, { hasGithub: Boolean(githubAccount), hasWorkspace: Boolean(membership), workspaceId: membership?.workspace_id ?? null });
 });
 
+app.get('/api/onboarding/installations', async (c) => {
+  const session = await authSession(c);
+  const accessToken = await linkedGithubAccessToken(c.env, session.user.id);
+  if (!accessToken) return c.json({ error: { code: 'github_link_required', message: 'Link GitHub before choosing an installation.' }, requestId: c.get('requestId') }, 409);
+  let installations;
+  try {
+    installations = await discoverGitHubInstallations(accessToken, c.env.GITHUB_APP_SLUG);
+  } catch (error) {
+    console.warn(JSON.stringify({ requestId: c.get('requestId'), event: 'github_installation_discovery_failed', error: error instanceof Error ? error.message : String(error) }));
+    return c.json({ error: { code: 'installation_discovery_failed', message: 'GitHub could not load your Juror Cloud installations. Reconnect GitHub and try again.' }, requestId: c.get('requestId') }, 502);
+  }
+  return envelope(c, {
+    state: await installationState(c.env, session.user.id),
+    installations: installations.map((installation) => ({
+      id: installation.id,
+      accountLogin: installation.account.login,
+      accountType: installation.account.type,
+      repositorySelection: installation.repositorySelection,
+      repositories: installation.repositories.map((repository) => ({ id: repository.id, fullName: repository.fullName, private: repository.private, archived: repository.archived, defaultBranch: repository.defaultBranch })),
+    })),
+  });
+});
+
 const claimInstallationSchema = z.object({ installationId: z.number().int().positive(), state: z.string().min(10) });
 app.post('/api/onboarding/claim-installation', async (c) => {
   const session = await authSession(c);
@@ -118,13 +155,21 @@ app.post('/api/onboarding/claim-installation', async (c) => {
   } catch { return c.json({ error: { code: 'invalid_state', message: 'Invalid installation state.' }, requestId: c.get('requestId') }, 400); }
   const expected = await createSignedToken(c.env.EVIDENCE_SIGNING_SECRET, `github-install:${session.user.id}:${state.expires}`);
   if (state.userId !== session.user.id || state.expires < Date.now() / 1000 || !timingSafeEqual(expected, state.signature)) return c.json({ error: { code: 'invalid_state', message: 'The installation request expired or belongs to another user.' }, requestId: c.get('requestId') }, 403);
-  const account = await c.env.DB.prepare(`SELECT accessToken FROM account WHERE userId = ? AND providerId = 'github' ORDER BY updatedAt DESC LIMIT 1`).bind(session.user.id).first<{ accessToken: string | null }>();
-  if (!account?.accessToken) return c.json({ error: { code: 'github_link_required', message: 'Link GitHub before claiming an installation.' }, requestId: c.get('requestId') }, 409);
-  const installationsResponse = await fetch('https://api.github.com/user/installations?per_page=100', { headers: { authorization: `Bearer ${account.accessToken}`, accept: 'application/vnd.github+json', 'user-agent': 'juror-cloud/1', 'x-github-api-version': '2022-11-28' } });
-  if (!installationsResponse.ok) return c.json({ error: { code: 'installation_verification_failed', message: 'GitHub could not verify this installation.' }, requestId: c.get('requestId') }, 403);
-  const installations = await installationsResponse.json<{ installations: Array<{ id: number }> }>();
-  if (!installations.installations.some((installation) => installation.id === input.installationId)) return c.json({ error: { code: 'installation_forbidden', message: 'This GitHub installation is not available to your account.' }, requestId: c.get('requestId') }, 403);
-  const workspace = await c.env.DB.prepare('SELECT id FROM workspace WHERE github_installation_id = ?').bind(input.installationId).first<{ id: string }>();
+  const accessToken = await linkedGithubAccessToken(c.env, session.user.id);
+  if (!accessToken) return c.json({ error: { code: 'github_link_required', message: 'Link GitHub before claiming an installation.' }, requestId: c.get('requestId') }, 409);
+  let installations;
+  try { installations = await discoverGitHubInstallations(accessToken, c.env.GITHUB_APP_SLUG); }
+  catch { return c.json({ error: { code: 'installation_verification_failed', message: 'GitHub could not verify this installation.' }, requestId: c.get('requestId') }, 403); }
+  const installation = installations.find((candidate) => candidate.id === input.installationId);
+  if (!installation) return c.json({ error: { code: 'installation_forbidden', message: 'This GitHub installation is not available to your account.' }, requestId: c.get('requestId') }, 403);
+  let workspace = await c.env.DB.prepare('SELECT id FROM workspace WHERE github_installation_id = ?').bind(input.installationId).first<{ id: string }>();
+  if (!workspace) {
+    // A setup callback can beat the installation webhook, and returning users may have installed
+    // the App before this deployment existed. The linked GitHub identity has independently proved
+    // access, so import the same payload the webhook owns and continue without a retry race.
+    await provisionInstallation(c.env, installationProvisioningPayload(installation));
+    workspace = await c.env.DB.prepare('SELECT id FROM workspace WHERE github_installation_id = ?').bind(input.installationId).first<{ id: string }>();
+  }
   if (!workspace) return c.json({ error: { code: 'installation_pending', message: 'The GitHub webhook has not arrived yet. Try again in a moment.' }, requestId: c.get('requestId') }, 409);
   const existingMembers = await c.env.DB.prepare('SELECT COUNT(*) AS count FROM membership WHERE workspace_id = ?').bind(workspace.id).first<{ count: number }>();
   await c.env.DB.prepare('INSERT OR IGNORE INTO membership (workspace_id, user_id, role, created_at) VALUES (?, ?, ?, ?)').bind(workspace.id, session.user.id, (existingMembers?.count ?? 0) === 0 ? 'admin' : 'member', new Date().toISOString()).run();

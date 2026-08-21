@@ -3,6 +3,8 @@ import type { ReviewPreset } from '../../src/types';
 import type { Env } from './env';
 import { appendRunEvent } from './events';
 import { githubApi } from './github';
+import { missingProviderSecrets } from './providers';
+import { initialRepositorySettings } from './repository-settings';
 
 type JsonObject = Record<string, any>;
 
@@ -38,12 +40,13 @@ async function upsertRepository(env: Env, installationId: number, repository: Js
   const actionDetected = refreshActionDetection || !currentSettings
     ? await detectActionWorkflow(env, installationId, repository.full_name)
     : Boolean(currentSettings.action_detected);
-  await env.DB.prepare(`INSERT INTO repository_settings (repository_id, execution_mode, action_detected, review_enabled, review_preset, publish_mode, severity_floor, qa_enabled, qa_security_ready, updated_at) VALUES (?, ?, ?, 1, 'fast', 'all', 'P3', 0, 0, ?) ON CONFLICT(repository_id) DO UPDATE SET action_detected = excluded.action_detected, execution_mode = CASE WHEN excluded.action_detected = 1 AND repository_settings.execution_mode = 'cloud' THEN 'unresolved' ELSE repository_settings.execution_mode END, updated_at = excluded.updated_at`)
-    .bind(repositoryId, actionDetected ? 'unresolved' : 'cloud', actionDetected ? 1 : 0, timestamp).run();
+  const defaults = initialRepositorySettings(actionDetected);
+  await env.DB.prepare(`INSERT INTO repository_settings (repository_id, execution_mode, action_detected, review_enabled, review_preset, publish_mode, severity_floor, qa_enabled, qa_security_ready, updated_at) VALUES (?, ?, ?, ?, 'fast', 'all', 'P3', 0, 0, ?) ON CONFLICT(repository_id) DO UPDATE SET action_detected = excluded.action_detected, execution_mode = CASE WHEN excluded.action_detected = 1 AND repository_settings.execution_mode = 'cloud' THEN 'unresolved' ELSE repository_settings.execution_mode END, updated_at = excluded.updated_at`)
+    .bind(repositoryId, defaults.executionMode, defaults.actionDetected ? 1 : 0, defaults.reviewEnabled ? 1 : 0, timestamp).run();
   return { repositoryId, workspaceId: workspace.id };
 }
 
-async function provisionInstallation(env: Env, payload: JsonObject): Promise<void> {
+export async function provisionInstallation(env: Env, payload: JsonObject): Promise<void> {
   const installation = payload.installation;
   const deleted = await env.DB.prepare('SELECT 1 AS deleted FROM deleted_installation WHERE github_installation_id = ?').bind(installation.id).first();
   if (deleted) return;
@@ -78,21 +81,24 @@ async function currentCommitment(env: Env, workspaceId: string): Promise<{ cap: 
 }
 
 export async function createRun(env: Env, input: { kind: 'review' | 'qa'; identity: string; workspaceId: string; repositoryId: string; pullRequestId: string; prNumber: number; sha: string }): Promise<string | null> {
-  const providerReady = input.kind === 'qa'
-    ? Boolean(env.OPENAI_API_KEY)
-    : Boolean(env.OPENAI_API_KEY || env.ANTHROPIC_API_KEY || env.XAI_API_KEY || env.FIREWORKS_API_KEY || env.OPENROUTER_API_KEY);
-  if (!providerReady) {
+  const settings = await env.DB.prepare('SELECT review_preset FROM repository_settings WHERE repository_id = ?')
+    .bind(input.repositoryId).first<{ review_preset: ReviewPreset }>();
+  if (!settings) throw new Error('Repository settings are missing');
+  // The runner starts the jury this preset names, so a deployment holding some other provider's
+  // key cannot run it. Block before reserving capacity rather than after burning a Sandbox.
+  const missingProviders = missingProviderSecrets(env, input.kind, settings.review_preset);
+  if (missingProviders.length > 0) {
+    console.warn(JSON.stringify({ event: 'run_blocked_provider_configuration', kind: input.kind, preset: settings.review_preset, missingSecrets: missingProviders }));
     const runId = id('run', crypto.randomUUID());
     const timestamp = now();
     const blocked = await env.DB.prepare(`INSERT OR IGNORE INTO run (id, identity, workspace_id, repository_id, pull_request_id, kind, status, phase, outcome, pr_number, revision_sha, reserved_micro_usd, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'blocked', 'preparing', 'provider_configuration', ?, ?, 0, ?, ?)`)
       .bind(runId, input.identity, input.workspaceId, input.repositoryId, input.pullRequestId, input.kind, input.prNumber, input.sha, timestamp, timestamp).run();
     if (!blocked.meta.changes) return null;
-    await appendRunEvent(env, runId, 'preparing', 'warning', input.kind === 'qa' ? 'Hosted QA requires an OpenAI provider credential.' : 'No hosted review provider credential is configured.');
+    await appendRunEvent(env, runId, 'preparing', 'warning', input.kind === 'qa'
+      ? 'Hosted QA is unavailable: this deployment has no credential for the QA model.'
+      : `Hosted review is unavailable: this deployment has no credential for the ${settings.review_preset} preset's models.`);
     return runId;
   }
-  const settings = await env.DB.prepare('SELECT review_preset FROM repository_settings WHERE repository_id = ?')
-    .bind(input.repositoryId).first<{ review_preset: ReviewPreset }>();
-  if (!settings) throw new Error('Repository settings are missing');
   const estimate = maximumRunReservationMicroUsd(input.kind, settings.review_preset);
   const commitment = await currentCommitment(env, input.workspaceId);
   const decision = canReserveWithinCap({ capMicroUsd: commitment.cap, consumedMicroUsd: commitment.consumed, reservedMicroUsd: commitment.reserved, estimateMicroUsd: estimate });

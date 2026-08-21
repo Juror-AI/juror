@@ -6,12 +6,13 @@ import {
   Plus, RefreshCw, RotateCcw, Search, Settings2, ShieldCheck, Sparkles, Square, TerminalSquare, Users,
   WalletCards, Workflow, X,
 } from 'lucide-react';
-import type { FindingDetailResponse, FindingListItem, OnboardingStatusResponse, OverviewResponse, ReadinessResponse, RepositoryItem, RunDetailResponse, RunListItem, SettingsResponse, UsageResponse } from '../shared/api';
+import type { FindingDetailResponse, FindingListItem, GitHubInstallationChoice, OnboardingInstallationsResponse, OnboardingStatusResponse, OverviewResponse, ReadinessResponse, RepositoryItem, ReviewPresetId, RunDetailResponse, RunListItem, SettingsResponse, UsageResponse } from '../shared/api';
 import { BrowserFrame, GitHubInlineComments, LiveRunBadge, RunStatusDot, TerminalLog } from './components/eldora';
 import { Badge, Button, Card, EmptyState, PageHeader, SelectButton, SeverityBadge, SourceBadge, StatusBadge, Toggle } from './components/ui';
 import { findingDetails, findings, overview, repositoryItems, runDetails, runs, usage } from './lib/demo';
 import { apiMutation, useApiResource } from './lib/api';
 import { linkGitHub, signInWith, signOut } from './lib/auth';
+import { repositorySetupMutations } from './lib/onboarding';
 import { cn, formatDuration, formatMoney, formatRelative, shortSha } from './lib/utils';
 
 function SectionHeader({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
@@ -181,7 +182,7 @@ export function RunDetailPage() {
   </>;
 }
 
-function RepositoryRow({ repository, onSaved }: { repository: RepositoryItem; onSaved: () => void }) {
+function RepositoryRow({ repository, onSaved, presetReadiness }: { repository: RepositoryItem; onSaved: () => void; presetReadiness?: Record<ReviewPresetId, boolean> }) {
   const [expanded, setExpanded] = useState(false);
   const [reviewEnabled, setReviewEnabled] = useState(repository.reviewEnabled);
   const [qaEnabled, setQaEnabled] = useState(repository.qaEnabled);
@@ -243,7 +244,8 @@ function RepositoryRow({ repository, onSaved }: { repository: RepositoryItem; on
       <div className="config-columns"><div><h3>Review</h3><Toggle checked={reviewEnabled} onChange={setReviewEnabled} label="Automated AI review" description="Run when a pull request opens or its head changes." />
         <label className="field"><span>Execution mode</span><select value={executionMode} onChange={(event) => setExecutionMode(event.target.value as RepositoryItem['executionMode'])}><option value="cloud">Cloud</option><option value="action">GitHub Action</option>{executionMode === 'unresolved' && <option value="unresolved">Choose a mode</option>}</select></label>
         {repository.actionDetected && executionMode === 'cloud' && <label className="check-field"><input type="checkbox" checked={actionDisabled} onChange={(event) => setActionDisabled(event.target.checked)} /><span>I disabled the Juror Action workflow</span></label>}
-        <label className="field"><span>Preset</span><select value={preset} onChange={(event) => setPreset(event.target.value as typeof preset)}><option>starter</option><option>fast</option><option>balanced</option><option>high</option><option>ultra</option></select></label>
+        <label className="field"><span>Preset</span><select value={preset} onChange={(event) => setPreset(event.target.value as typeof preset)}>{(['starter', 'fast', 'balanced', 'high', 'ultra'] as const).map((option) => <option key={option} value={option} disabled={presetReadiness ? !presetReadiness[option] && option !== preset : false}>{option}{presetReadiness && !presetReadiness[option] ? ' (unavailable)' : ''}</option>)}</select></label>
+        {presetReadiness && !presetReadiness[preset] && <p className="field-hint">This deployment has no provider credential for the {preset} jury, so its runs are blocked before they start.</p>}
         <div className="field-row"><label className="field"><span>Publish</span><select value={publishMode} onChange={(event) => setPublishMode(event.target.value as typeof publishMode)}><option>all</option><option>consensus</option></select></label><label className="field"><span>Severity floor</span><select value={severityFloor} onChange={(event) => setSeverityFloor(event.target.value as typeof severityFloor)}><option>P0</option><option>P1</option><option>P2</option><option>P3</option></select></label></div>
         <Button variant="secondary" size="small" onClick={() => void reviewNow()}><Play size={13} /> Review open PR now</Button>
       </div><div><h3>Post-merge QA <Badge tone="gold">staging only</Badge></h3><Toggle checked={qaEnabled} onChange={setQaEnabled} label="Automated QA" description="Run after a PR merges into the default branch." />
@@ -261,11 +263,12 @@ function RepositoryRow({ repository, onSaved }: { repository: RepositoryItem; on
 
 export function RepositoriesPage() {
   const resource = useApiResource<RepositoryItem[]>('/api/repositories', repositoryItems);
+  const readiness = useApiResource<ReadinessResponse>('/api/readiness', { ready: true, checks: { github: true, google: true, reviews: true, qa: true, billing: true, corpus: true, costs: true }, reviewPresets: { starter: true, fast: true, balanced: true, high: true, ultra: true } });
   const manageInstallation = async () => { const response = await fetch('/api/github/manage-url', { credentials: 'include' }); const payload = await response.json() as { data?: { url: string }; error?: { message: string } }; if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? 'GitHub installation is unavailable.'); window.location.assign(payload.data.url); };
   const count = resource.data?.length ?? 0;
   return <><PageHeader title="Repositories" description="Control execution mode, review defaults, and staging QA readiness." actions={<Button onClick={() => void manageInstallation()}><Plus size={15} /> Add repositories</Button>} />
     <div className="notice"><GitBranch size={17} /><div><strong>GitHub App connected</strong><p>Juror has access to {count} selected {count === 1 ? 'repository' : 'repositories'}. Historical pull requests are never backfilled.</p></div><Button variant="secondary" size="small" onClick={() => void manageInstallation()}>Manage on GitHub <ExternalLink size={13} /></Button></div>
-    <div className="repository-list">{(resource.data ?? []).map((repository) => <RepositoryRow repository={repository} onSaved={resource.refresh} key={repository.id} />)}</div>
+    <div className="repository-list">{(resource.data ?? []).map((repository) => <RepositoryRow repository={repository} onSaved={resource.refresh} presetReadiness={readiness.data?.reviewPresets} key={repository.id} />)}</div>
   </>;
 }
 
@@ -330,7 +333,7 @@ export function SettingsPage() {
 }
 
 export function SignInPage() {
-  const readiness = useApiResource<ReadinessResponse>('/api/readiness', { ready: true, checks: { github: true, google: true, reviews: true, billing: true, corpus: true, costs: true } });
+  const readiness = useApiResource<ReadinessResponse>('/api/readiness', { ready: true, checks: { github: true, google: true, reviews: true, qa: true, billing: true, corpus: true, costs: true }, reviewPresets: { starter: true, fast: true, balanced: true, high: true, ultra: true } });
   const checks = readiness.data?.checks;
   return <div className="auth-page"><div className="auth-card"><div className="auth-brand"><img src="/mark.svg" alt="" /><span>Juror <b>Cloud</b></span></div><div className="auth-copy"><Badge tone="gold">Hosted companion</Badge><h1>Your AI review and QA inbox.</h1><p>Connect GitHub and see every actionable finding, live run, and cost receipt in one lean workspace.</p></div><div className="auth-actions">{checks && !checks.github && <div className="setup-error"><CircleAlert size={15} />GitHub sign-in is not configured by the operator.</div>}{checks && checks.github && (!checks.reviews || !checks.costs) && <div className="setup-error"><CircleAlert size={15} />Hosted execution setup is incomplete. Sign-in works, but new runs remain unavailable.</div>}<button className="oauth-button github-oauth" disabled={checks ? !checks.github : true} onClick={() => void signInWith('github')}><GitBranch size={18} />Continue with GitHub</button><button className="oauth-button" disabled={checks ? !checks.google : true} onClick={() => void signInWith('google')}><span className="google-g">G</span>Continue with Google</button><div className="auth-separator"><span>Secure sign in</span></div><p>By continuing, you agree to the <Link to="/terms">Terms</Link> and <Link to="/privacy">Privacy Policy</Link>.</p></div></div><div className="auth-aside"><div className="auth-grid" /><div className="auth-preview"><div className="preview-top"><LiveRunBadge label="Review running" /><span>juror-ai/console · #95</span></div><div className="preview-finding"><SeverityBadge severity="P1" /><div><strong>Retry path can create a duplicate charge</strong><p>2 of 3 models agree · verified</p></div></div><div className="preview-finding"><SeverityBadge severity="P2" /><div><strong>Session expiry leaves an empty shell</strong><p>QA reproduced 2 of 2 attempts</p></div></div><div className="preview-receipt"><span>Transparent run receipt</span><strong>$2.21</strong></div></div><div className="auth-quote"><ShieldCheck size={22} /><p>Source lives only inside an isolated runtime. Reports are sanitized before they reach the dashboard.</p></div></div></div>;
 }
@@ -350,13 +353,40 @@ export function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
   </>}<p>Questions or private requests can use the security contact process in the <a href="https://github.com/Juror-AI/juror/blob/main/SECURITY.md">open-source repository</a>.</p></article></div>;
 }
 
-const onboardingSteps = ['Link GitHub', 'Install app', 'Choose mode', 'Enable review'];
+const onboardingSteps = ['Link GitHub', 'Install app', 'Choose repositories', 'Enable review'];
+const reviewPresetIds: ReviewPresetId[] = ['starter', 'fast', 'balanced', 'high', 'ultra'];
 export function OnboardingPage() {
   const [step, setStep] = useState(0);
   const [mode, setMode] = useState<'cloud' | 'action'>('cloud');
   const [savingMode, setSavingMode] = useState(false);
   const [setupError, setSetupError] = useState<string | null>(null);
+  const [installationChoices, setInstallationChoices] = useState<GitHubInstallationChoice[]>([]);
+  const [claimState, setClaimState] = useState<string | null>(null);
+  const [loadingInstallations, setLoadingInstallations] = useState(false);
+  const [repositories, setRepositories] = useState<RepositoryItem[]>([]);
+  const [selectedRepositories, setSelectedRepositories] = useState<Set<string>>(new Set());
+  const [preset, setPreset] = useState<ReviewPresetId>('fast');
+  const [enabledCount, setEnabledCount] = useState(0);
+  const readiness = useApiResource<ReadinessResponse>('/api/readiness', { ready: true, checks: { github: true, google: true, reviews: true, qa: true, billing: true, corpus: true, costs: true }, reviewPresets: { starter: true, fast: true, balanced: true, high: true, ultra: true } });
   const next = () => setStep(Math.min(onboardingSteps.length - 1, step + 1));
+  const loadInstallationChoices = async () => {
+    setLoadingInstallations(true); setSetupError(null);
+    try {
+      const response = await fetch('/api/onboarding/installations', { credentials: 'include' });
+      const payload = await response.json() as { data?: OnboardingInstallationsResponse; error?: { message?: string } };
+      if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? 'Could not load GitHub installations.');
+      setInstallationChoices(payload.data.installations); setClaimState(payload.data.state);
+    } catch (error) { setSetupError(error instanceof Error ? error.message : 'Could not load GitHub installations.'); }
+    finally { setLoadingInstallations(false); }
+  };
+  const loadRepositories = async () => {
+    const response = await fetch('/api/repositories', { credentials: 'include' });
+    const payload = await response.json() as { data?: RepositoryItem[]; error?: { message?: string } };
+    if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? 'Repositories are not ready yet.');
+    setRepositories(payload.data);
+    const alreadyEnabled = payload.data.filter((repository) => repository.reviewEnabled).map((repository) => repository.id);
+    setSelectedRepositories(new Set(alreadyEnabled.length ? alreadyEnabled : payload.data.filter((repository) => repository.connectionStatus !== 'suspended').map((repository) => repository.id)));
+  };
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const installationId = Number(params.get('installation_id'));
@@ -366,15 +396,20 @@ export function OnboardingPage() {
         if (response.status === 401) { window.location.assign('/signin'); return; }
         if (!response.ok) throw new Error('Could not load onboarding state.');
         const result = await response.json() as { data: OnboardingStatusResponse };
-        if (result.data.hasWorkspace) setStep(2); else if (result.data.hasGithub) setStep(1);
+        if (result.data.hasWorkspace) { await loadRepositories(); setStep(2); }
+        else if (result.data.hasGithub) { setStep(1); await loadInstallationChoices(); }
       }).catch((error: unknown) => setSetupError(error instanceof Error ? error.message : 'Could not load onboarding state.'));
       return;
     }
     setStep(1);
     apiMutation('/api/onboarding/claim-installation', 'POST', { installationId, state })
-      .then(() => setStep(2))
+      .then(async () => { await loadRepositories(); setStep(2); window.history.replaceState({}, '', '/onboarding'); })
       .catch((error: unknown) => setSetupError(error instanceof Error ? error.message : 'Could not claim the installation.'));
   }, []);
+  useEffect(() => {
+    const available = reviewPresetIds.find((candidate) => readiness.data?.reviewPresets[candidate]);
+    if (available && readiness.data && !readiness.data.reviewPresets[preset]) setPreset(available);
+  }, [readiness.data, preset]);
   const installApp = async () => {
     try {
       const result = await fetch('/api/github/install-url', { credentials: 'include' }).then((response) => response.json()) as { data?: { url: string }; error?: { message: string } };
@@ -382,21 +417,33 @@ export function OnboardingPage() {
       window.location.assign(result.data.url);
     } catch (error) { setSetupError(error instanceof Error ? error.message : 'Could not start installation.'); }
   };
+  const claimExisting = async (installation: GitHubInstallationChoice) => {
+    if (!claimState) return;
+    setSavingMode(true); setSetupError(null);
+    try {
+      await apiMutation('/api/onboarding/claim-installation', 'POST', { installationId: installation.id, state: claimState });
+      await loadRepositories(); setStep(2);
+    } catch (failure) { setSetupError(failure instanceof Error ? failure.message : 'Could not use this installation.'); }
+    finally { setSavingMode(false); }
+  };
   const completeMode = async () => {
     setSavingMode(true); setSetupError(null);
     try {
-      const response = await fetch('/api/repositories', { credentials: 'include' });
-      const payload = await response.json() as { data?: RepositoryItem[]; error?: { message?: string } };
-      if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? 'Repositories are not ready yet.');
-      await Promise.all(payload.data.map((repository) => apiMutation(`/api/repositories/${repository.id}`, 'PATCH', { executionMode: mode, confirmActionDisabled: mode === 'cloud', reviewEnabled: mode === 'cloud' })));
+      if (selectedRepositories.size === 0) throw new Error('Choose at least one repository to continue.');
+      if (mode === 'cloud' && !readiness.data?.reviewPresets[preset]) throw new Error('Hosted review providers are not configured yet. Choose Action mode or ask the operator to finish setup.');
+      const mutations = repositorySetupMutations(repositories, selectedRepositories, mode, preset);
+      await Promise.all(mutations.map((mutation) => apiMutation(`/api/repositories/${mutation.id}`, 'PATCH', mutation.body)));
+      setEnabledCount(mode === 'cloud' ? selectedRepositories.size : 0);
       next();
     } catch (failure) { setSetupError(failure instanceof Error ? failure.message : 'Execution mode could not be saved.'); }
     finally { setSavingMode(false); }
   };
+  const toggleRepository = (repositoryId: string, checked: boolean) => setSelectedRepositories((current) => { const nextSelection = new Set(current); if (checked) nextSelection.add(repositoryId); else nextSelection.delete(repositoryId); return nextSelection; });
+  const runnablePreset = Boolean(readiness.data?.reviewPresets[preset]);
   return <div className="onboarding-page"><header className="onboarding-top"><div className="auth-brand"><img src="/mark.svg" alt="" /><span>Juror <b>Cloud</b></span></div><span>Setting up <strong>Juror AI</strong></span><button onClick={() => void signOut()}>Sign out</button></header><div className="onboarding-shell"><aside><span className="eyebrow">Workspace setup</span><h1>Connect your first repository</h1><p>Most teams finish in under three minutes.</p><ol>{onboardingSteps.map((label, index) => <li className={cn(index === step && 'active', index < step && 'done')} key={label}><i>{index < step ? <Check size={13} /> : index + 1}</i><span>{label}</span></li>)}</ol><div className="trial-promise"><Sparkles size={17} /><div><strong>$10 trial included</strong><p>No card required. Granted once per installation.</p></div></div></aside><main>
     {step === 0 && <div className="onboarding-card"><Badge tone="purple">Step 1 of 4</Badge><h2>Link your GitHub identity</h2><p>Google signed you in. Link GitHub so Juror can associate you with an App installation.</p><button className="oauth-button github-oauth" onClick={() => void linkGitHub().then(next)}><GitBranch size={18} />Link GitHub account</button><div className="permission-note"><KeyRound size={16} /><div><strong>Account permission</strong><p>Email addresses: read. Repository access is requested separately when you install the App.</p></div></div></div>}
-    {step === 1 && <div className="onboarding-card"><Badge tone="purple">Step 2 of 4</Badge><h2>Install the Juror GitHub App</h2><p>Choose only the repositories you want Juror Cloud to review. You can add or remove access at any time.</p>{setupError && <div className="warning-callout compact-callout"><CircleAlert size={16} /><div><strong>Setup needs attention</strong><p>{setupError}</p></div></div>}<div className="permission-list"><div><Check size={14} /><span>Metadata and contents</span><Badge>Read</Badge></div><div><Check size={14} /><span>Pull requests</span><Badge tone="purple">Read & write</Badge></div><div><Check size={14} /><span>Checks</span><Badge tone="purple">Write</Badge></div><div><Check size={14} /><span>Deployments</span><Badge>Read</Badge></div><div><Check size={14} /><span>PR conversation comments</span><Badge>Read</Badge></div></div><Button onClick={() => void installApp()}><GitBranch size={15} />Install GitHub App <ExternalLink size={13} /></Button></div>}
-    {step === 2 && <div className="onboarding-card wide-onboarding"><Badge tone="gold">Duplicate protection</Badge><h2>Choose one execution mode</h2><p>Each selected repository must use either hosted Cloud runs or the open-source Action.</p><div className="mode-options"><label className={mode === 'cloud' ? 'selected' : ''}><input type="radio" name="mode" checked={mode === 'cloud'} onChange={() => setMode('cloud')} /><span className="mode-icon"><Sparkles size={19} /></span><div><strong>Juror Cloud</strong><p>Hosted reviews with dashboard triage, live status, and usage receipts.</p><Badge tone="purple">Recommended</Badge></div></label><label className={mode === 'action' ? 'selected' : ''}><input type="radio" name="mode" checked={mode === 'action'} onChange={() => setMode('action')} /><span className="mode-icon"><GitBranch size={19} /></span><div><strong>GitHub Action</strong><p>Keep execution in your workflow. Runs will not appear in Cloud.</p></div></label></div>{mode === 'cloud' && <div className="warning-callout compact-callout"><CircleAlert size={16} /><div><strong>Disable any detected Action workflow before continuing</strong><p>This confirmation prevents duplicate review comments and charges.</p></div></div>}{setupError && <div className="setup-error"><CircleAlert size={15} />{setupError}</div>}<Button onClick={() => void completeMode()} disabled={savingMode}>{savingMode ? 'Saving…' : mode === 'cloud' ? 'I disabled it' : 'Keep Action mode'} <ArrowRight size={14} /></Button></div>}
-    {step === 3 && <div className="onboarding-card"><div className="success-mark"><Check size={24} /></div><h2>Juror Cloud is ready</h2><p>PR review starts immediately with Juror’s lean defaults. Historical pull requests are not backfilled.</p><div className="defaults-card"><div><span>Preset</span><strong>fast</strong></div><div><span>Publish</span><strong>all</strong></div><div><span>Severity floor</span><strong>P3</strong></div><div><span>Post-merge QA</span><strong>Off until setup</strong></div></div><div className="trial-balance"><div><span>Trial balance</span><strong>$10.00</strong></div><p>No payment method required. Billing pauses when the balance reaches zero.</p></div><Link className="button button-primary button-default" to="/overview">Open workspace <ArrowRight size={14} /></Link></div>}
+    {step === 1 && <div className="onboarding-card"><Badge tone="purple">Step 2 of 4</Badge><h2>Connect the Juror GitHub App</h2><p>Repository access stays in GitHub. An existing installation can be reused without changing its permissions.</p>{setupError && <div className="warning-callout compact-callout"><CircleAlert size={16} /><div><strong>Setup needs attention</strong><p>{setupError}</p></div></div>}{loadingInstallations && <p className="onboarding-status" role="status">Checking GitHub installations…</p>}{installationChoices.length > 0 && <div className="installation-list">{installationChoices.map((installation) => <div className="installation-choice" key={installation.id}><div><strong>{installation.accountLogin}</strong><span>{installation.repositories.length} selected {installation.repositories.length === 1 ? 'repository' : 'repositories'}</span></div><Button size="small" onClick={() => void claimExisting(installation)} disabled={savingMode || installation.repositories.length === 0}>{savingMode ? 'Connecting…' : 'Use installation'}</Button></div>)}</div>}<div className="permission-list"><div><Check size={14} /><span>Metadata and contents</span><Badge>Read</Badge></div><div><Check size={14} /><span>Pull requests</span><Badge tone="purple">Read & write</Badge></div><div><Check size={14} /><span>Checks</span><Badge tone="purple">Write</Badge></div></div><Button variant={installationChoices.length ? 'secondary' : 'primary'} onClick={() => void installApp()}><GitBranch size={15} />{installationChoices.length ? 'Install or change access' : 'Install GitHub App'} <ExternalLink size={13} /></Button></div>}
+    {step === 2 && <div className="onboarding-card wide-onboarding"><Badge tone="gold">Explicit review access</Badge><h2>Choose repositories for automated review</h2><p>The App can access the repositories below. Only checked repositories will receive automated reviews.</p>{repositories.length > 0 ? <div className="repository-picker">{repositories.map((repository) => <label key={repository.id}><input type="checkbox" checked={selectedRepositories.has(repository.id)} disabled={repository.connectionStatus === 'suspended'} onChange={(event) => toggleRepository(repository.id, event.target.checked)} /><span><strong>{repository.fullName}</strong><small>{repository.private ? 'Private' : 'Public'} · {repository.defaultBranch}</small></span>{repository.actionDetected && <Badge tone="gold">Action detected</Badge>}</label>)}</div> : <div className="setup-error"><CircleAlert size={15} />No repositories are selected in this GitHub installation. Change access on GitHub and return here.</div>}<div className="mode-options"><label className={mode === 'cloud' ? 'selected' : ''}><input type="radio" name="mode" checked={mode === 'cloud'} onChange={() => setMode('cloud')} /><span className="mode-icon"><Sparkles size={19} /></span><div><strong>Juror Cloud</strong><p>Hosted reviews with dashboard triage, live status, and usage receipts.</p><Badge tone="purple">Recommended</Badge></div></label><label className={mode === 'action' ? 'selected' : ''}><input type="radio" name="mode" checked={mode === 'action'} onChange={() => setMode('action')} /><span className="mode-icon"><GitBranch size={19} /></span><div><strong>GitHub Action</strong><p>Keep execution in your workflow. Runs will not appear in Cloud.</p></div></label></div>{mode === 'cloud' && <label className="field onboarding-preset"><span>Review preset</span><select value={preset} onChange={(event) => setPreset(event.target.value as ReviewPresetId)}>{reviewPresetIds.map((candidate) => <option key={candidate} value={candidate} disabled={!readiness.data?.reviewPresets[candidate]}>{candidate}{readiness.data && !readiness.data.reviewPresets[candidate] ? ' (unavailable)' : ''}</option>)}</select></label>}{mode === 'cloud' && !runnablePreset && <div className="setup-error"><CircleAlert size={15} />Hosted execution is not configured for any review preset yet. An operator must add the required model-provider credentials.</div>}{mode === 'cloud' && repositories.some((repository) => selectedRepositories.has(repository.id) && repository.actionDetected) && <div className="warning-callout compact-callout"><CircleAlert size={16} /><div><strong>Disable the detected Action workflow before continuing</strong><p>This confirmation prevents duplicate review comments and charges.</p></div></div>}{setupError && <div className="setup-error"><CircleAlert size={15} />{setupError}</div>}<Button onClick={() => void completeMode()} disabled={savingMode || selectedRepositories.size === 0 || (mode === 'cloud' && !runnablePreset)}>{savingMode ? 'Saving…' : mode === 'cloud' ? `Enable reviews for ${selectedRepositories.size}` : `Use Action for ${selectedRepositories.size}`} <ArrowRight size={14} /></Button></div>}
+    {step === 3 && <div className="onboarding-card"><div className="success-mark"><Check size={24} /></div><h2>{mode === 'cloud' ? 'Automated reviews are ready' : 'Repositories are connected'}</h2><p>{mode === 'cloud' ? `Juror Cloud will review new pull requests in ${enabledCount} selected ${enabledCount === 1 ? 'repository' : 'repositories'}. Historical pull requests are not backfilled.` : 'The selected repositories remain in GitHub Action mode and will not create hosted runs.'}</p><div className="defaults-card"><div><span>Repositories</span><strong>{selectedRepositories.size}</strong></div><div><span>Preset</span><strong>{mode === 'cloud' ? preset : 'Action'}</strong></div><div><span>Publish</span><strong>{mode === 'cloud' ? 'all' : 'workflow'}</strong></div><div><span>Post-merge QA</span><strong>Off until setup</strong></div></div><div className="trial-balance"><div><span>Trial balance</span><strong>$10.00</strong></div><p>No payment method required. Billing pauses when the balance reaches zero.</p></div><Link className="button button-primary button-default" to="/overview">Open workspace <ArrowRight size={14} /></Link></div>}
   </main></div></div>;
 }

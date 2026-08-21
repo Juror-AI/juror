@@ -163,7 +163,16 @@ export interface SettingsResponse {
 }
 
 export interface OnboardingStatusResponse { hasGithub: boolean; hasWorkspace: boolean; workspaceId: string | null }
-export interface ReadinessResponse { ready: boolean; checks: { github: boolean; google: boolean; reviews: boolean; billing: boolean; corpus: boolean; costs: boolean } }
+export interface GitHubInstallationChoice {
+  id: number;
+  accountLogin: string;
+  accountType: string;
+  repositorySelection: string;
+  repositories: Array<{ id: number; fullName: string; private: boolean; archived: boolean; defaultBranch: string }>;
+}
+export interface OnboardingInstallationsResponse { installations: GitHubInstallationChoice[]; state: string }
+export type ReviewPresetId = 'starter' | 'fast' | 'balanced' | 'high' | 'ultra';
+export interface ReadinessResponse { ready: boolean; checks: { github: boolean; google: boolean; reviews: boolean; qa: boolean; billing: boolean; corpus: boolean; costs: boolean }; reviewPresets: Record<ReviewPresetId, boolean> }
 
 export interface ApiEnvelope<T> {
   data: T;
