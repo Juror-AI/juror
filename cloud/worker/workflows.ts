@@ -7,6 +7,7 @@ import type { Env, HostedWorkflowParams } from './env';
 import { appendRunEvent, updateRunPhase } from './events';
 import { indexQaFindings, indexReviewFindings } from './indexing';
 import { decryptWorkspaceSecret } from './crypto';
+import { publishHostedReview } from './github-publish';
 
 interface HostedQaConfig {
   enabled: boolean;
@@ -270,6 +271,15 @@ abstract class HostedWorkflowBase extends WorkflowEntrypoint<Env, HostedWorkflow
         await appendRunEvent(this.env, runId, 'retaining_evidence', 'succeeded', `Sanitized report retained with ${count} finding${count === 1 ? '' : 's'}.`, { findings: count });
         return { key, count, bytes: new TextEncoder().encode(execution.reportJson).byteLength };
       });
+      if (this.kind === 'review') {
+        try {
+          await step.do('publish sanitized GitHub review', { retries: { limit: 5, delay: '10 seconds', backoff: 'exponential' } }, async () => {
+            return publishHostedReview(this.env, runId, JSON.parse(execution.reportJson) as HostedReviewReportV1);
+          });
+        } catch {
+          await appendRunEvent(this.env, runId, 'publishing', 'warning', 'The review is available in Juror Cloud, but GitHub publication failed.');
+        }
+      }
       const settlement = await step.do('finalize usage ledger', async () => {
         const parsed = JSON.parse(execution.reportJson) as HostedReviewReportV1 | QaRunResult;
         const providerUsd = this.kind === 'review' ? (parsed as HostedReviewReportV1).totals.usd : (parsed as QaRunResult).cost.usd;

@@ -37,7 +37,7 @@ await writeFile(hostedConfigPath, stringifyYaml({ version: 1, review: { publish_
 
 const rawPath = '/tmp/juror-raw-report.json';
 const command = manifest.kind === 'review'
-  ? ['review', '--repo', manifest.repository, '--repo-dir', workspace, '--pr', String(manifest.prNumber), '--config', hostedConfigPath, '--preset', manifest.preset, '--post', '--json', rawPath]
+  ? ['review', '--repo', manifest.repository, '--repo-dir', workspace, '--pr', String(manifest.prNumber), '--config', hostedConfigPath, '--preset', manifest.preset, '--json', rawPath]
   : ['qa', '--repo', manifest.repository, '--repo-dir', workspace, '--pr', String(manifest.prNumber), '--config', hostedConfigPath, '--force', '--target-url', manifest.targetUrl, '--target-sha', manifest.revisionSha, '--evidence-dir', '/tmp/juror-evidence', ...manifest.allowedOrigins.flatMap((origin) => ['--allow-origin', origin]), '--json', rawPath];
 if (command.some((value) => value === null)) throw new Error('QA target is not configured');
 await run('node', ['/opt/juror/dist/cli.js', ...command], { cwd: workspace, env: process.env });

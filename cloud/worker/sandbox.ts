@@ -3,10 +3,9 @@ import type { OutboundHandlerContext } from '@cloudflare/containers';
 import { decryptWorkspaceSecret } from './crypto';
 import type { Env } from './env';
 import { createInstallationToken, installationIdForRun } from './github';
+import { sandboxGithubRequestAllowed, type SandboxRunParams } from './github-egress';
 
 export { ContainerProxy };
-
-interface RunParams { runId: string }
 
 export class JurorSandbox extends Sandbox<Env> {
   enableInternet = false;
@@ -19,7 +18,8 @@ export class ReviewSandbox extends JurorSandbox {}
 export class QaSandbox extends JurorSandbox {}
 
 JurorSandbox.outboundHandlers = {
-  authenticatedGithub: async (request: Request, env: Env, context: OutboundHandlerContext<RunParams>) => {
+  authenticatedGithub: async (request: Request, env: Env, context: OutboundHandlerContext<SandboxRunParams>) => {
+    if (!sandboxGithubRequestAllowed(request, context.params)) return new Response('GitHub operation denied', { status: 403 });
     const runId = context.params.runId;
     const installationId = await installationIdForRun(env, runId);
     const token = await createInstallationToken(env, installationId);
@@ -48,7 +48,7 @@ JurorSandbox.outboundHandlers = {
     }
     return fetch(next);
   },
-  qaTarget: async (request: Request, env: Env, context: OutboundHandlerContext<RunParams>) => {
+  qaTarget: async (request: Request, env: Env, context: OutboundHandlerContext<SandboxRunParams>) => {
     const row = await env.DB.prepare(`SELECT r.workspace_id, rs.qa_allowed_origins_json, rs.qa_session_bootstrap_json, rs.qa_session_bootstrap_ciphertext, rs.qa_secret_headers_ciphertext, rs.qa_reset_hook_ciphertext FROM run r JOIN repository_settings rs ON rs.repository_id = r.repository_id WHERE r.id = ?`)
       .bind(context.params.runId).first<{ workspace_id: string; qa_allowed_origins_json: string; qa_session_bootstrap_json: string | null; qa_session_bootstrap_ciphertext: string | null; qa_secret_headers_ciphertext: string | null; qa_reset_hook_ciphertext: string | null }>();
     if (!row) return new Response('Unknown QA run', { status: 403 });

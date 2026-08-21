@@ -17,6 +17,8 @@ The Action remains fully independent. A connected repository is explicitly set t
 
 Source checkouts, full patches, raw model output, agent scratch files, and chain-of-thought are never persisted. Review diffs are fetched from GitHub only when a user opens them.
 
+The untrusted Sandbox can use only Git's read-only upload-pack protocol and fixed PR, commit, and comparison reads. It never receives or exercises GitHub write routes. The trusted Worker publishes sanitized summary comments, inline findings, and checks after independently confirming that the reviewed base and head are still current.
+
 ## GitHub App
 
 Create a GitHub App with the setup URL set to `https://YOUR_HOST/onboarding` and the webhook URL set to `https://YOUR_HOST/api/github/webhooks`.

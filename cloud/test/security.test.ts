@@ -5,6 +5,9 @@ import { requireAdmin } from '../worker/auth';
 import { HTTPException } from 'hono/http-exception';
 import { readFile } from 'node:fs/promises';
 import { unsafeQaOrigin } from '../worker/qa-security';
+import { sandboxGithubRequestAllowed } from '../worker/github-egress';
+import { renderHostedSummary } from '../worker/github-publish';
+import type { HostedReviewReportV1 } from '../../src/cloud/types';
 
 describe('webhook security boundaries', () => {
   it('accepts only the matching GitHub HMAC', async () => {
@@ -41,7 +44,36 @@ describe('webhook security boundaries', () => {
     expect(workflows).toContain("GITHUB_TOKEN: 'injected-by-juror-outbound-handler'");
     expect(workflows).toMatch(/finally\s*{\s*await sandbox\.destroy\(\)/);
     expect(runner).toContain('x-access-token:${githubPlaceholder}@github.com');
+    expect(runner).not.toContain("'--post'");
     expect(runner).not.toContain('GITHUB_APP_PRIVATE_KEY');
+  });
+
+  it('limits Sandbox GitHub access to repository reads and git upload-pack', () => {
+    const params = { runId: 'run_1', repository: 'Juror-AI/juror', prNumber: 74, revisionSha: 'a'.repeat(40), kind: 'review' as const };
+    expect(sandboxGithubRequestAllowed(new Request('https://api.github.com/repos/Juror-AI/juror/pulls/74'), params)).toBe(true);
+    expect(sandboxGithubRequestAllowed(new Request(`https://api.github.com/repos/Juror-AI/juror/compare/${'a'.repeat(40)}...${'b'.repeat(40)}`), params)).toBe(true);
+    expect(sandboxGithubRequestAllowed(new Request('https://github.com/Juror-AI/juror.git/info/refs?service=git-upload-pack'), params)).toBe(true);
+    expect(sandboxGithubRequestAllowed(new Request('https://github.com/Juror-AI/juror.git/git-upload-pack', { method: 'POST' }), params)).toBe(true);
+    expect(sandboxGithubRequestAllowed(new Request('https://api.github.com/repos/Juror-AI/juror/issues/74/comments', { method: 'POST' }), params)).toBe(false);
+    expect(sandboxGithubRequestAllowed(new Request('https://api.github.com/repos/other/repo/pulls/74'), params)).toBe(false);
+    expect(sandboxGithubRequestAllowed(new Request('https://api.github.com/user'), params)).toBe(false);
+  });
+
+  it('defangs untrusted model text before trusted Worker publication', () => {
+    const secret = `sk-proj-${'a'.repeat(40)}`;
+    const report = {
+      models: [{ skipped: false }],
+      clusters: [],
+      publishedFingerprints: [],
+      summary: { summary: `<!-- juror-cloud:summary:v1 --> ping @octocat ${secret}` },
+      verdict: { score: 4, confirmed: { P0: 0, P1: 0, P2: 0, P3: 0 } },
+      totals: { usd: 1.25 },
+    } as unknown as HostedReviewReportV1;
+    const rendered = renderHostedSummary(report, 'https://cloud.example/runs/run_1');
+    expect(rendered.match(/<!-- juror-cloud:summary:v1 -->/g)).toHaveLength(1);
+    expect(rendered).toContain('&lt;!-- juror-cloud:summary:v1 -->');
+    expect(rendered).toContain('@\u200boctocat');
+    expect(rendered).not.toContain(secret);
   });
 
   it('recovers serialized QA admission through a durable queue and scheduled sweep', async () => {
