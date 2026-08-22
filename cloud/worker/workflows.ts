@@ -278,7 +278,7 @@ async function executeInSandbox(env: Env, manifest: RunManifest): Promise<{ repo
       report.artifacts = report.artifacts.slice(0, 50);
       reportJson = JSON.stringify(report);
     }
-    return { reportJson, durationMs: Date.now() - started, cpuTimeMs: Math.round(cpuSeconds * 1000), evidenceBytes, reviewerDiagnostics };
+    return { reviewerDiagnostics, reportJson, durationMs: Date.now() - started, cpuTimeMs: Math.round(cpuSeconds * 1000), evidenceBytes };
   } finally {
     await sandbox.destroy();
   }
