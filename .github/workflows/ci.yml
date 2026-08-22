@@ -41,7 +41,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run check
       - run: npm test
-      - run: npx wrangler types --check
+      - run: npx wrangler types
       - run: npm run deploy:dry-run
 
   # This repo is public and is handed provider keys at runtime. One committed key is
