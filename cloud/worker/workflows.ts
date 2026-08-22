@@ -205,12 +205,12 @@ async function executeInSandbox(env: Env, manifest: RunManifest): Promise<{ repo
     // rolls out. The wrapper also forces older bundled Juror builds onto HTTPS Responses.
     const prepare = await sandbox.exec('mkdir -p /tmp/juror-bin && chmod 0700 /tmp/juror-bin');
     if (!prepare.success) throw new Error('Hosted runtime overlay directory could not be prepared');
-    await sandbox.writeFile('/tmp/juror-runner.mjs', hostedRunnerSource);
+    await sandbox.writeFile('/opt/juror/cloud/runner-live.mjs', hostedRunnerSource);
     await sandbox.writeFile('/tmp/juror-bin/codex', CODEX_HTTPS_WRAPPER);
-    const seal = await sandbox.exec('chmod 0555 /tmp/juror-runner.mjs /tmp/juror-bin/codex');
+    const seal = await sandbox.exec('chmod 0555 /opt/juror/cloud/runner-live.mjs /tmp/juror-bin/codex');
     if (!seal.success) throw new Error('Hosted runtime overlay could not be sealed');
     await sandbox.writeFile('/tmp/juror-run.json', JSON.stringify(manifest));
-    const result = await sandbox.exec(`/usr/bin/time -f '{"userSeconds":%U,"systemSeconds":%S}' -o /tmp/juror-resource.json node /tmp/juror-runner.mjs /tmp/juror-run.json /tmp/juror-report.json`, {
+    const result = await sandbox.exec(`/usr/bin/time -f '{"userSeconds":%U,"systemSeconds":%S}' -o /tmp/juror-resource.json node /opt/juror/cloud/runner-live.mjs /tmp/juror-run.json /tmp/juror-report.json`, {
       timeout: manifest.kind === 'review' ? 30 * 60 * 1000 : 20 * 60 * 1000,
       env: {
         PATH: '/tmp/juror-bin:/usr/local/bin:/usr/bin:/bin',
@@ -223,7 +223,14 @@ async function executeInSandbox(env: Env, manifest: RunManifest): Promise<{ repo
         JUROR_QA_SECRETS_B64: btoa(JSON.stringify(Object.fromEntries(manifest.qaSecretRefs.map((reference) => [reference, `hosted-outbound-placeholder-${reference}`])))),
       },
     });
-    if (!result.success) throw new Error(`Hosted runner exited ${result.exitCode}`);
+    if (!result.success) {
+      const diagnostic = result.stderr
+        .replace(/(?:sk|fw|gh[opsu])-[-A-Za-z0-9_]{12,}/g, '[redacted]')
+        .replace(/[\r\n]+/g, ' ')
+        .trim()
+        .slice(-500);
+      throw new Error(`Hosted runner exited ${result.exitCode}${diagnostic ? `: ${diagnostic}` : ''}`);
+    }
     const resourceFile = await sandbox.readFile('/tmp/juror-resource.json', { encoding: 'utf8' });
     if (!resourceFile.success) throw new Error('Container usage receipt could not be read');
     const resource = JSON.parse(resourceFile.content) as { userSeconds?: number; systemSeconds?: number };

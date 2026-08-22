@@ -47,7 +47,8 @@ describe('webhook security boundaries', () => {
     expect(sandbox).toContain('QaSandbox.outboundHandlers = jurorOutboundHandlers');
     expect(workflows).toContain("GITHUB_TOKEN: 'injected-by-juror-outbound-handler'");
     expect(workflows).toContain("model_providers.juror_openai_https.supports_websockets=false");
-    expect(workflows).toContain("node /tmp/juror-runner.mjs");
+    expect(workflows).toContain("node /opt/juror/cloud/runner-live.mjs");
+    expect(workflows).toContain("replace(/(?:sk|fw|gh[opsu])-");
     expect(workflows).toContain("PATH: '/tmp/juror-bin:/usr/local/bin:/usr/bin:/bin'");
     expect(workflows).toMatch(/finally\s*{\s*await sandbox\.destroy\(\)/);
     expect(runner).toContain('x-access-token:${githubPlaceholder}@github.com');
