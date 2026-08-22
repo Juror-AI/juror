@@ -21,6 +21,7 @@ import type { HostedReviewReportV1 } from '../../src/cloud/types';
 import type { QaRunResult } from '../../src/qa/types';
 import { unsafeQaOrigin } from './qa-security';
 import { anyReviewPresetReady, qaProviderReady, reviewPresetReadiness } from './providers';
+import { repositorySettingsSchema, resolveSecretHeadersCiphertext } from './repository-settings';
 
 export { ContainerProxy, JurorSandbox, QaSandbox, ReviewSandbox } from './sandbox';
 export { HostedQaWorkflow, HostedReviewWorkflow } from './workflows';
@@ -441,16 +442,6 @@ app.post('/api/repositories/:id/review-now', async (c) => {
   return envelope(c, { id: runId, status: 'queued' });
 });
 
-const repositorySettingsSchema = z.object({
-  reviewEnabled: z.boolean().optional(), reviewPreset: z.enum(['starter', 'fast', 'balanced', 'high', 'ultra']).optional(),
-  publishMode: z.enum(['all', 'consensus']).optional(), severityFloor: z.enum(['P0', 'P1', 'P2', 'P3']).optional(),
-  qaEnabled: z.boolean().optional(), qaTarget: z.string().url().nullable().optional(), allowedOrigins: z.array(z.string().url()).max(20).optional(),
-  sessionBootstrap: z.object({ url: z.string().url(), targetOrigin: z.string().url(), readyStorageKey: z.string().min(1).max(128).regex(/^[\x21-\x7e]+$/), secret: z.string().min(32).max(4096) }).nullable().optional(),
-  secretHeaders: z.array(z.object({ name: z.string().regex(/^(?:X-[!#$%&'*+\-.^_`|~0-9A-Za-z]+|CF-Access-Client-(?:Id|Secret))$/i), value: z.string().min(8).max(4096), origins: z.array(z.string().url()).min(1).max(20) })).max(20).optional(),
-  resetHook: z.object({ url: z.string().url(), method: z.enum(['POST', 'PUT', 'PATCH', 'DELETE']), secretHeaders: z.array(z.object({ name: z.string().regex(/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/), value: z.string().min(8).max(4096), format: z.enum(['bearer', 'raw']) })).max(20), expectedStatuses: z.array(z.number().int().min(200).max(499)).min(1), timeoutSeconds: z.number().int().min(1).max(60).optional() }).nullable().optional(),
-  evidencePolicy: z.object({ screenshot: z.enum(['all', 'failure', 'off']).optional(), trace: z.enum(['all', 'failure', 'off']).optional(), video: z.enum(['all', 'failure', 'off']).optional() }).optional(),
-}).strict();
-
 app.patch('/api/repositories/:id', async (c) => {
   const principal = await withPrincipal(c); requireAdmin(principal);
   const input = repositorySettingsSchema.parse(await c.req.json());
@@ -476,7 +467,7 @@ app.patch('/api/repositories/:id', async (c) => {
   }
   if (input.secretHeaders?.some((header) => header.origins.some((origin) => !normalizedOrigins.includes(new URL(origin).origin)))) return c.json({ error: { code: 'qa_header_scope_invalid', message: 'Every secret header origin must be explicitly allowlisted.' }, requestId: c.get('requestId') }, 409);
   if (input.resetHook && !normalizedOrigins.includes(new URL(input.resetHook.url).origin)) return c.json({ error: { code: 'qa_reset_scope_invalid', message: 'The reset hook origin must be explicitly allowlisted.' }, requestId: c.get('requestId') }, 409);
-  const secretHeadersCiphertext = input.secretHeaders ? await encryptWorkspaceSecret(c.env, principal.workspaceId, JSON.stringify(input.secretHeaders)) : row.qa_secret_headers_ciphertext;
+  const secretHeadersCiphertext = await resolveSecretHeadersCiphertext(input.secretHeaders, row.qa_secret_headers_ciphertext, (plaintext) => encryptWorkspaceSecret(c.env, principal.workspaceId, plaintext));
   const resetCiphertext = input.resetHook ? await encryptWorkspaceSecret(c.env, principal.workspaceId, JSON.stringify(input.resetHook)) : input.resetHook === null ? null : row.qa_reset_hook_ciphertext;
   const sessionBootstrapJson = input.sessionBootstrap === undefined ? row.qa_session_bootstrap_json : input.sessionBootstrap === null ? null : JSON.stringify({ url: input.sessionBootstrap.url, secret_ref: 'JUROR_HOSTED_SESSION', target_origin: new URL(input.sessionBootstrap.targetOrigin).origin, ready_storage_key: input.sessionBootstrap.readyStorageKey });
   const sessionBootstrapCiphertext = input.sessionBootstrap === undefined ? row.qa_session_bootstrap_ciphertext : input.sessionBootstrap === null ? null : await encryptWorkspaceSecret(c.env, principal.workspaceId, input.sessionBootstrap.secret);
