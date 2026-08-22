@@ -56,4 +56,24 @@ describe('installation provisioning recovery', () => {
     expect(state.settings).toEqual(new Set(['repo_101', 'repo_102']));
     expect(githubApi).toHaveBeenCalledOnce();
   });
+
+  it('keeps importing repositories when a workflow file has invalid base64 content', async () => {
+    const state: DatabaseState = { repositories: new Set(), settings: new Set() };
+    githubApi
+      .mockResolvedValueOnce(new Response(JSON.stringify([
+        { type: 'file', name: 'review.yml', path: '.github/workflows/review.yml' },
+      ]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ encoding: 'base64', content: 'not_base64url!' }), { status: 200 }));
+
+    await expect(provisionInstallation(fakeEnv(state), {
+      installation: { id: 12, account: { login: 'octo', type: 'User' }, permissions: {}, repository_selection: 'selected' },
+      repositories: [
+        { id: 101, name: 'alpha', full_name: 'octo/alpha', private: false, archived: false, default_branch: 'main', owner: { login: 'octo' } },
+      ],
+    }, false)).resolves.toBeUndefined();
+
+    expect(state.repositories).toEqual(new Set(['repo_101']));
+    expect(state.settings).toEqual(new Set(['repo_101']));
+    expect(githubApi).toHaveBeenCalledTimes(2);
+  });
 });

@@ -12,24 +12,32 @@ function id(prefix: string, value: string | number): string { return `${prefix}_
 function now(): string { return new Date().toISOString(); }
 
 async function detectActionWorkflow(env: Env, installationId: number, fullName: string): Promise<boolean> {
-  const response = await githubApi(env, installationId, `/repos/${fullName}/contents/.github/workflows`);
-  if (response.status === 404) return false;
-  // Action detection only chooses a safe initial execution mode. A transient GitHub API error
-  // must not prevent the installation webhook (or onboarding recovery) from importing the repo.
-  // `false` still provisions it as unresolved and review-disabled, so no hosted run can start.
-  if (!response.ok) {
-    console.warn(JSON.stringify({ event: 'github_action_detection_unavailable', installationId, repository: fullName, status: response.status }));
-    return false;
-  }
-  const files = await response.json<Array<{ type: string; name: string; path: string }>>();
-  for (const file of files.filter((entry) => entry.type === 'file' && /\.ya?ml$/i.test(entry.name)).slice(0, 30)) {
-    const fileResponse = await githubApi(env, installationId, `/repos/${fullName}/contents/${file.path}`);
-    if (!fileResponse.ok) continue;
-    const body = await fileResponse.json<{ content?: string; encoding?: string }>();
-    if (body.encoding === 'base64' && body.content) {
-      const decoded = atob(body.content.replace(/\s/g, ''));
-      if (/uses:\s*['"]?Juror-AI\/juror\//i.test(decoded)) return true;
+  // Action detection only chooses a safe initial execution mode. Any GitHub API, JSON, or
+  // workflow-content error must not prevent installation reconciliation. `false` still
+  // provisions the repository as unresolved and review-disabled, so no hosted run can start.
+  try {
+    const response = await githubApi(env, installationId, `/repos/${fullName}/contents/.github/workflows`);
+    if (response.status === 404) return false;
+    if (!response.ok) {
+      console.warn(JSON.stringify({ event: 'github_action_detection_unavailable', installationId, repository: fullName, status: response.status }));
+      return false;
     }
+    const files = await response.json<Array<{ type: string; name: string; path: string }>>();
+    for (const file of files.filter((entry) => entry.type === 'file' && /\.ya?ml$/i.test(entry.name)).slice(0, 30)) {
+      try {
+        const fileResponse = await githubApi(env, installationId, `/repos/${fullName}/contents/${file.path}`);
+        if (!fileResponse.ok) continue;
+        const body = await fileResponse.json<{ content?: string; encoding?: string }>();
+        if (body.encoding === 'base64' && body.content) {
+          const decoded = atob(body.content.replace(/\s/g, ''));
+          if (/uses:\s*['"]?Juror-AI\/juror\//i.test(decoded)) return true;
+        }
+      } catch (error) {
+        console.warn(JSON.stringify({ event: 'github_action_workflow_unreadable', installationId, error: error instanceof Error ? error.message : String(error) }));
+      }
+    }
+  } catch (error) {
+    console.warn(JSON.stringify({ event: 'github_action_detection_failed', installationId, error: error instanceof Error ? error.message : String(error) }));
   }
   return false;
 }
