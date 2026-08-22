@@ -61,16 +61,21 @@ async function selectedRepositories(accessToken: string, installationId: number,
  * are App-scoped, but the slug check also fails closed if OAuth credentials are ever miswired.
  */
 export async function discoverGitHubInstallations(accessToken: string, appSlug: string, request: Requester = fetch): Promise<AccessibleGitHubInstallation[]> {
-  const response = await request('https://api.github.com/user/installations?per_page=100', { headers: headers(accessToken) });
-  if (!response.ok) throw new Error(`GitHub installation discovery failed (${response.status})`);
-  const body = await response.json<{ installations?: Array<Record<string, any>> }>();
-  const installations = (Array.isArray(body.installations) ? body.installations : []).filter((installation) => (
+  const installations: Array<Record<string, any>> = [];
+  for (let page = 1; page <= 100; page += 1) {
+    const response = await request(`https://api.github.com/user/installations?per_page=100&page=${page}`, { headers: headers(accessToken) });
+    if (!response.ok) throw new Error(`GitHub installation discovery failed (${response.status})`);
+    const body = await response.json<{ installations?: Array<Record<string, any>> }>();
+    installations.push(...(Array.isArray(body.installations) ? body.installations : []));
+    if (!hasNextPage(response)) break;
+  }
+  const matchingInstallations = installations.filter((installation) => (
     Number.isSafeInteger(installation.id)
     && installation.app_slug === appSlug
     && typeof installation.account?.login === 'string'
     && typeof installation.account?.type === 'string'
   ));
-  return Promise.all(installations.map(async (installation) => ({
+  return Promise.all(matchingInstallations.map(async (installation) => ({
     id: installation.id,
     appSlug: installation.app_slug,
     account: { login: installation.account.login, type: installation.account.type },

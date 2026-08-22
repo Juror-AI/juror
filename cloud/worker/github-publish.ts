@@ -105,9 +105,12 @@ async function upsertSummary(env: Env, context: PublicationContext, body: string
 
 async function publishInlineFindings(env: Env, context: PublicationContext, report: HostedReviewReportV1): Promise<void> {
   const path = repoPath(context.repository);
-  const previous = await responseJson<Array<{ body?: string }>>(await githubApi(env, context.installationId, `/repos/${path}/pulls/${context.prNumber}/comments?per_page=100`), 'review comment listing');
   const seen = new Set<string>();
-  for (const comment of previous) for (const match of comment.body?.matchAll(/<!-- juror:finding:([a-zA-Z0-9_-]+) -->/g) ?? []) if (match[1]) seen.add(match[1]);
+  for (let page = 1; page <= 100; page += 1) {
+    const previous = await responseJson<Array<{ body?: string }>>(await githubApi(env, context.installationId, `/repos/${path}/pulls/${context.prNumber}/comments?per_page=100&page=${page}`), 'review comment listing');
+    for (const comment of previous) for (const match of comment.body?.matchAll(/<!-- juror:finding:([a-zA-Z0-9_-]+) -->/g) ?? []) if (match[1]) seen.add(match[1]);
+    if (previous.length < 100) break;
+  }
   const changedLines = new Map(report.diff.files.map((file) => [file.path, new Set(file.changedLines)]));
   const modelCount = Math.max(1, report.models.filter((model) => !model.skipped).length);
   const comments = publishedClusters(report)
