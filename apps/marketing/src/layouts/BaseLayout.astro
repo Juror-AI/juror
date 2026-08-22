@@ -1,0 +1,211 @@
+---
+import '../styles/global.css';
+import iconUrl from '../../../../assets/icon.svg';
+import socialImageUrl from '../../../../assets/social-preview.png';
+import {
+  COPY,
+  EDITORIAL_DATE,
+  GITHUB_REPOSITORY,
+  LOCALES,
+  PAGE_BY_ID,
+  SITE_ORIGIN,
+  breadcrumbItems,
+  canonicalUrl,
+  pageDescription,
+  pagePath,
+  pageTitle,
+  robotsFor,
+  type Locale,
+  type PageRecord,
+} from '../lib/site';
+
+interface Props {
+  page: PageRecord;
+  locale: Locale;
+  robots?: string;
+  omitCanonical?: boolean;
+  title?: string;
+  description?: string;
+}
+
+const {
+  page,
+  locale,
+  robots: robotsOverride,
+  omitCanonical = false,
+  title: titleOverride,
+  description: descriptionOverride,
+} = Astro.props;
+const copy = COPY[locale];
+const title = titleOverride ?? `${pageTitle(page, locale)} | Juror`;
+const description = descriptionOverride ?? pageDescription(page, locale);
+const canonical = canonicalUrl(page, locale);
+const breadcrumbs = breadcrumbItems(page, locale);
+const socialImage = new URL(socialImageUrl.src, SITE_ORIGIN).href;
+const openGraphLocale: Record<Locale, string> = {
+  en: 'en_US',
+  de: 'de_DE',
+  fr: 'fr_FR',
+  es: 'es_ES',
+  ja: 'ja_JP',
+  'pt-BR': 'pt_BR',
+};
+const articleTypes = new Set(['resource', 'template', 'comparison', 'docs']);
+const productTypes = new Set(['core', 'feature', 'integration']);
+const graph: Record<string, unknown>[] = [
+  {
+    '@type': 'Organization',
+    '@id': `${SITE_ORIGIN}/#organization`,
+    name: 'Juror',
+    url: SITE_ORIGIN,
+    sameAs: [GITHUB_REPOSITORY],
+  },
+  {
+    '@type': 'WebSite',
+    '@id': `${SITE_ORIGIN}/#website`,
+    name: 'Juror',
+    url: SITE_ORIGIN,
+    publisher: { '@id': `${SITE_ORIGIN}/#organization` },
+  },
+  {
+    '@type': 'WebPage',
+    '@id': `${canonical}#webpage`,
+    url: canonical,
+    name: pageTitle(page, locale),
+    description,
+    inLanguage: locale,
+    isPartOf: { '@id': `${SITE_ORIGIN}/#website` },
+  },
+  {
+    '@type': 'BreadcrumbList',
+    itemListElement: breadcrumbs.map((crumb, index) => ({
+      '@type': 'ListItem',
+      position: index + 1,
+      name: crumb.name,
+      item: `${SITE_ORIGIN}${crumb.href}`,
+    })),
+  },
+];
+
+if (articleTypes.has(page.contentType)) {
+  graph.push({
+    // Documentation pages are task-oriented but do not yet expose a complete visible
+    // step array for valid HowTo markup. TechArticle is the accurate schema until they do.
+    '@type': page.contentType === 'docs' ? 'TechArticle' : 'Article',
+    '@id': `${canonical}#article`,
+    headline: pageTitle(page, locale),
+    description,
+    dateModified: EDITORIAL_DATE,
+    inLanguage: locale,
+    author: { '@type': 'Organization', name: 'Juror', url: SITE_ORIGIN },
+    mainEntityOfPage: canonical,
+  });
+}
+
+if (productTypes.has(page.contentType)) {
+  graph.push({
+    '@type': 'SoftwareApplication',
+    name: 'Juror',
+    applicationCategory: 'DeveloperApplication',
+    operatingSystem: 'GitHub Actions and Node.js',
+    description,
+    url: canonical,
+  });
+}
+
+const schema = { '@context': 'https://schema.org', '@graph': graph };
+---
+
+<!doctype html>
+<html lang={LOCALES.find((item) => item.code === locale)?.htmlLang ?? locale}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <meta name="robots" content={robotsOverride ?? robotsFor(page)} />
+    <meta name="theme-color" content="#101010" />
+    {!omitCanonical && <link rel="canonical" href={canonical} />}
+    <link rel="icon" href={iconUrl.src} type="image/svg+xml" />
+    {!omitCanonical && LOCALES.map((alternate) => (
+      <link rel="alternate" hreflang={alternate.htmlLang} href={canonicalUrl(page, alternate.code)} />
+    ))}
+    {!omitCanonical && <link rel="alternate" hreflang="x-default" href={canonicalUrl(page, 'en')} />}
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Juror" />
+    <meta property="og:locale" content={openGraphLocale[locale]} />
+    {LOCALES.filter((alternate) => alternate.code !== locale).map((alternate) => (
+      <meta property="og:locale:alternate" content={openGraphLocale[alternate.code]} />
+    ))}
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    {!omitCanonical && <meta property="og:url" content={canonical} />}
+    <meta property="og:image" content={socialImage} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={socialImage} />
+    <meta name="twitter:image:alt" content="Juror workflow overview" />
+    {!omitCanonical && <script is:inline type="application/ld+json" set:html={JSON.stringify(schema)}></script>}
+    <title>{title}</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">{copy.skipToContent}</a>
+    <header class="site-header">
+      <div class="site-shell header-inner">
+        <a class="brand" href={pagePath(PAGE_BY_ID.get('home')!, locale)} aria-label={copy.homeAriaLabel}>
+          <span class="brand-mark" aria-hidden="true">J</span><span>Juror</span>
+        </a>
+        <nav class="main-nav" aria-label={copy.primaryNavigation}>
+          <a href={pagePath(PAGE_BY_ID.get('product')!, locale)}>{copy.nav.product}</a>
+          <a href={pagePath(PAGE_BY_ID.get('solutions')!, locale)}>{copy.nav.solutions}</a>
+          <a href={pagePath(PAGE_BY_ID.get('resources')!, locale)}>{copy.nav.resources}</a>
+          <a href={pagePath(PAGE_BY_ID.get('docs')!, locale)}>{copy.nav.docs}</a>
+          <a href={pagePath(PAGE_BY_ID.get('pricing')!, locale)}>{copy.nav.pricing}</a>
+        </nav>
+        <div class="header-actions">
+          <details class="locale-picker">
+            <summary>{copy.language}</summary>
+            <div class="locale-menu" role="menu">
+              {LOCALES.map((alternate) => (
+                <a role="menuitem" href={pagePath(page, alternate.code)} lang={alternate.htmlLang} aria-current={alternate.code === locale ? 'page' : undefined}>
+                  {alternate.language}
+                </a>
+              ))}
+            </div>
+          </details>
+          <a class="button button-quiet github-link" href={GITHUB_REPOSITORY} aria-label={copy.viewOnGitHub}>
+            <span aria-hidden="true">↗</span><span class="screen-reader-only">{copy.viewOnGitHub}</span>
+          </a>
+          <a class="button button-solid header-cta" href={GITHUB_REPOSITORY}>{copy.install}</a>
+        </div>
+      </div>
+    </header>
+    <main id="main"><slot /></main>
+    <footer class="site-footer">
+      <div class="site-shell footer-grid">
+        <div>
+          <a class="brand" href={pagePath(PAGE_BY_ID.get('home')!, locale)}><span class="brand-mark" aria-hidden="true">J</span><span>Juror</span></a>
+          <p>{copy.footer}</p>
+        </div>
+        <div>
+          <strong>{copy.nav.product}</strong>
+          <a href={pagePath(PAGE_BY_ID.get('features')!, locale)}>{COPY[locale].typeLabel.feature}</a>
+          <a href={pagePath(PAGE_BY_ID.get('integrations')!, locale)}>{COPY[locale].typeLabel.integration}</a>
+          <a href={pagePath(PAGE_BY_ID.get('pricing')!, locale)}>{copy.nav.pricing}</a>
+        </div>
+        <div>
+          <strong>{copy.nav.resources}</strong>
+          <a href={pagePath(PAGE_BY_ID.get('compare')!, locale)}>{COPY[locale].typeLabel.comparison}</a>
+          <a href={pagePath(PAGE_BY_ID.get('templates')!, locale)}>{COPY[locale].typeLabel.template}</a>
+          <a href={pagePath(PAGE_BY_ID.get('docs')!, locale)}>{copy.nav.docs}</a>
+        </div>
+        <div>
+          <strong>Juror</strong>
+          <a href={GITHUB_REPOSITORY}>{copy.viewOnGitHub}</a>
+          <a href={pagePath(PAGE_BY_ID.get('security')!, locale)}>{COPY[locale].typeLabel.legal}</a>
+          <a href={pagePath(PAGE_BY_ID.get('privacy')!, locale)}>{pageTitle(PAGE_BY_ID.get('privacy')!, locale)}</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

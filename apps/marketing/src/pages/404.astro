@@ -1,0 +1,24 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { PAGE_BY_ID } from '../lib/site';
+
+const page = PAGE_BY_ID.get('home')!;
+---
+
+<BaseLayout
+  page={page}
+  locale="en"
+  robots="noindex, nofollow"
+  omitCanonical={true}
+  title="Page not found | Juror"
+  description="The requested Juror marketing page does not exist."
+>
+  <section class="page-hero">
+    <div class="site-shell narrow">
+      <p class="eyebrow">404</p>
+      <h1>This page is not part of the Juror route map.</h1>
+      <p class="hero-summary">Choose a published locale route to continue.</p>
+      <a class="button button-solid" href="/en/">Go to Juror</a>
+    </div>
+  </section>
+</BaseLayout>
