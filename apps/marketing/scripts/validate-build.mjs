@@ -8,6 +8,7 @@ const distRoot = join(appRoot, 'dist');
 const manifestPath = join(repositoryRoot, 'docs', 'seo-route-manifest.csv');
 const siteOrigin = (process.env.SITE_ORIGIN || 'https://juror.example').replace(/\/$/, '');
 const contentRelease = process.env.CONTENT_RELEASE || 'draft';
+const cloudSignInUrl = 'https://juror-cloud.cderinbogaz-5f3.workers.dev/signin';
 const localeColumns = [
   ['en', 'en_path', 'en'],
   ['de', 'de_path', 'de'],
@@ -70,6 +71,7 @@ for (const record of records) {
     descriptionsByLocale.get(locale).set(description, routePath);
     if (!html.includes(`name="robots" content="${expectedRobots}"`)) fail(`${routePath} does not use the expected ${expectedRobots} release policy`);
     if ((html.match(/hreflang=/g) ?? []).length !== 7) fail(`${routePath} does not have six locale alternates and x-default`);
+    if (!html.includes(`href="${cloudSignInUrl}"`)) fail(`${routePath} does not link its primary CTA to Juror Cloud`);
     const schemaBlocks = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map((match) => match[1]);
     if (schemaBlocks.length !== 1) fail(`${routePath} must have exactly one structured-data graph`);
     let schema;

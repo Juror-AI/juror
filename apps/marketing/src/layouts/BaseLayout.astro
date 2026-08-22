@@ -6,6 +6,7 @@ import {
   COPY,
   EDITORIAL_DATE,
   GITHUB_REPOSITORY,
+  JUROR_CLOUD_SIGN_IN,
   LOCALES,
   PAGE_BY_ID,
   SITE_ORIGIN,
@@ -176,7 +177,7 @@ const schema = { '@context': 'https://schema.org', '@graph': graph };
           <a class="button button-quiet github-link" href={GITHUB_REPOSITORY} aria-label={copy.viewOnGitHub}>
             <span aria-hidden="true">↗</span><span class="screen-reader-only">{copy.viewOnGitHub}</span>
           </a>
-          <a class="button button-solid header-cta" href={GITHUB_REPOSITORY}>{copy.install}</a>
+          <a class="button button-solid header-cta" href={JUROR_CLOUD_SIGN_IN}>{copy.cloud}</a>
         </div>
       </div>
     </header>
@@ -201,6 +202,7 @@ const schema = { '@context': 'https://schema.org', '@graph': graph };
         </div>
         <div>
           <strong>Juror</strong>
+          <a href={JUROR_CLOUD_SIGN_IN}>{copy.cloud}</a>
           <a href={GITHUB_REPOSITORY}>{copy.viewOnGitHub}</a>
           <a href={pagePath(PAGE_BY_ID.get('security')!, locale)}>{COPY[locale].typeLabel.legal}</a>
           <a href={pagePath(PAGE_BY_ID.get('privacy')!, locale)}>{pageTitle(PAGE_BY_ID.get('privacy')!, locale)}</a>
