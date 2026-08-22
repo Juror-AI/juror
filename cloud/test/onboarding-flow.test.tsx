@@ -5,6 +5,10 @@ import '@testing-library/jest-dom/vitest';
 import { BrowserRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RepositoryItem } from '../shared/api';
+
+const linkGitHub = vi.hoisted(() => vi.fn());
+vi.mock('../src/lib/auth', () => ({ linkGitHub, signInWith: vi.fn(), signOut: vi.fn() }));
+
 import { OnboardingPage } from '../src/pages';
 
 function json(data: unknown, status = 200): Response {
@@ -39,7 +43,10 @@ function repository(id: string, fullName: string): RepositoryItem {
 }
 
 describe('new-user hosted review onboarding', () => {
-  beforeEach(() => window.history.replaceState({}, '', '/onboarding'));
+  beforeEach(() => {
+    window.history.replaceState({}, '', '/onboarding');
+    linkGitHub.mockReset();
+  });
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
@@ -134,5 +141,28 @@ describe('new-user hosted review onboarding', () => {
     expect(alpha).not.toBeChecked();
     expect(beta).toBeChecked();
     expect(screen.queryByRole('heading', { name: 'Automated reviews are ready' })).not.toBeInTheDocument();
+  });
+
+  it('shows a retryable error when GitHub account linking fails', async () => {
+    const request = vi.fn(async (input: string | URL | Request) => {
+      const path = typeof input === 'string' ? input : input instanceof Request ? new URL(input.url).pathname : input.pathname;
+      if (path === '/api/readiness') return json({ data: {
+        ready: true,
+        checks: { github: true, google: true, reviews: true, qa: false, billing: false, corpus: true, costs: true },
+        reviewPresets: { starter: true, fast: true, balanced: false, high: false, ultra: false },
+      }, requestId: 'readiness' });
+      if (path === '/api/onboarding/status') return json({ data: { hasGithub: false, hasWorkspace: false, workspaceId: null }, requestId: 'status' });
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal('fetch', request);
+    linkGitHub.mockResolvedValue({ data: null, error: { message: 'GitHub authorization was cancelled.' } });
+
+    render(<BrowserRouter><OnboardingPage /></BrowserRouter>);
+
+    const button = await screen.findByRole('button', { name: 'Link GitHub account' });
+    fireEvent.click(button);
+
+    expect(await screen.findByText('GitHub authorization was cancelled.')).toBeInTheDocument();
+    expect(button).toBeEnabled();
   });
 });
