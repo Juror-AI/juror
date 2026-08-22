@@ -427,10 +427,20 @@ export function OnboardingPage() {
       if (selectedRepositories.size === 0) throw new Error('Choose at least one repository to continue.');
       if (!readiness.data?.reviewPresets[preset]) throw new Error('Hosted review providers are not configured yet. Ask the operator to finish setup.');
       const mutations = repositorySetupMutations(repositories, selectedRepositories, preset);
-      await Promise.all(mutations.map((mutation) => apiMutation(`/api/repositories/${mutation.id}`, 'PATCH', mutation.body)));
+      const results = await Promise.allSettled(mutations.map((mutation) => apiMutation(`/api/repositories/${mutation.id}`, 'PATCH', mutation.body)));
+      const rejected = results.find((result) => result.status === 'rejected');
+      if (rejected?.status === 'rejected') throw rejected.reason;
       setEnabledCount(selectedRepositories.size);
       next();
-    } catch (failure) { setSetupError(failure instanceof Error ? failure.message : 'Hosted review settings could not be saved.'); }
+    } catch (failure) {
+      const message = failure instanceof Error ? failure.message : 'Hosted review settings could not be saved.';
+      try {
+        await loadRepositories();
+        setSetupError(`${message} Repository choices were refreshed to match the saved state.`);
+      } catch {
+        setSetupError(`${message} Refresh the page to confirm which repositories were saved.`);
+      }
+    }
     finally { setSavingSetup(false); }
   };
   const toggleRepository = (repositoryId: string, checked: boolean) => setSelectedRepositories((current) => { const nextSelection = new Set(current); if (checked) nextSelection.add(repositoryId); else nextSelection.delete(repositoryId); return nextSelection; });

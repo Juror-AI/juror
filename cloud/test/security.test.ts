@@ -46,6 +46,7 @@ describe('webhook security boundaries', () => {
     expect(workflows).toContain("GITHUB_TOKEN: 'injected-by-juror-outbound-handler'");
     expect(workflows).toMatch(/finally\s*{\s*await sandbox\.destroy\(\)/);
     expect(runner).toContain('x-access-token:${githubPlaceholder}@github.com');
+    expect(runner).toContain('child.stdout.resume()');
     expect(runner).not.toContain("'--post'");
     expect(runner).not.toContain('GITHUB_APP_PRIVATE_KEY');
   });

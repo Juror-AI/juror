@@ -97,4 +97,42 @@ describe('new-user hosted review onboarding', () => {
       body: JSON.stringify({ installationId: 12, state: 'signed-installation-state' }),
     })));
   });
+
+  it('reconciles repository choices after a partially successful save', async () => {
+    let repositories = [repository('repo_101', 'octo/alpha'), repository('repo_102', 'octo/beta')];
+    const request = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const path = typeof input === 'string' ? input : input instanceof Request ? new URL(input.url).pathname : input.pathname;
+      const method = init?.method ?? 'GET';
+      if (path === '/api/readiness') return json({ data: {
+        ready: true,
+        checks: { github: true, google: false, reviews: true, qa: false, billing: false, corpus: true, costs: true },
+        reviewPresets: { starter: true, fast: true, balanced: false, high: false, ultra: false },
+      }, requestId: 'readiness' });
+      if (path === '/api/onboarding/status') return json({ data: { hasGithub: true, hasWorkspace: true, workspaceId: 'ws_12' }, requestId: 'status' });
+      if (path === '/api/repositories') return json({ data: repositories, requestId: 'repositories' });
+      if (path.startsWith('/api/repositories/') && method === 'PATCH') {
+        if (path.endsWith('/repo_101')) return json({ error: { message: 'Repository update failed.' }, requestId: 'mutation-1' }, 500);
+        if (path.endsWith('/repo_102')) {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          repositories = repositories.map((item) => item.id === 'repo_102' ? { ...item, reviewEnabled: true } : item);
+          return json({ data: { id: 'repo_102', updatedAt: '2026-08-22T00:00:00.000Z' }, requestId: 'mutation-2' });
+        }
+      }
+      throw new Error(`Unexpected request: ${method} ${path}`);
+    });
+    vi.stubGlobal('fetch', request);
+
+    render(<BrowserRouter><OnboardingPage /></BrowserRouter>);
+
+    const alpha = await screen.findByRole('checkbox', { name: /octo\/alpha/i });
+    const beta = await screen.findByRole('checkbox', { name: /octo\/beta/i });
+    fireEvent.click(alpha);
+    fireEvent.click(beta);
+    fireEvent.click(screen.getByRole('button', { name: 'Enable reviews for 2' }));
+
+    expect(await screen.findByText(/choices were refreshed to match the saved state/i)).toBeInTheDocument();
+    expect(alpha).not.toBeChecked();
+    expect(beta).toBeChecked();
+    expect(screen.queryByRole('heading', { name: 'Automated reviews are ready' })).not.toBeInTheDocument();
+  });
 });

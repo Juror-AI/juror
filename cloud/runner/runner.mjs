@@ -17,6 +17,7 @@ function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], ...options });
     let stderr = '';
+    child.stdout.resume();
     child.stderr.on('data', (chunk) => { stderr = `${stderr}${chunk}`.slice(-4000); });
     child.on('error', reject);
     child.on('close', (code) => code === 0 ? resolve() : reject(new Error(`${command} exited ${code}: ${stderr.replace(/[\r\n]+/g, ' ').slice(-500)}`)));
