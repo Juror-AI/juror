@@ -30,6 +30,8 @@ permissions:
 
 jobs:
   smoke:
+    # Runnerhut is intentionally host-only. This job validates Docker image
+    # isolation and therefore remains on GitHub's Linux Docker runner.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

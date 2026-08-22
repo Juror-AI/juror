@@ -1,0 +1,27 @@
+{
+  "name": "juror-marketing",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check",
+    "validate": "node scripts/validate-build.mjs",
+    "validate:release": "node scripts/validate-release.mjs",
+    "test": "npm run build && npm run validate",
+    "deploy:dry-run": "wrangler deploy --dry-run",
+    "deploy": "npm run validate:release && npm run test && wrangler deploy"
+  },
+  "devDependencies": {
+    "@astrojs/check": "0.9.10",
+    "@types/node": "^22.10.0",
+    "astro": "7.2.4",
+    "typescript": "^5.7.2",
+    "wrangler": "4.125.0"
+  }
+}

@@ -1,0 +1,169 @@
+---
+import {
+  COPY,
+  EDITORIAL_DATE,
+  GITHUB_REPOSITORY,
+  PAGE_BY_ID,
+  PAGE_SPECS,
+  actionWorkflow,
+  childrenOf,
+  isIndexable,
+  localizedFocus,
+  localizedSummary,
+  pagePath,
+  pageTitle,
+  relatedPages,
+  type Locale,
+  type PageRecord,
+} from '../lib/site';
+import pipelineLightUrl from '../../../../assets/pipeline-light.svg';
+
+interface Props {
+  page: PageRecord;
+  locale: Locale;
+}
+
+const { page, locale } = Astro.props;
+const copy = COPY[locale];
+const spec = PAGE_SPECS[page.id];
+const children = childrenOf(page);
+const related = relatedPages(page);
+const focus = localizedFocus(page, locale);
+const isHome = page.id === 'home';
+const isHub = children.length > 0;
+const usesCode = ['docs', 'template', 'integration'].includes(page.contentType) || ['github_ai_code_review', 'github_actions_code_review'].includes(page.id);
+const isComparison = page.contentType === 'comparison';
+const isLegal = page.contentType === 'legal';
+const isArticle = ['resource', 'template', 'comparison', 'docs'].includes(page.contentType);
+const actionPage = PAGE_BY_ID.get('github_ai_code_review')!;
+const docsPage = PAGE_BY_ID.get('getting_started')!;
+const sourceLinks = [
+  { label: locale === 'en' ? 'Juror source repository' : copy.sources, href: GITHUB_REPOSITORY },
+  { label: locale === 'en' ? 'Configuration reference' : copy.implementation, href: `${GITHUB_REPOSITORY}/blob/main/action.yml` },
+  { label: locale === 'en' ? 'Benchmark methodology' : copy.whatYouGet, href: `${GITHUB_REPOSITORY}/blob/main/docs/benchmarking.md` },
+];
+const isEnglish = locale === 'en';
+const homeText = isEnglish ? {
+  eyebrow: 'MULTI-MODEL CODE REVIEW', reviewCta: 'See a real review', microProof: 'GitHub Action · Read-only reviewers · Deduplicated findings · Cost receipt', artifactTop: 'pull/482 · checkout sealed', reviewers: '3 reviewers', changedLines: '+42 −11', finding: 'Severity cap can publish a misleading score', findingDetail: 'Three observations merged into one anchored finding.', confidence: 'Confidence: inspect', receipt: 'Receipt: $0.84 reported', problemEyebrow: 'THE REVIEW BOTTLENECK', problemTitle: 'AI writes more code. Review still decides what ships.', problemBody: 'Juror treats a model review as evidence to inspect, not a final answer. Independent harnesses examine an isolated checkout, then the merge layer anchors, clusters, and verifies their observations before one clear GitHub review is published.', flowEyebrow: 'THE PRODUCT FLOW', flowTitle: 'From a changed line to one useful review.', outcomeEyebrow: 'WHAT CHANGES', outcomeTitle: 'Independent review, without repetitive feedback.', lifecycleEyebrow: 'FINDING LIFECYCLE', lifecycleTitle: 'How several reviews become one decision.', timeline: ['Collect independent observations', 'Anchor each claim to the diff', 'Collapse exact and similar reports', 'Verify or refute agreement', 'Publish a batched review and receipt'], receiptEyebrow: 'COST RECEIPT', receiptTitle: 'The receipt belongs in the pull request.', receiptBody: 'Cost is labeled as reported, estimated, partial, or unknown. A missing value is never treated as zero.', headers: ['Harness', 'Input', 'Cached', 'Output', 'Cost status'], startEyebrow: 'START SMALL', startTitle: 'Use a pinned workflow and minimal permissions.', startBody: 'Begin with a dry run, inspect the result, and keep provider credentials in GitHub secrets.', finalEyebrow: 'READY FOR THE NEXT PULL REQUEST?', finalTitle: 'Put a jury on the next pull request.', pipelineAlt: 'A pipeline from a pull-request diff through independent model reviewers to deduplicated findings and a final review receipt.'
+} : {
+  eyebrow: copy.typeLabel.core, reviewCta: copy.implementation, microProof: focus.join(' · '), artifactTop: `Juror · ${copy.implementation}`, reviewers: copy.whatYouGet, changedLines: '+42 −11', finding: pageTitle(page, locale), findingDetail: localizedSummary(page, locale), confidence: copy.limitations, receipt: copy.whatYouGet, problemEyebrow: copy.overview, problemTitle: copy.directAnswer, problemBody: localizedSummary(page, locale), flowEyebrow: copy.implementation, flowTitle: pageTitle(page, locale), outcomeEyebrow: copy.whatYouGet, outcomeTitle: copy.implementation, lifecycleEyebrow: copy.implementation, lifecycleTitle: copy.whatYouGet, timeline: [copy.overview, copy.implementation, copy.whatYouGet, copy.limitations, copy.next], receiptEyebrow: copy.whatYouGet, receiptTitle: copy.implementation, receiptBody: localizedSummary(page, locale), headers: [copy.typeLabel.integration, copy.overview, copy.whatYouGet, copy.implementation, copy.limitations], startEyebrow: copy.prerequisites, startTitle: copy.implementation, startBody: localizedSummary(page, locale), finalEyebrow: copy.next, finalTitle: pageTitle(page, locale), pipelineAlt: localizedSummary(page, locale)
+};
+const comparisonText = isEnglish ? {
+  eyebrow: 'EVIDENCE-FIRST COMPARISON', title: 'How it works', headers: ['Decision area', 'Juror', 'Other approach', 'Source status'], rows: [
+    ['Review workflow', 'Independent reviewers merged into one evidence-backed result.', 'Confirm current behavior in the vendor’s primary documentation.'],
+    ['Pricing and availability', 'Open-source orchestration; provider billing is separate.', 'Check the current public pricing and plan terms.'],
+    ['Deployment and privacy', 'Read-only reviewer checkout with explicit fork conditions.', 'Confirm against current primary security documentation.'],
+  ], jurorChoice: 'You want multiple independent perspectives, a merged evidence trail, and a visible per-review receipt.', alternativeChoice: 'Its currently documented workflow, integrations, and commercial terms better fit your team’s requirements.'
+} : {
+  eyebrow: copy.typeLabel.comparison, title: copy.implementation, headers: [copy.overview, 'Juror', copy.whatYouGet, copy.sources], rows: [
+    [copy.implementation, localizedSummary(page, locale), copy.sources],
+    [copy.whatYouGet, copy.limitations, copy.statusUnknown],
+    [copy.limitations, copy.editorialNotice, copy.statusUnknown],
+  ], jurorChoice: localizedSummary(page, locale), alternativeChoice: copy.editorialNotice
+};
+---
+
+{isHome ? (
+  <>
+    <section class="home-hero">
+      <div class="site-shell home-hero-grid">
+        <div class="hero-copy">
+          <p class="eyebrow">{homeText.eyebrow}</p>
+          <h1>{pageTitle(page, locale)}</h1>
+          <p class="hero-summary">{localizedSummary(page, locale)}</p>
+          <div class="cta-group">
+            <a class="button button-solid button-large" href={GITHUB_REPOSITORY}>{copy.install}</a>
+            <a class="button button-outline button-large" href="#review-artifact">{homeText.reviewCta}</a>
+          </div>
+          <p class="micro-proof">{homeText.microProof}</p>
+        </div>
+        <div id="review-artifact" class="review-artifact" aria-label="Illustrative Juror pull-request review">
+          <div class="artifact-topline"><span class="status-dot"></span><span>{homeText.artifactTop}</span><span class="artifact-muted">{homeText.reviewers}</span></div>
+          <div class="artifact-file"><span>src/merge/score.ts</span><span class="artifact-muted">{homeText.changedLines}</span></div>
+          <div class="artifact-code" aria-hidden="true"><span class="line-num">42</span><span>const cap = maxSeverity(findings)</span><span class="line-num">43</span><span class="code-highlight">return score &gt;= 4 && cap &lt; 'P1'</span><span class="line-num">44</span><span>  ? 'ready' : 'review'</span></div>
+          <div class="finding-card"><span class="severity severity-p1">P1</span><div><strong>{homeText.finding}</strong><p>{homeText.findingDetail}</p></div><span class="vote">3/3</span></div>
+          <div class="artifact-footer"><span>{homeText.confidence}</span><span>{homeText.receipt}</span></div>
+        </div>
+      </div>
+    </section>
+    <section class="proof-strip">
+      <div class="site-shell proof-links">
+        <a href={GITHUB_REPOSITORY}>{isEnglish ? 'MIT licensed' : copy.sources} <span>↗</span></a>
+        <a href={`${GITHUB_REPOSITORY}/blob/main/docs/benchmarking.md`}>{isEnglish ? 'Benchmark methodology' : copy.whatYouGet} <span>↗</span></a>
+        <a href={`${GITHUB_REPOSITORY}/releases`}>{isEnglish ? 'Release history' : copy.next} <span>↗</span></a>
+      </div>
+    </section>
+    <section class="section site-shell split-intro">
+      <p class="eyebrow">{homeText.problemEyebrow}</p>
+      <div><h2>{homeText.problemTitle}</h2><p>{homeText.problemBody}</p></div>
+    </section>
+    <section class="section section-tint">
+      <div class="site-shell pipeline-section">
+        <div class="section-heading"><p class="eyebrow">{homeText.flowEyebrow}</p><h2>{homeText.flowTitle}</h2></div>
+        <img src={pipelineLightUrl.src} width="1512" height="707" alt={homeText.pipelineAlt} loading="lazy" />
+      </div>
+    </section>
+    <section class="section site-shell">
+      <div class="section-heading"><p class="eyebrow">{homeText.outcomeEyebrow}</p><h2>{homeText.outcomeTitle}</h2></div>
+      <div class="card-grid card-grid-three">
+        {focus.map((item, index) => <article class="feature-card"><span class="card-index">0{index + 1}</span><h3>{item}</h3><p>{isEnglish ? (index === 0 ? 'Run independently configured reviewers against the same sealed checkout.' : index === 1 ? 'Preserve supporting evidence while returning one anchored issue to the author.' : 'Keep reported, estimated, partial, and unknown cost coverage visible.') : localizedSummary(page, locale)}</p></article>)}
+      </div>
+    </section>
+    <section class="section section-dark">
+      <div class="site-shell lifecycle">
+        <div class="section-heading"><p class="eyebrow">{homeText.lifecycleEyebrow}</p><h2>{homeText.lifecycleTitle}</h2></div>
+        <ol class="timeline">{homeText.timeline.map((step, index) => <li><b>0{index + 1}</b><span>{step}</span></li>)}</ol>
+      </div>
+    </section>
+    <section class="section site-shell receipt-section">
+      <div class="section-heading"><p class="eyebrow">{homeText.receiptEyebrow}</p><h2>{homeText.receiptTitle}</h2><p>{homeText.receiptBody}</p></div>
+      <div class="receipt-table-wrap"><table><thead><tr>{homeText.headers.map((header) => <th>{header}</th>)}</tr></thead><tbody><tr><td>Codex</td><td>42.1k</td><td>18.5k</td><td>3.1k</td><td><span class="pill">{isEnglish ? 'Reported' : copy.statusConfirmed}</span></td></tr><tr><td>Claude</td><td>39.8k</td><td>—</td><td>2.4k</td><td><span class="pill">{isEnglish ? 'Reported' : copy.statusConfirmed}</span></td></tr><tr><td>Verifier</td><td>8.2k</td><td>—</td><td>0.7k</td><td><span class="pill pill-muted">{isEnglish ? 'Estimated' : copy.statusUnknown}</span></td></tr></tbody></table></div>
+    </section>
+    <section class="section section-tint">
+      <div class="site-shell config-strip"><div><p class="eyebrow">{homeText.startEyebrow}</p><h2>{homeText.startTitle}</h2><p>{homeText.startBody}</p></div><pre><code>{actionWorkflow()}</code></pre></div>
+    </section>
+    <section class="section site-shell final-cta"><p class="eyebrow">{homeText.finalEyebrow}</p><h2>{homeText.finalTitle}</h2><div class="cta-group"><a class="button button-solid button-large" href={GITHUB_REPOSITORY}>{copy.install}</a><a class="button button-outline button-large" href={pagePath(docsPage, locale)}>{copy.docs}</a></div></section>
+  </>
+) : (
+  <>
+    <section class={`page-hero type-${page.contentType}`}>
+      <div class="site-shell narrow">
+        <div class="breadcrumb" aria-label={copy.breadcrumb}><a href={pagePath(PAGE_BY_ID.get('home')!, locale)}>Juror</a><span>/</span><span>{copy.typeLabel[page.contentType]}</span></div>
+        <p class="eyebrow">{copy.typeLabel[page.contentType]}</p>
+        <h1>{pageTitle(page, locale)}</h1>
+        <p class="hero-summary">{localizedSummary(page, locale)}</p>
+        <div class="cta-group">
+          <a class="button button-solid" href={page.contentType === 'docs' ? pagePath(docsPage, locale) : GITHUB_REPOSITORY}>{page.contentType === 'docs' ? copy.docs : isEnglish ? spec.cta ?? copy.install : copy.install}</a>
+          <a class="button button-outline" href={pagePath(actionPage, locale)}>{copy.implementation}</a>
+        </div>
+        {!isIndexable(page) && <p class="editorial-notice" role="note">{copy.editorialNotice}</p>}
+      </div>
+    </section>
+
+    {isLegal ? (
+      <section class="section site-shell narrow legal-copy"><p class="metadata">{copy.reviewed}: {EDITORIAL_DATE}</p><h2>{copy.overview}</h2><p>{localizedSummary(page, locale)}</p><h2>{copy.limitations}</h2><p>{locale === 'en' ? 'Counsel-approved legal language is required before this record can be marked approved and indexed. This implementation deliberately does not invent legal commitments or collect data through this page.' : copy.editorialNotice}</p><h2>{copy.sources}</h2><p><a href={GITHUB_REPOSITORY}>Juror repository</a></p></section>
+    ) : (
+      <>
+        <section class="section site-shell narrow answer-section">
+          {isArticle && <p class="metadata">Juror · {copy.reviewed}: {EDITORIAL_DATE}</p>}
+          <h2>{copy.directAnswer}</h2>
+          <p class="answer-copy">{localizedSummary(page, locale)}</p>
+          <div class="focus-grid">{focus.map((item, index) => <div class="focus-item"><span>0{index + 1}</span><strong>{item}</strong></div>)}</div>
+        </section>
+
+        {isHub && <section class="section section-tint"><div class="site-shell"><div class="section-heading"><p class="eyebrow">{copy.overview}</p><h2>{copy.whatYouGet}</h2></div><div class="card-grid">{children.map((child) => <a class="route-card" href={pagePath(child, locale)}><span>{copy.typeLabel[child.contentType]}</span><h3>{pageTitle(child, locale)}</h3><p>{locale === 'en' ? PAGE_SPECS[child.id].description : localizedSummary(child, locale)}</p><b>→</b></a>)}</div></div></section>}
+
+        {isComparison && <section class="section site-shell"><div class="comparison-header"><div><p class="eyebrow">{comparisonText.eyebrow}</p><h2>{comparisonText.title}</h2></div><p>{copy.reviewed}: {EDITORIAL_DATE}</p></div><div class="comparison-table-wrap"><table class="comparison-table"><thead><tr>{comparisonText.headers.map((header) => <th>{header}</th>)}</tr></thead><tbody>{comparisonText.rows.map((row, index) => <tr><th>{row[0]}</th><td>{row[1]}</td><td>{row[2]}</td><td><span class={`pill ${index ? 'pill-muted' : ''}`}>{index ? copy.statusUnknown : copy.statusConfirmed}</span></td></tr>)}</tbody></table></div><div class="decision-grid"><article><h3>{copy.chooseJuror}</h3><p>{comparisonText.jurorChoice}</p></article><article><h3>{copy.chooseAlternative}</h3><p>{comparisonText.alternativeChoice}</p></article></div></section>}
+
+        {usesCode && <section class="section section-dark"><div class="site-shell code-layout"><div><p class="eyebrow">{copy.implementation}</p><h2>{locale === 'en' ? 'Start from a pinned, least-privilege workflow.' : copy.steps}</h2><p>{locale === 'en' ? 'The action reference uses a released commit SHA. Store provider keys in GitHub secrets and inspect the first review before you require it.' : localizedSummary(page, locale)}</p></div><pre><code>{actionWorkflow()}</code></pre></div></section>}
+
+        <section class="section site-shell content-grid">
+          <article class="prose"><h2>{copy.implementation}</h2><p>{localizedSummary(page, locale)}</p><p>{locale === 'en' ? `For ${PAGE_SPECS[page.id].h1.toLowerCase()}, use the published configuration and source repository as the product record. Keep the workflow small enough to inspect, and record any exception in the pull request rather than assuming a model result is final.` : localizedSummary(page, locale)}</p><h2>{copy.limitations}</h2><p>{locale === 'en' ? 'Models, providers, and benchmark conditions change. Juror does not replace code ownership, test suites, static analysis, or a human decision to merge. Treat unknown cost and unevaluated compatibility as explicit unknowns.' : copy.editorialNotice}</p></article>
+          <aside class="sidecard"><p class="eyebrow">{copy.sources}</p><ul>{sourceLinks.map((source) => <li><a href={source.href}>{source.label} <span aria-hidden="true">↗</span></a></li>)}</ul><p class="metadata">{copy.reviewed}: {EDITORIAL_DATE}</p></aside>
+        </section>
+      </>
+    )}
+
+    {!isLegal && <section class="section section-tint"><div class="site-shell"><div class="section-heading"><p class="eyebrow">{copy.related}</p><h2>{copy.next}</h2></div><div class="card-grid card-grid-three">{related.map((relatedPage) => <a class="route-card compact" href={pagePath(relatedPage, locale)}><span>{copy.typeLabel[relatedPage.contentType]}</span><h3>{pageTitle(relatedPage, locale)}</h3><b>→</b></a>)}</div></div></section>}
+  </>
+)}

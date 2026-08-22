@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: runnerhut-linux-4vcpu
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -48,10 +48,28 @@ jobs:
       - run: npm run build
         working-directory: cloud
 
+  marketing:
+    runs-on: runnerhut-linux-1vcpu
+    defaults:
+      run:
+        working-directory: apps/marketing
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/marketing/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run check
+      - run: npm test
+      - run: npx wrangler types
+      - run: npm run deploy:dry-run
+
   # This repo is public and is handed provider keys at runtime. One committed key is
   # the worst thing that can happen to it, so the check is a build gate rather than a habit.
   secrets-scan:
-    runs-on: ubuntu-latest
+    runs-on: runnerhut-linux-1vcpu
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Assert no provider keys are committed
