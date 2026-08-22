@@ -231,6 +231,11 @@ async function executeInSandbox(env: Env, manifest: RunManifest): Promise<{ repo
         .slice(-500);
       throw new Error(`Hosted runner exited ${result.exitCode}${diagnostic ? `: ${diagnostic}` : ''}`);
     }
+    const reviewerDiagnostics = result.stderr
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith('[juror-model] '))
+      .map((line) => line.replace(/(?:sk|fw|gh[opsu])-[-A-Za-z0-9_]{12,}/g, '[redacted]').slice(0, 600));
+    for (const diagnostic of reviewerDiagnostics) console.warn(diagnostic);
     const resourceFile = await sandbox.readFile('/tmp/juror-resource.json', { encoding: 'utf8' });
     if (!resourceFile.success) throw new Error('Container usage receipt could not be read');
     const resource = JSON.parse(resourceFile.content) as { userSeconds?: number; systemSeconds?: number };

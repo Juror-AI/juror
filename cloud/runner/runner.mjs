@@ -45,6 +45,16 @@ await run('node', ['/opt/juror/dist/cli.js', ...command], { cwd: workspace, env:
 
 const raw = JSON.parse(await readFile(rawPath, 'utf8'));
 if (manifest.kind === 'review') {
+  for (const model of Array.isArray(raw.models) ? raw.models : []) {
+    if (model?.ok !== false) continue;
+    const detail = (Array.isArray(model.diagnostics) ? model.diagnostics : [])
+      .map(String)
+      .join(' ')
+      .replace(/(?:sk|fw|gh[opsu])-[-A-Za-z0-9_]{12,}/g, '[redacted]')
+      .replace(/[\r\n]+/g, ' ')
+      .slice(-500);
+    process.stderr.write(`[juror-model] ${String(model.modelId).slice(0, 80)} failed${detail ? `: ${detail}` : ''}\n`);
+  }
   const { sanitizeHostedReviewResult } = await import('/opt/juror/dist/cloud/types.js');
   await writeFile(outputPath, JSON.stringify(sanitizeHostedReviewResult(raw)), { mode: 0o600 });
 } else {
