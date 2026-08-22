@@ -214,6 +214,7 @@ async function executeInSandbox(env: Env, manifest: RunManifest): Promise<{ repo
       timeout: manifest.kind === 'review' ? 30 * 60 * 1000 : 20 * 60 * 1000,
       env: {
         PATH: '/tmp/juror-bin:/usr/local/bin:/usr/bin:/bin',
+        NODE_EXTRA_CA_CERTS: '/etc/cloudflare/certs/cloudflare-containers-ca.crt',
         GITHUB_TOKEN: 'injected-by-juror-outbound-handler',
         JUROR_OPENAI_API_KEY: 'injected-by-juror-outbound-handler',
         JUROR_ANTHROPIC_API_KEY: 'injected-by-juror-outbound-handler',

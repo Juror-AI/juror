@@ -5,7 +5,7 @@ import { requireAdmin } from '../worker/auth';
 import { HTTPException } from 'hono/http-exception';
 import { readFile } from 'node:fs/promises';
 import { unsafeQaOrigin } from '../worker/qa-security';
-import { sandboxGithubRequestAllowed } from '../worker/github-egress';
+import { sandboxCodeWhaleReleaseRequestAllowed, sandboxGithubRequestAllowed } from '../worker/github-egress';
 import { renderHostedSummary } from '../worker/github-publish';
 import type { HostedReviewReportV1 } from '../../src/cloud/types';
 import { redactSensitiveJson } from '../worker/report-redaction';
@@ -46,6 +46,7 @@ describe('webhook security boundaries', () => {
     expect(sandbox).toContain('ReviewSandbox.outboundHandlers = jurorOutboundHandlers');
     expect(sandbox).toContain('QaSandbox.outboundHandlers = jurorOutboundHandlers');
     expect(workflows).toContain("GITHUB_TOKEN: 'injected-by-juror-outbound-handler'");
+    expect(workflows).toContain("NODE_EXTRA_CA_CERTS: '/etc/cloudflare/certs/cloudflare-containers-ca.crt'");
     expect(workflows).toContain("model_providers.juror_openai_https.supports_websockets=false");
     expect(workflows).toContain("node /opt/juror/cloud/runner-live.mjs");
     expect(workflows).toContain("replace(/(?:sk|fw|gh[opsu])-");
@@ -74,6 +75,10 @@ describe('webhook security boundaries', () => {
     expect(sandboxGithubRequestAllowed(new Request(`https://api.github.com/repos/Juror-AI/juror/compare/${'a'.repeat(40)}...${'b'.repeat(40)}`), params)).toBe(true);
     expect(sandboxGithubRequestAllowed(new Request('https://github.com/Juror-AI/juror.git/info/refs?service=git-upload-pack'), params)).toBe(true);
     expect(sandboxGithubRequestAllowed(new Request('https://github.com/Juror-AI/juror.git/git-upload-pack', { method: 'POST' }), params)).toBe(true);
+    expect(sandboxCodeWhaleReleaseRequestAllowed(new Request('https://github.com/Hmbown/CodeWhale/releases/download/v0.9.7/codewhale-artifacts-sha256.txt'))).toBe(true);
+    expect(sandboxCodeWhaleReleaseRequestAllowed(new Request('https://github.com/Hmbown/CodeWhale/releases/download/v0.9.7/codewhale-linux-x64'))).toBe(true);
+    expect(sandboxCodeWhaleReleaseRequestAllowed(new Request('https://github.com/Hmbown/CodeWhale/releases/download/v0.9.8/codewhale-linux-x64'))).toBe(false);
+    expect(sandboxCodeWhaleReleaseRequestAllowed(new Request('https://github.com/Hmbown/CodeWhale/releases/download/v0.9.7/other'))).toBe(false);
     expect(sandboxGithubRequestAllowed(new Request('https://api.github.com/repos/Juror-AI/juror/issues/74/comments', { method: 'POST' }), params)).toBe(false);
     expect(sandboxGithubRequestAllowed(new Request('https://api.github.com/repos/Juror-AI/juror/issues/74/comments?page=1'), params)).toBe(false);
     expect(sandboxGithubRequestAllowed(new Request('https://api.github.com/repos/other/repo/pulls/74'), params)).toBe(false);

@@ -3,7 +3,7 @@ import type { OutboundHandlerContext } from '@cloudflare/containers';
 import { decryptWorkspaceSecret } from './crypto';
 import type { Env } from './env';
 import { createInstallationToken, installationIdForRun } from './github';
-import { sandboxGithubRequestAllowed, type SandboxRunParams } from './github-egress';
+import { sandboxCodeWhaleReleaseRequestAllowed, sandboxGithubRequestAllowed, type SandboxRunParams } from './github-egress';
 
 export { ContainerProxy };
 
@@ -20,6 +20,12 @@ export class QaSandbox extends JurorSandbox {}
 const jurorOutboundHandlers = {
   authenticatedGithub: async (request: Request, env: Env, context: OutboundHandlerContext<SandboxRunParams>) => {
     if (!sandboxGithubRequestAllowed(request, context.params)) return new Response('GitHub operation denied', { status: 403 });
+    if (sandboxCodeWhaleReleaseRequestAllowed(request)) {
+      const releaseAsset = new Request(request, { redirect: 'follow' });
+      releaseAsset.headers.delete('authorization');
+      releaseAsset.headers.set('user-agent', 'juror-cloud-runtime-installer/1');
+      return fetch(releaseAsset);
+    }
     const runId = context.params.runId;
     const installationId = await installationIdForRun(env, runId);
     const token = await createInstallationToken(env, installationId);
