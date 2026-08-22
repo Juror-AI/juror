@@ -18,7 +18,7 @@ cost receipt back to GitHub.**
 
 ## Juror Cloud
 
-This repository also contains [`cloud/`](cloud/), a deployable hosted companion with GitHub and Google sign-in, GitHub App automation, a lean findings and run inbox, isolated Cloudflare Sandbox execution, post-merge staging QA, and transparent Stripe metered billing. The open-source Action and CLI remain independently usable; a repository connected to Cloud explicitly chooses one execution mode so reviews are never duplicated.
+This repository also contains [`cloud/`](cloud/), a deployable hosted companion with GitHub and Google sign-in, GitHub App automation, a lean findings and run inbox, isolated Cloudflare Sandbox execution, post-merge staging QA, and transparent Stripe metered billing. The open-source Action and CLI remain independently usable, while repositories connected to Cloud use hosted execution exclusively.
 
 See the [Juror Cloud deployment guide](cloud/README.md) for the GitHub App permissions, Cloudflare resources, secrets, billing meter, and verification commands.
 

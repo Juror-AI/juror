@@ -155,7 +155,7 @@ export const runDetails: Record<string, RunDetailResponse> = Object.fromEntries(
 
 export const repositoryItems: RepositoryItem[] = repositories.map((repository, index) => ({
   ...repository,
-  defaultBranch: 'main', connectionStatus: index === 1 ? 'attention' : 'healthy', executionMode: 'cloud', actionDetected: index === 2,
+  defaultBranch: 'main', connectionStatus: index === 1 ? 'attention' : 'healthy', hostedAutomationBlocked: index === 1,
   reviewEnabled: true, reviewPreset: 'fast', publishMode: 'all', severityFloor: 'P3',
   qaEnabled: index === 0, qaReady: index === 0, qaTarget: index === 0 ? 'https://staging.juror.dev' : null,
   allowedOrigins: index === 0 ? ['https://staging.juror.dev'] : [],

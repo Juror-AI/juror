@@ -96,8 +96,7 @@ export interface RunDetailResponse extends RunListItem {
 export interface RepositoryItem extends RepositoryRef {
   defaultBranch: string;
   connectionStatus: 'healthy' | 'attention' | 'suspended';
-  executionMode: 'cloud' | 'action' | 'unresolved';
-  actionDetected: boolean;
+  hostedAutomationBlocked: boolean;
   reviewEnabled: boolean;
   reviewPreset: 'starter' | 'fast' | 'balanced' | 'high' | 'ultra';
   publishMode: 'all' | 'consensus';

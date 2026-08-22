@@ -11,38 +11,56 @@ type JsonObject = Record<string, any>;
 function id(prefix: string, value: string | number): string { return `${prefix}_${value}`; }
 function now(): string { return new Date().toISOString(); }
 
-async function detectActionWorkflow(env: Env, installationId: number, fullName: string): Promise<boolean> {
-  // Action detection only chooses a safe initial execution mode. Any GitHub API, JSON, or
-  // workflow-content error must not prevent installation reconciliation. `false` still
-  // provisions the repository as unresolved and review-disabled, so no hosted run can start.
+async function detectJurorWorkflowAtRef(env: Env, installationId: number, fullName: string, ref?: string): Promise<boolean | null> {
   try {
-    const response = await githubApi(env, installationId, `/repos/${fullName}/contents/.github/workflows`);
+    const refQuery = ref ? `?ref=${encodeURIComponent(ref)}` : '';
+    const response = await githubApi(env, installationId, `/repos/${fullName}/contents/.github/workflows${refQuery}`);
     if (response.status === 404) return false;
     if (!response.ok) {
-      console.warn(JSON.stringify({ event: 'github_action_detection_unavailable', installationId, repository: fullName, status: response.status }));
-      return false;
+      console.warn(JSON.stringify({ event: 'github_workflow_detection_unavailable', installationId, repository: fullName, status: response.status }));
+      return null;
     }
-    const files = await response.json<Array<{ type: string; name: string; path: string }>>();
-    for (const file of files.filter((entry) => entry.type === 'file' && /\.ya?ml$/i.test(entry.name)).slice(0, 30)) {
-      try {
-        const fileResponse = await githubApi(env, installationId, `/repos/${fullName}/contents/${file.path}`);
-        if (!fileResponse.ok) continue;
-        const body = await fileResponse.json<{ content?: string; encoding?: string }>();
-        if (body.encoding === 'base64' && body.content) {
-          const decoded = atob(body.content.replace(/\s/g, ''));
-          if (/uses:\s*['"]?Juror-AI\/juror\//i.test(decoded)) return true;
-        }
-      } catch (error) {
-        console.warn(JSON.stringify({ event: 'github_action_workflow_unreadable', installationId, error: error instanceof Error ? error.message : String(error) }));
-      }
+    const entries = await response.json<Array<{ type: string; name: string; sha: string }>>();
+    const files = entries.filter((entry) => entry.type === 'file' && /\.ya?ml$/i.test(entry.name));
+    if (!files.length) return false;
+    // Keep every admission check to two GitHub requests per ref. Repositories above this
+    // unusual limit fail closed instead of exhausting Worker subrequests or App rate limits.
+    if (files.length > 100 || files.some((file) => !/^[0-9a-f]{40,64}$/i.test(file.sha))) return null;
+    const [owner, name] = fullName.split('/');
+    if (!owner || !name) return null;
+    const selections = files.map((file, index) => `workflow${index}: object(expression: "${file.sha}") { ... on Blob { isBinary text } }`).join('\n');
+    const blobsResponse = await githubApi(env, installationId, '/graphql', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: `query JurorWorkflowBlobs($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { ${selections} } }`, variables: { owner, name } }),
+    });
+    if (!blobsResponse.ok) return null;
+    const blobs = await blobsResponse.json<{ data?: { repository?: Record<string, { isBinary?: boolean; text?: string | null } | null> }; errors?: unknown[] }>();
+    if (blobs.errors?.length || !blobs.data?.repository) return null;
+    let unreadableWorkflow = false;
+    for (let index = 0; index < files.length; index += 1) {
+      const blob = blobs.data.repository[`workflow${index}`];
+      if (!blob || blob.isBinary || typeof blob.text !== 'string') { unreadableWorkflow = true; continue; }
+      if (/uses:\s*['"]?Juror-AI\/juror(?:\/[^@\s'"]+)?@/i.test(blob.text)) return true;
     }
+    return unreadableWorkflow ? null : false;
   } catch (error) {
-    console.warn(JSON.stringify({ event: 'github_action_detection_failed', installationId, error: error instanceof Error ? error.message : String(error) }));
+    console.warn(JSON.stringify({ event: 'github_workflow_detection_failed', installationId, error: error instanceof Error ? error.message : String(error) }));
+    return null;
   }
-  return false;
 }
 
-async function upsertRepository(env: Env, installationId: number, repository: JsonObject, refreshActionDetection = false, reactivate = false): Promise<{ repositoryId: string; workspaceId: string }> {
+export async function detectJurorWorkflow(env: Env, installationId: number, fullName: string, refs: readonly string[] = []): Promise<boolean | null> {
+  let uncertain = false;
+  const candidates: Array<string | undefined> = refs.length ? [...new Set(refs)] : [undefined];
+  for (const ref of candidates) {
+    const result = await detectJurorWorkflowAtRef(env, installationId, fullName, ref);
+    if (result) return true;
+    if (result === null) uncertain = true;
+  }
+  return uncertain ? null : false;
+}
+
+async function upsertRepository(env: Env, installationId: number, repository: JsonObject, refreshWorkflowDetection = false, reactivate = false, workflowRefs: readonly string[] = []): Promise<{ repositoryId: string; workspaceId: string; workflowDetection: boolean | null }> {
   const workspace = await env.DB.prepare('SELECT id FROM workspace WHERE github_installation_id = ?').bind(installationId).first<{ id: string }>();
   if (!workspace) throw new Error('Installation has no workspace');
   const repositoryId = id('repo', repository.id);
@@ -51,16 +69,19 @@ async function upsertRepository(env: Env, installationId: number, repository: Js
     .bind(repositoryId, workspace.id, repository.id, repository.owner.login, repository.name, repository.full_name, repository.default_branch ?? 'main', repository.private ? 1 : 0, repository.archived ? 1 : 0, timestamp, timestamp, Number(reactivate)).run();
   const currentSettings = await env.DB.prepare('SELECT action_detected FROM repository_settings WHERE repository_id = ?')
     .bind(repositoryId).first<{ action_detected: number }>();
-  const actionDetected = refreshActionDetection || !currentSettings
-    ? await detectActionWorkflow(env, installationId, repository.full_name)
+  const workflowDetection = refreshWorkflowDetection || !currentSettings
+    ? await detectJurorWorkflow(env, installationId, repository.full_name, workflowRefs)
     : Boolean(currentSettings.action_detected);
-  const defaults = initialRepositorySettings(actionDetected);
-  await env.DB.prepare(`INSERT INTO repository_settings (repository_id, execution_mode, action_detected, review_enabled, review_preset, publish_mode, severity_floor, qa_enabled, qa_security_ready, updated_at) VALUES (?, ?, ?, ?, 'fast', 'all', 'P3', 0, 0, ?) ON CONFLICT(repository_id) DO UPDATE SET action_detected = excluded.action_detected, execution_mode = CASE WHEN excluded.action_detected = 1 AND repository_settings.execution_mode = 'cloud' THEN 'unresolved' ELSE repository_settings.execution_mode END, updated_at = excluded.updated_at`)
-    .bind(repositoryId, defaults.executionMode, defaults.actionDetected ? 1 : 0, defaults.reviewEnabled ? 1 : 0, timestamp).run();
-  return { repositoryId, workspaceId: workspace.id };
+  // Preserve the last reliable result during GitHub outages. A new repository with an
+  // unreadable workflow is blocked until it can be checked, preventing duplicate reviews.
+  const hostedAutomationBlocked = workflowDetection ?? (currentSettings ? Boolean(currentSettings.action_detected) : true);
+  const defaults = initialRepositorySettings();
+  await env.DB.prepare(`INSERT INTO repository_settings (repository_id, execution_mode, action_detected, review_enabled, review_preset, publish_mode, severity_floor, qa_enabled, qa_security_ready, updated_at) VALUES (?, 'cloud', ?, ?, 'fast', 'all', 'P3', 0, 0, ?) ON CONFLICT(repository_id) DO UPDATE SET execution_mode = 'cloud', action_detected = excluded.action_detected, review_enabled = CASE WHEN excluded.action_detected = 1 THEN 0 ELSE repository_settings.review_enabled END, qa_enabled = CASE WHEN excluded.action_detected = 1 THEN 0 ELSE repository_settings.qa_enabled END, qa_security_ready = CASE WHEN excluded.action_detected = 1 THEN 0 ELSE repository_settings.qa_security_ready END, updated_at = excluded.updated_at`)
+    .bind(repositoryId, hostedAutomationBlocked ? 1 : 0, defaults.reviewEnabled ? 1 : 0, timestamp).run();
+  return { repositoryId, workspaceId: workspace.id, workflowDetection };
 }
 
-export async function provisionInstallation(env: Env, payload: JsonObject, refreshActionDetection = true): Promise<void> {
+export async function provisionInstallation(env: Env, payload: JsonObject, refreshWorkflowDetection = true): Promise<void> {
   const installation = payload.installation;
   const deleted = await env.DB.prepare('SELECT 1 AS deleted FROM deleted_installation WHERE github_installation_id = ?').bind(installation.id).first();
   if (deleted) return;
@@ -74,7 +95,7 @@ export async function provisionInstallation(env: Env, payload: JsonObject, refre
     env.DB.prepare(`INSERT INTO installation (id, workspace_id, github_installation_id, account_login, account_type, permissions_json, repository_selection, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(github_installation_id) DO UPDATE SET account_login = excluded.account_login, account_type = excluded.account_type, permissions_json = excluded.permissions_json, repository_selection = excluded.repository_selection, suspended_at = NULL, updated_at = excluded.updated_at`)
       .bind(installationRowId, workspaceId, installation.id, installation.account.login, installation.account.type, JSON.stringify(installation.permissions ?? {}), installation.repository_selection ?? 'selected', timestamp, timestamp),
   ]);
-  for (const repository of payload.repositories ?? []) await upsertRepository(env, installation.id, repository, refreshActionDetection, true);
+  for (const repository of payload.repositories ?? []) await upsertRepository(env, installation.id, repository, refreshWorkflowDetection, true);
 }
 
 async function upsertPullRequest(env: Env, repositoryId: string, payload: JsonObject): Promise<string> {
@@ -227,10 +248,13 @@ async function cancelRunsForAccessRevocation(env: Env, repositoryIds: string[]):
 
 async function handlePullRequest(env: Env, payload: JsonObject): Promise<void> {
   const installationId = payload.installation.id as number;
-  const { repositoryId, workspaceId } = await upsertRepository(env, installationId, payload.repository);
+  const workflowRefs = [payload.pull_request.base.sha, payload.pull_request.head.sha];
+  const { repositoryId, workspaceId, workflowDetection } = await upsertRepository(env, installationId, payload.repository, true, false, workflowRefs);
   const pullRequestId = await upsertPullRequest(env, repositoryId, payload);
-  const settings = await env.DB.prepare('SELECT execution_mode, review_enabled, qa_enabled, qa_security_ready FROM repository_settings WHERE repository_id = ?').bind(repositoryId).first<{ execution_mode: string; review_enabled: number; qa_enabled: number; qa_security_ready: number }>();
-  if (!settings || settings.execution_mode !== 'cloud') return;
+  if (workflowDetection === null) throw new Error('GitHub workflow verification is temporarily unavailable');
+  if (workflowDetection) return;
+  const settings = await env.DB.prepare('SELECT review_enabled, qa_enabled, qa_security_ready FROM repository_settings WHERE repository_id = ?').bind(repositoryId).first<{ review_enabled: number; qa_enabled: number; qa_security_ready: number }>();
+  if (!settings) return;
   const pr = payload.pull_request;
   if (['opened', 'reopened', 'synchronize'].includes(payload.action) && settings.review_enabled) {
     await cancelOlderReviews(env, repositoryId, pr.number, pr.head.sha);

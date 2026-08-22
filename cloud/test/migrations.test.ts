@@ -23,5 +23,10 @@ describe('D1 schema contract', () => {
     const minimizedFindings = await readFile(new URL('../migrations/0007_minimize_finding_content.sql', import.meta.url), 'utf8');
     expect(minimizedFindings).toContain("SET body = '', claim_json = NULL, expected = NULL, actual = NULL");
     expect(minimizedFindings).toContain("SET details_json = '{}'");
+    const cloudOnly = await readFile(new URL('../migrations/0008_cloud_only_reviews.sql', import.meta.url), 'utf8');
+    expect(cloudOnly).toContain("SET execution_mode = 'cloud'");
+    expect(cloudOnly).toContain('action_detected = 0');
+    expect(cloudOnly).toContain('review_enabled = 0');
+    expect(cloudOnly).toContain('qa_enabled = 0');
   });
 });

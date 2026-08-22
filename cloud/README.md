@@ -2,7 +2,7 @@
 
 Juror Cloud is the hosted companion to the open-source Juror Action. It connects through a GitHub App, runs PR reviews and post-merge staging QA in isolated Cloudflare Sandbox containers, and exposes a lean operational inbox for findings, live runs, repository policy, and usage.
 
-The Action remains fully independent. A connected repository is explicitly set to either `cloud` or `action`; detected Action workflows leave the repository in `unresolved` mode until an admin chooses.
+The open-source Action remains fully independent. Repositories connected to Juror Cloud use hosted execution exclusively and stay review-disabled until an administrator explicitly selects them.
 
 ## Architecture
 

@@ -21,8 +21,7 @@ function repository(id: string, fullName: string): RepositoryItem {
     private: false,
     defaultBranch: 'main',
     connectionStatus: 'healthy',
-    executionMode: 'unresolved',
-    actionDetected: false,
+    hostedAutomationBlocked: false,
     reviewEnabled: false,
     reviewPreset: 'fast',
     publishMode: 'all',
@@ -47,7 +46,7 @@ describe('new-user hosted review onboarding', () => {
   });
 
   it('claims a GitHub installation and enables reviews only for selected repositories', async () => {
-    const repositories = [repository('repo_101', 'octo/alpha'), repository('repo_102', 'octo/beta')];
+    const repositories = [repository('repo_101', 'octo/alpha'), repository('repo_102', 'octo/beta'), { ...repository('repo_103', 'octo/gamma'), hostedAutomationBlocked: true, connectionStatus: 'attention' as const }];
     const mutations: Array<{ path: string; body: unknown }> = [];
     const request = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const path = typeof input === 'string' ? input : input instanceof Request ? new URL(input.url).pathname : input.pathname;
@@ -81,6 +80,9 @@ describe('new-user hosted review onboarding', () => {
     render(<BrowserRouter><OnboardingPage /></BrowserRouter>);
 
     fireEvent.click(await screen.findByRole('button', { name: 'Use installation' }));
+    expect(screen.queryByText('GitHub Action')).not.toBeInTheDocument();
+    expect(screen.queryByRole('radio')).not.toBeInTheDocument();
+    expect(await screen.findByRole('checkbox', { name: /octo\/gamma/i })).not.toBeChecked();
     const beta = await screen.findByRole('checkbox', { name: /octo\/beta/i });
     expect(beta).toBeChecked();
     fireEvent.click(beta);
@@ -88,8 +90,9 @@ describe('new-user hosted review onboarding', () => {
 
     expect(await screen.findByRole('heading', { name: 'Automated reviews are ready' })).toBeInTheDocument();
     expect(mutations).toEqual([
-      { path: '/api/repositories/repo_101', body: { executionMode: 'cloud', confirmActionDisabled: true, reviewEnabled: true, reviewPreset: 'starter' } },
+      { path: '/api/repositories/repo_101', body: { reviewEnabled: true, reviewPreset: 'starter' } },
       { path: '/api/repositories/repo_102', body: { reviewEnabled: false } },
+      { path: '/api/repositories/repo_103', body: { reviewEnabled: false } },
     ]);
     await waitFor(() => expect(request).toHaveBeenCalledWith('/api/onboarding/claim-installation', expect.objectContaining({
       method: 'POST',

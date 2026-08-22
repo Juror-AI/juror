@@ -112,6 +112,28 @@ describe('webhook security boundaries', () => {
     expect(wrangler).toContain('*/5 * * * *');
   });
 
+  it('keeps the hosted product cloud-only', async () => {
+    const pages = await readFile(new URL('../src/pages.tsx', import.meta.url), 'utf8');
+    const onboarding = await readFile(new URL('../src/lib/onboarding.ts', import.meta.url), 'utf8');
+    const api = await readFile(new URL('../shared/api.ts', import.meta.url), 'utf8');
+    const worker = await readFile(new URL('../worker/index.ts', import.meta.url), 'utf8');
+    const webhook = await readFile(new URL('../worker/github-webhook.ts', import.meta.url), 'utf8');
+    expect(pages).not.toContain('executionMode');
+    expect(pages).not.toContain('mode-options');
+    expect(pages).not.toContain('Use Action');
+    expect(onboarding).not.toContain('executionMode');
+    expect(api).not.toContain('executionMode');
+    expect(worker).not.toContain('confirmActionDisabled');
+    expect(worker).not.toContain('action_conflict');
+    expect(worker).toContain('workflowDetection !== false');
+    expect(webhook).toContain('upsertRepository(env, installationId, payload.repository, true, false, workflowRefs)');
+    expect(webhook).toContain('payload.pull_request.base.sha, payload.pull_request.head.sha');
+    expect(worker).toContain('[pr.base.sha, pr.head.sha]');
+    expect(webhook).toContain("if (workflowDetection === null) throw new Error('GitHub workflow verification is temporarily unavailable')");
+    expect(webhook).not.toContain('execution_mode = CASE');
+    expect(webhook).toContain('review_enabled = CASE WHEN excluded.action_detected = 1 THEN 0');
+  });
+
   it('claims the per-repository QA slot atomically in every admission path', async () => {
     const webhook = await readFile(new URL('../worker/github-webhook.ts', import.meta.url), 'utf8');
     const workflows = await readFile(new URL('../worker/workflows.ts', import.meta.url), 'utf8');

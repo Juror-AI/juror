@@ -8,7 +8,7 @@ import { encryptWorkspaceSecret } from './crypto';
 import { createAuth, requireAdmin, requirePrincipal } from './auth';
 import type { Env, Principal } from './env';
 import { appendRunEvent } from './events';
-import { createRun, provisionInstallation } from './github-webhook';
+import { createRun, detectJurorWorkflow, provisionInstallation } from './github-webhook';
 import { githubApi } from './github';
 import { discoverGitHubInstallations, installationProvisioningPayload } from './github-installations';
 import { createBillingPortal, createCheckout, verifyStripeSignature } from './stripe';
@@ -166,7 +166,7 @@ app.post('/api/onboarding/claim-installation', async (c) => {
   // App before this deployment existed, and an earlier import may have stopped part-way through.
   // The linked GitHub identity has independently proved access, so idempotently reconcile the
   // verified payload on every claim. Existing settings skip optional Action detection.
-  await provisionInstallation(c.env, installationProvisioningPayload(installation), false);
+  await provisionInstallation(c.env, installationProvisioningPayload(installation));
   const workspace = await c.env.DB.prepare('SELECT id FROM workspace WHERE github_installation_id = ?').bind(input.installationId).first<{ id: string }>();
   if (!workspace) return c.json({ error: { code: 'installation_pending', message: 'The GitHub webhook has not arrived yet. Try again in a moment.' }, requestId: c.get('requestId') }, 409);
   const existingMembers = await c.env.DB.prepare('SELECT COUNT(*) AS count FROM membership WHERE workspace_id = ?').bind(workspace.id).first<{ count: number }>();
@@ -414,19 +414,24 @@ app.post('/api/runs/:id/rerun', async (c) => {
 app.get('/api/repositories', async (c) => {
   const principal = await withPrincipal(c);
   const result = await c.env.DB.prepare(`SELECT repo.*, rs.*, r.id AS latest_run_id, r.kind AS latest_run_kind, r.status AS latest_run_status, r.phase AS latest_run_phase, r.pr_number AS latest_pr_number, r.revision_sha AS latest_revision_sha, r.findings_count AS latest_findings_count, r.billable_micro_usd AS latest_cost, r.duration_ms AS latest_duration, r.started_at AS latest_started, r.created_at AS latest_created FROM repository repo JOIN repository_settings rs ON rs.repository_id = repo.id LEFT JOIN run r ON r.id = (SELECT id FROM run WHERE repository_id = repo.id ORDER BY created_at DESC LIMIT 1) WHERE repo.workspace_id = ? ORDER BY repo.full_name`).bind(principal.workspaceId).all<any>();
-  return envelope(c, result.results.map((row) => ({ ...repositoryRef(row), defaultBranch: row.default_branch, connectionStatus: row.github_access_state !== 'active' ? 'suspended' : row.execution_mode === 'unresolved' ? 'attention' : 'healthy', executionMode: row.execution_mode, actionDetected: Boolean(row.action_detected), reviewEnabled: Boolean(row.review_enabled), reviewPreset: row.review_preset, publishMode: row.publish_mode, severityFloor: row.severity_floor, qaEnabled: Boolean(row.qa_enabled), qaReady: Boolean(row.qa_security_ready), qaTarget: row.qa_target_url, allowedOrigins: JSON.parse(row.qa_allowed_origins_json), hasSessionBootstrap: Boolean(row.qa_session_bootstrap_ciphertext), hasSecretHeaders: Boolean(row.qa_secret_headers_ciphertext), hasResetHook: Boolean(row.qa_reset_hook_ciphertext), evidencePolicy: JSON.parse(row.qa_evidence_policy_json), latestRun: row.latest_run_id ? runItem({ id: row.latest_run_id, identity: '', kind: row.latest_run_kind, status: row.latest_run_status, phase: row.latest_run_phase, repository_id: row.id, owner: row.owner, name: row.name, full_name: row.full_name, is_private: row.is_private, pr_number: row.latest_pr_number, revision_sha: row.latest_revision_sha, findings_count: row.latest_findings_count, billable_micro_usd: row.latest_cost, duration_ms: row.latest_duration, started_at: row.latest_started, created_at: row.latest_created }) : null })));
+  return envelope(c, result.results.map((row) => ({ ...repositoryRef(row), defaultBranch: row.default_branch, connectionStatus: row.github_access_state !== 'active' ? 'suspended' : row.action_detected ? 'attention' : 'healthy', hostedAutomationBlocked: Boolean(row.action_detected), reviewEnabled: Boolean(row.review_enabled), reviewPreset: row.review_preset, publishMode: row.publish_mode, severityFloor: row.severity_floor, qaEnabled: Boolean(row.qa_enabled), qaReady: Boolean(row.qa_security_ready), qaTarget: row.qa_target_url, allowedOrigins: JSON.parse(row.qa_allowed_origins_json), hasSessionBootstrap: Boolean(row.qa_session_bootstrap_ciphertext), hasSecretHeaders: Boolean(row.qa_secret_headers_ciphertext), hasResetHook: Boolean(row.qa_reset_hook_ciphertext), evidencePolicy: JSON.parse(row.qa_evidence_policy_json), latestRun: row.latest_run_id ? runItem({ id: row.latest_run_id, identity: '', kind: row.latest_run_kind, status: row.latest_run_status, phase: row.latest_run_phase, repository_id: row.id, owner: row.owner, name: row.name, full_name: row.full_name, is_private: row.is_private, pr_number: row.latest_pr_number, revision_sha: row.latest_revision_sha, findings_count: row.latest_findings_count, billable_micro_usd: row.latest_cost, duration_ms: row.latest_duration, started_at: row.latest_started, created_at: row.latest_created }) : null })));
 });
 
 app.post('/api/repositories/:id/review-now', async (c) => {
   const principal = await withPrincipal(c);
   const input = z.object({ prNumber: z.number().int().positive() }).parse(await c.req.json());
-  const repository = await c.env.DB.prepare(`SELECT repo.*, i.github_installation_id, rs.execution_mode, rs.review_enabled FROM repository repo JOIN installation i ON i.workspace_id = repo.workspace_id JOIN repository_settings rs ON rs.repository_id = repo.id WHERE repo.id = ? AND repo.workspace_id = ?`)
+  const repository = await c.env.DB.prepare(`SELECT repo.*, i.github_installation_id, rs.review_enabled FROM repository repo JOIN installation i ON i.workspace_id = repo.workspace_id JOIN repository_settings rs ON rs.repository_id = repo.id WHERE repo.id = ? AND repo.workspace_id = ?`)
     .bind(c.req.param('id'), principal.workspaceId).first<any>();
   if (!repository) return c.json({ error: { code: 'not_found', message: 'Repository not found.' }, requestId: c.get('requestId') }, 404);
-  if (repository.execution_mode !== 'cloud' || !repository.review_enabled) return c.json({ error: { code: 'cloud_review_disabled', message: 'Enable Cloud review for this repository first.' }, requestId: c.get('requestId') }, 409);
+  if (!repository.review_enabled) return c.json({ error: { code: 'cloud_review_disabled', message: 'Enable automated review for this repository first.' }, requestId: c.get('requestId') }, 409);
   const response = await githubApi(c.env, repository.github_installation_id, `/repos/${repository.full_name}/pulls/${input.prNumber}`);
   if (!response.ok) return c.json({ error: { code: 'github_pr_unavailable', message: 'GitHub could not load that pull request.' }, requestId: c.get('requestId') }, response.status === 404 ? 404 : 502);
   const pr = await response.json<any>();
+  const workflowDetection = await detectJurorWorkflow(c.env, repository.github_installation_id, repository.full_name, [pr.base.sha, pr.head.sha]);
+  if (workflowDetection !== false) {
+    await c.env.DB.prepare(`UPDATE repository_settings SET action_detected = 1, review_enabled = 0, qa_enabled = 0, qa_security_ready = 0, updated_at = ? WHERE repository_id = ?`).bind(new Date().toISOString(), repository.id).run();
+    return c.json({ error: { code: 'juror_workflow_check_required', message: workflowDetection ? 'Remove the existing Juror workflow before starting a hosted review.' : 'Juror could not verify this repository workflow configuration. Try again after GitHub access recovers.' }, requestId: c.get('requestId') }, 409);
+  }
   if (pr.state !== 'open') return c.json({ error: { code: 'pr_not_open', message: 'Review now is available for open pull requests.' }, requestId: c.get('requestId') }, 409);
   const pullRequestId = `pr_${pr.id}`; const timestamp = new Date().toISOString();
   await c.env.DB.prepare(`INSERT INTO pull_request (id, repository_id, github_pr_id, number, state, base_sha, head_sha, merge_sha, is_fork, author_login, github_url, opened_at, merged_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, NULL, ?) ON CONFLICT(github_pr_id) DO UPDATE SET state = excluded.state, base_sha = excluded.base_sha, head_sha = excluded.head_sha, is_fork = excluded.is_fork, github_url = excluded.github_url, updated_at = excluded.updated_at`)
@@ -437,7 +442,6 @@ app.post('/api/repositories/:id/review-now', async (c) => {
 });
 
 const repositorySettingsSchema = z.object({
-  executionMode: z.enum(['cloud', 'action']).optional(), confirmActionDisabled: z.boolean().optional(),
   reviewEnabled: z.boolean().optional(), reviewPreset: z.enum(['starter', 'fast', 'balanced', 'high', 'ultra']).optional(),
   publishMode: z.enum(['all', 'consensus']).optional(), severityFloor: z.enum(['P0', 'P1', 'P2', 'P3']).optional(),
   qaEnabled: z.boolean().optional(), qaTarget: z.string().url().nullable().optional(), allowedOrigins: z.array(z.string().url()).max(20).optional(),
@@ -445,14 +449,21 @@ const repositorySettingsSchema = z.object({
   secretHeaders: z.array(z.object({ name: z.string().regex(/^(?:X-[!#$%&'*+\-.^_`|~0-9A-Za-z]+|CF-Access-Client-(?:Id|Secret))$/i), value: z.string().min(8).max(4096), origins: z.array(z.string().url()).min(1).max(20) })).max(20).optional(),
   resetHook: z.object({ url: z.string().url(), method: z.enum(['POST', 'PUT', 'PATCH', 'DELETE']), secretHeaders: z.array(z.object({ name: z.string().regex(/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/), value: z.string().min(8).max(4096), format: z.enum(['bearer', 'raw']) })).max(20), expectedStatuses: z.array(z.number().int().min(200).max(499)).min(1), timeoutSeconds: z.number().int().min(1).max(60).optional() }).nullable().optional(),
   evidencePolicy: z.object({ screenshot: z.enum(['all', 'failure', 'off']).optional(), trace: z.enum(['all', 'failure', 'off']).optional(), video: z.enum(['all', 'failure', 'off']).optional() }).optional(),
-});
+}).strict();
 
 app.patch('/api/repositories/:id', async (c) => {
   const principal = await withPrincipal(c); requireAdmin(principal);
   const input = repositorySettingsSchema.parse(await c.req.json());
-  const row = await c.env.DB.prepare(`SELECT repo.id, rs.* FROM repository repo JOIN repository_settings rs ON rs.repository_id = repo.id WHERE repo.id = ? AND repo.workspace_id = ?`).bind(c.req.param('id'), principal.workspaceId).first<any>();
+  const row = await c.env.DB.prepare(`SELECT repo.id, repo.full_name, installation.github_installation_id, rs.* FROM repository repo JOIN installation ON installation.workspace_id = repo.workspace_id JOIN repository_settings rs ON rs.repository_id = repo.id WHERE repo.id = ? AND repo.workspace_id = ?`).bind(c.req.param('id'), principal.workspaceId).first<any>();
   if (!row) return c.json({ error: { code: 'not_found', message: 'Repository not found' }, requestId: c.get('requestId') }, 404);
-  if (input.executionMode === 'cloud' && row.action_detected && !input.confirmActionDisabled) return c.json({ error: { code: 'action_conflict', message: 'Confirm the Juror Action is disabled before enabling Cloud mode.' }, requestId: c.get('requestId') }, 409);
+  const enablingHostedAutomation = input.reviewEnabled === true || input.qaEnabled === true;
+  if (enablingHostedAutomation) {
+    const workflowDetection = await detectJurorWorkflow(c.env, row.github_installation_id, row.full_name);
+    if (workflowDetection !== false) {
+      await c.env.DB.prepare(`UPDATE repository_settings SET action_detected = 1, review_enabled = 0, qa_enabled = 0, qa_security_ready = 0, updated_at = ? WHERE repository_id = ?`).bind(new Date().toISOString(), row.id).run();
+      return c.json({ error: { code: 'juror_workflow_check_required', message: workflowDetection ? 'Remove the existing Juror workflow before enabling hosted automation.' : 'Juror could not verify this repository workflow configuration. Try again after GitHub access recovers.' }, requestId: c.get('requestId') }, 409);
+    }
+  }
   const target = input.qaTarget === undefined ? row.qa_target_url : input.qaTarget;
   const allowedOrigins = input.allowedOrigins ?? JSON.parse(row.qa_allowed_origins_json);
   const nextQaEnabled = input.qaEnabled === undefined ? Boolean(row.qa_enabled) : input.qaEnabled;
@@ -470,8 +481,8 @@ app.patch('/api/repositories/:id', async (c) => {
   const sessionBootstrapJson = input.sessionBootstrap === undefined ? row.qa_session_bootstrap_json : input.sessionBootstrap === null ? null : JSON.stringify({ url: input.sessionBootstrap.url, secret_ref: 'JUROR_HOSTED_SESSION', target_origin: new URL(input.sessionBootstrap.targetOrigin).origin, ready_storage_key: input.sessionBootstrap.readyStorageKey });
   const sessionBootstrapCiphertext = input.sessionBootstrap === undefined ? row.qa_session_bootstrap_ciphertext : input.sessionBootstrap === null ? null : await encryptWorkspaceSecret(c.env, principal.workspaceId, input.sessionBootstrap.secret);
   const timestamp = new Date().toISOString();
-  await c.env.DB.prepare(`UPDATE repository_settings SET execution_mode = ?, review_enabled = ?, review_preset = ?, publish_mode = ?, severity_floor = ?, qa_enabled = ?, qa_security_ready = ?, qa_target_url = ?, qa_allowed_origins_json = ?, qa_session_bootstrap_json = ?, qa_session_bootstrap_ciphertext = ?, qa_secret_headers_ciphertext = ?, qa_reset_hook_ciphertext = ?, qa_evidence_policy_json = ?, settings_version = settings_version + 1, updated_by_user_id = ?, updated_at = ? WHERE repository_id = ?`)
-    .bind(input.executionMode ?? row.execution_mode, input.reviewEnabled === undefined ? row.review_enabled : Number(input.reviewEnabled), input.reviewPreset ?? row.review_preset, input.publishMode ?? row.publish_mode, input.severityFloor ?? row.severity_floor, Number(nextQaEnabled), qaReady, target, JSON.stringify(normalizedOrigins), sessionBootstrapJson, sessionBootstrapCiphertext, secretHeadersCiphertext, resetCiphertext, input.evidencePolicy ? JSON.stringify({ ...JSON.parse(row.qa_evidence_policy_json), ...input.evidencePolicy, retention_days: 90 }) : row.qa_evidence_policy_json, principal.userId, timestamp, row.id).run();
+  await c.env.DB.prepare(`UPDATE repository_settings SET execution_mode = 'cloud', action_detected = ?, review_enabled = ?, review_preset = ?, publish_mode = ?, severity_floor = ?, qa_enabled = ?, qa_security_ready = ?, qa_target_url = ?, qa_allowed_origins_json = ?, qa_session_bootstrap_json = ?, qa_session_bootstrap_ciphertext = ?, qa_secret_headers_ciphertext = ?, qa_reset_hook_ciphertext = ?, qa_evidence_policy_json = ?, settings_version = settings_version + 1, updated_by_user_id = ?, updated_at = ? WHERE repository_id = ?`)
+    .bind(enablingHostedAutomation ? 0 : row.action_detected, input.reviewEnabled === undefined ? row.review_enabled : Number(input.reviewEnabled), input.reviewPreset ?? row.review_preset, input.publishMode ?? row.publish_mode, input.severityFloor ?? row.severity_floor, Number(nextQaEnabled), qaReady, target, JSON.stringify(normalizedOrigins), sessionBootstrapJson, sessionBootstrapCiphertext, secretHeadersCiphertext, resetCiphertext, input.evidencePolicy ? JSON.stringify({ ...JSON.parse(row.qa_evidence_policy_json), ...input.evidencePolicy, retention_days: 90 }) : row.qa_evidence_policy_json, principal.userId, timestamp, row.id).run();
   return envelope(c, { id: row.id, updatedAt: timestamp });
 });
 
@@ -594,7 +605,7 @@ app.post('/api/settings/workspace/delete', async (c) => {
   await c.env.DB.batch([
     c.env.DB.prepare(`INSERT INTO workspace_deletion_job (id, workspace_id, github_installation_id, status, requested_by_user_id, created_at) VALUES (?, ?, ?, 'queued', ?, ?)`).bind(jobId, principal.workspaceId, workspace.github_installation_id, principal.userId, timestamp),
     c.env.DB.prepare(`UPDATE workspace SET deletion_requested_at = ?, billing_state = 'paused', updated_at = ? WHERE id = ?`).bind(timestamp, timestamp, principal.workspaceId),
-    c.env.DB.prepare(`UPDATE repository_settings SET execution_mode = 'action', review_enabled = 0, qa_enabled = 0, qa_security_ready = 0, training_enabled = 0, updated_at = ? WHERE repository_id IN (SELECT id FROM repository WHERE workspace_id = ?)`).bind(timestamp, principal.workspaceId),
+    c.env.DB.prepare(`UPDATE repository_settings SET review_enabled = 0, qa_enabled = 0, qa_security_ready = 0, training_enabled = 0, updated_at = ? WHERE repository_id IN (SELECT id FROM repository WHERE workspace_id = ?)`).bind(timestamp, principal.workspaceId),
     c.env.DB.prepare(`UPDATE workspace_corpus_policy SET mode = 'off', consented_by_user_id = NULL, consented_at = NULL, updated_at = ? WHERE workspace_id = ?`).bind(timestamp, principal.workspaceId),
     c.env.DB.prepare(`UPDATE run SET status = 'cancelled', phase = 'cancelled', outcome = 'cancelled', reserved_micro_usd = 0, completed_at = COALESCE(completed_at, ?), updated_at = ? WHERE workspace_id = ? AND status IN ('queued','running')`).bind(timestamp, timestamp, principal.workspaceId),
   ]);

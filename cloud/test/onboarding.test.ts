@@ -5,27 +5,27 @@ import { initialRepositorySettings } from '../worker/repository-settings';
 
 const repository = (id: string): RepositoryItem => ({
   id, owner: 'octo', name: id, fullName: `octo/${id}`, private: false, defaultBranch: 'main', connectionStatus: 'healthy',
-  executionMode: 'unresolved', actionDetected: false, reviewEnabled: false, reviewPreset: 'fast', publishMode: 'all', severityFloor: 'P3',
+  hostedAutomationBlocked: false, reviewEnabled: false, reviewPreset: 'fast', publishMode: 'all', severityFloor: 'P3',
   qaEnabled: false, qaReady: false, qaTarget: null, allowedOrigins: [], hasSessionBootstrap: false, hasSecretHeaders: false,
   hasResetHook: false, evidencePolicy: { screenshot: 'failure', trace: 'failure', video: 'off' }, latestRun: null,
 });
 
 describe('onboarding repository selection', () => {
-  it('enables Cloud reviews only for repositories the user selected', () => {
-    expect(repositorySetupMutations([repository('one'), repository('two')], new Set(['two']), 'cloud', 'starter')).toEqual([
+  it('enables hosted reviews only for repositories the user selected', () => {
+    expect(repositorySetupMutations([repository('one'), repository('two')], new Set(['two']), 'starter')).toEqual([
       { id: 'one', body: { reviewEnabled: false } },
-      { id: 'two', body: { executionMode: 'cloud', confirmActionDisabled: true, reviewEnabled: true, reviewPreset: 'starter' } },
+      { id: 'two', body: { reviewEnabled: true, reviewPreset: 'starter' } },
     ]);
   });
 
-  it('keeps Action mode out of hosted execution', () => {
-    expect(repositorySetupMutations([repository('one')], new Set(['one']), 'action', 'fast')).toEqual([
-      { id: 'one', body: { executionMode: 'action', confirmActionDisabled: false, reviewEnabled: false } },
+  it('requests a fresh server-side workflow check when a blocked repository is selected', () => {
+    const blocked = { ...repository('blocked'), hostedAutomationBlocked: true };
+    expect(repositorySetupMutations([blocked], new Set(['blocked']), 'fast')).toEqual([
+      { id: 'blocked', body: { reviewEnabled: true, reviewPreset: 'fast' } },
     ]);
   });
 
-  it('provisions every newly accessible repository as unresolved and disabled', () => {
-    expect(initialRepositorySettings(false)).toEqual({ executionMode: 'unresolved', actionDetected: false, reviewEnabled: false });
-    expect(initialRepositorySettings(true)).toEqual({ executionMode: 'unresolved', actionDetected: true, reviewEnabled: false });
+  it('provisions every newly accessible repository as cloud-only and disabled', () => {
+    expect(initialRepositorySettings()).toEqual({ reviewEnabled: false });
   });
 });

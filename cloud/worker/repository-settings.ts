@@ -1,3 +1,3 @@
-export function initialRepositorySettings(actionDetected: boolean): { executionMode: 'unresolved'; actionDetected: boolean; reviewEnabled: false } {
-  return { executionMode: 'unresolved', actionDetected, reviewEnabled: false };
+export function initialRepositorySettings(): { reviewEnabled: false } {
+  return { reviewEnabled: false };
 }
