@@ -139,18 +139,17 @@ function authorKind(author: JsonObject): 'human' | 'bot' | 'juror' {
   return string(author.type).toLowerCase() === 'bot' || login.endsWith('[bot]') ? 'bot' : 'human';
 }
 
-function eventSubject(eventName: string, payload: JsonObject, includePrBody: boolean): { kind: CorpusEventV1['subject']['kind']; value: JsonObject } | null {
+function eventSubject(eventName: string, payload: JsonObject): { kind: CorpusEventV1['subject']['kind']; value: JsonObject } | null {
   if (eventName === 'pull_request') return { kind: 'pull_request', value: object(payload.pull_request) };
   if (eventName === 'pull_request_review') return { kind: 'review', value: object(payload.review) };
   if (eventName === 'pull_request_review_comment') return { kind: 'review_comment', value: object(payload.comment) };
   if (eventName === 'issue_comment' && Object.keys(object(object(payload.issue).pull_request)).length) return { kind: 'conversation_comment', value: object(payload.comment) };
   if (eventName === 'pull_request_review_thread') return { kind: 'review_thread', value: object(payload.thread ?? payload.review_thread) };
-  if (eventName === 'pull_request' && !includePrBody) return null;
   return null;
 }
 
 export async function buildCorpusEvent(deliveryId: string, eventName: string, payload: JsonObject, context: CorpusContext): Promise<CorpusEventV1 | null> {
-  const subject = eventSubject(eventName, payload, context.includePrBody);
+  const subject = eventSubject(eventName, payload);
   if (!subject) return null;
   const pull = object(payload.pull_request);
   const issue = object(payload.issue);

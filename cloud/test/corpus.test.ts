@@ -32,4 +32,16 @@ describe('training corpus boundary', () => {
     const event = await buildCorpusEvent('delivery-2', 'issue_comment', { action: 'created', issue: { id: 1, number: 1 }, comment: { id: 2, body: 'not a PR' } }, { workspaceId: 'ws_1', repositoryId: 'repo_42', private: false, mode: 'shared', consentVersion: 'v1', retentionDays: 365, includePrBody: false, includePaths: false });
     expect(event).toBeNull();
   });
+
+  it('retains pull request metadata but omits the description unless separately enabled', async () => {
+    const event = await buildCorpusEvent('delivery-3', 'pull_request', {
+      action: 'opened',
+      repository: { id: 42 },
+      pull_request: { id: 7, number: 7, state: 'open', body: 'Private roadmap details', base: { sha: 'base' }, head: { sha: 'head' }, user: { id: 123, login: 'alice', type: 'User' } },
+    }, { workspaceId: 'ws_1', repositoryId: 'repo_42', private: true, mode: 'workspace_private', consentVersion: 'v1', retentionDays: 365, includePrBody: false, includePaths: false });
+
+    expect(event?.subject.kind).toBe('pull_request');
+    expect(event?.subject.body).toBeNull();
+    expect(event?.pullRequest).toMatchObject({ number: 7, baseSha: 'base', headSha: 'head' });
+  });
 });

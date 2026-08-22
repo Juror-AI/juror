@@ -90,16 +90,25 @@ async function responseJson<T>(response: Response, operation: string): Promise<T
 
 async function upsertSummary(env: Env, context: PublicationContext, body: string): Promise<void> {
   const path = repoPath(context.repository);
-  for (let page = 1; page <= 5; page += 1) {
-    const comments = await responseJson<Array<{ id: number; body?: string }>>(await githubApi(env, context.installationId, `/repos/${path}/issues/${context.prNumber}/comments?per_page=100&page=${page}`), 'comment listing');
+  const appSlug = env.GITHUB_APP_SLUG?.toLowerCase();
+  let foundForbidden = false;
+  for (let page = 1; page <= 100; page += 1) {
+    const comments = await responseJson<Array<{ id: number; body?: string; user?: { login?: string; type?: string }; performed_via_github_app?: { slug?: string } | null }>>(await githubApi(env, context.installationId, `/repos/${path}/issues/${context.prNumber}/comments?per_page=100&page=${page}`), 'comment listing');
     for (const comment of comments) {
       if (!comment.body?.includes(SUMMARY_MARKER)) continue;
+      const ownedByApp = Boolean(appSlug && (
+        comment.performed_via_github_app?.slug?.toLowerCase() === appSlug
+        || (comment.user?.type === 'Bot' && comment.user.login?.toLowerCase() === `${appSlug}[bot]`)
+      ));
+      if (!ownedByApp) continue;
       const updated = await githubApi(env, context.installationId, `/repos/${path}/issues/comments/${comment.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ body }) });
       if (updated.ok) return;
+      if (updated.status === 403) foundForbidden = true;
       if (updated.status !== 403 && updated.status !== 404) throw new Error(`GitHub summary update failed (${updated.status})`);
     }
     if (comments.length < 100) break;
   }
+  if (foundForbidden) return;
   await responseJson(await githubApi(env, context.installationId, `/repos/${path}/issues/${context.prNumber}/comments`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ body }) }), 'summary creation');
 }
 
