@@ -62,10 +62,12 @@ describe('webhook security boundaries', () => {
   it('limits Sandbox GitHub access to repository reads and git upload-pack', () => {
     const params = { runId: 'run_1', repository: 'Juror-AI/juror', prNumber: 74, revisionSha: 'a'.repeat(40), kind: 'review' as const };
     expect(sandboxGithubRequestAllowed(new Request('https://api.github.com/repos/Juror-AI/juror/pulls/74'), params)).toBe(true);
+    expect(sandboxGithubRequestAllowed(new Request('https://api.github.com/repos/Juror-AI/juror/issues/74/comments?per_page=100&page=1'), params)).toBe(true);
     expect(sandboxGithubRequestAllowed(new Request(`https://api.github.com/repos/Juror-AI/juror/compare/${'a'.repeat(40)}...${'b'.repeat(40)}`), params)).toBe(true);
     expect(sandboxGithubRequestAllowed(new Request('https://github.com/Juror-AI/juror.git/info/refs?service=git-upload-pack'), params)).toBe(true);
     expect(sandboxGithubRequestAllowed(new Request('https://github.com/Juror-AI/juror.git/git-upload-pack', { method: 'POST' }), params)).toBe(true);
     expect(sandboxGithubRequestAllowed(new Request('https://api.github.com/repos/Juror-AI/juror/issues/74/comments', { method: 'POST' }), params)).toBe(false);
+    expect(sandboxGithubRequestAllowed(new Request('https://api.github.com/repos/Juror-AI/juror/issues/74/comments?page=1'), params)).toBe(false);
     expect(sandboxGithubRequestAllowed(new Request('https://api.github.com/repos/other/repo/pulls/74'), params)).toBe(false);
     expect(sandboxGithubRequestAllowed(new Request('https://api.github.com/user'), params)).toBe(false);
   });

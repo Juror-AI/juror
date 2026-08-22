@@ -22,6 +22,11 @@ export function sandboxGithubRequestAllowed(request: Request, params: SandboxRun
   if (url.hostname !== 'api.github.com' || method !== 'GET') return false;
   const prefix = `/repos/${repositoryPath}`;
   if (url.pathname === `${prefix}/pulls/${params.prNumber}`) return url.search === '';
+  if (url.pathname === `${prefix}/issues/${params.prNumber}/comments`) {
+    return url.searchParams.size === 2
+      && url.searchParams.get('per_page') === '100'
+      && /^\d+$/.test(url.searchParams.get('page') ?? '');
+  }
   const commit = url.pathname.startsWith(`${prefix}/commits/`) ? url.pathname.slice(`${prefix}/commits/`.length) : '';
   if (/^[0-9a-f]{40}$/i.test(commit)) return url.search === '';
   const comparison = url.pathname.startsWith(`${prefix}/compare/`) ? url.pathname.slice(`${prefix}/compare/`.length) : '';
