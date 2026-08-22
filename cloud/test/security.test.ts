@@ -49,6 +49,7 @@ describe('webhook security boundaries', () => {
     expect(workflows).toContain("NODE_EXTRA_CA_CERTS: '/etc/cloudflare/certs/cloudflare-containers-ca.crt'");
     expect(workflows).toContain("model_providers.juror_openai_https.supports_websockets=false");
     expect(workflows).toContain("node /opt/juror/cloud/runner-live.mjs");
+    expect(workflows).toContain("exec /usr/local/bin/codewhale");
     expect(workflows).toContain("replace(/(?:sk|fw|gh[opsu])-");
     expect(workflows).toContain("PATH: '/tmp/juror-bin:/usr/local/bin:/usr/bin:/bin'");
     expect(workflows).toContain('reviewerDiagnostics: string[]');

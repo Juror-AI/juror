@@ -34,6 +34,11 @@ child.once('close', (code, signal) => {
 });
 `;
 
+const CODEWHALE_CA_WRAPPER = `#!/bin/sh
+export NODE_EXTRA_CA_CERTS=/etc/cloudflare/certs/cloudflare-containers-ca.crt
+exec /usr/local/bin/codewhale "$@"
+`;
+
 interface HostedQaConfig {
   enabled: boolean;
   target: { strategy: 'staging-first'; environment: 'staging'; static_url: string; preview_fallback: false; wait_seconds: number };
@@ -207,7 +212,8 @@ async function executeInSandbox(env: Env, manifest: RunManifest): Promise<{ repo
     if (!prepare.success) throw new Error('Hosted runtime overlay directory could not be prepared');
     await sandbox.writeFile('/opt/juror/cloud/runner-live.mjs', hostedRunnerSource);
     await sandbox.writeFile('/tmp/juror-bin/codex', CODEX_HTTPS_WRAPPER);
-    const seal = await sandbox.exec('chmod 0555 /opt/juror/cloud/runner-live.mjs /tmp/juror-bin/codex');
+    await sandbox.writeFile('/tmp/juror-bin/codewhale', CODEWHALE_CA_WRAPPER);
+    const seal = await sandbox.exec('chmod 0555 /opt/juror/cloud/runner-live.mjs /tmp/juror-bin/codex /tmp/juror-bin/codewhale');
     if (!seal.success) throw new Error('Hosted runtime overlay could not be sealed');
     await sandbox.writeFile('/tmp/juror-run.json', JSON.stringify(manifest));
     const result = await sandbox.exec(`/usr/bin/time -f '{"userSeconds":%U,"systemSeconds":%S}' -o /tmp/juror-resource.json node /opt/juror/cloud/runner-live.mjs /tmp/juror-run.json /tmp/juror-report.json`, {

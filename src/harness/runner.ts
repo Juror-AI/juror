@@ -46,7 +46,7 @@ export interface FanOutOptions {
  * Ambient variables a CLI genuinely needs to start. `NODE_OPTIONS` is deliberately
  * absent: it can inject a `--require` into every harness we spawn.
  */
-const ENV_ALLOWLIST = ['PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'LC_ALL', 'TMPDIR', 'TERM'];
+const ENV_ALLOWLIST = ['PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'LC_ALL', 'TMPDIR', 'TERM', 'NODE_EXTRA_CA_CERTS'];
 
 const ZERO_COST: CostBreakdown = { usd: 0, source: 'estimated', longContext: false };
 const UNKNOWN_COST: CostBreakdown = { usd: null, source: 'unknown', longContext: false };
