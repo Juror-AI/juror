@@ -108,7 +108,7 @@ async function upsertSummary(env: Env, context: PublicationContext, body: string
     }
     if (comments.length < 100) break;
   }
-  if (foundForbidden) return;
+  if (foundForbidden) throw new Error('GitHub summary update failed (403)');
   await responseJson(await githubApi(env, context.installationId, `/repos/${path}/issues/${context.prNumber}/comments`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ body }) }), 'summary creation');
 }
 

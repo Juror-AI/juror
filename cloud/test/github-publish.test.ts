@@ -75,7 +75,7 @@ describe('hosted GitHub publication', () => {
       DB: { prepare: () => ({ bind: () => ({ first: async () => ({ repository: 'octo/example', pr_number: 7, revision_sha: 'head-sha', github_installation_id: 12 }) }) }) },
     } as unknown as Env;
 
-    await expect(publishHostedReview(env, 'run_1', report())).resolves.toEqual({ published: true, stale: false });
+    await expect(publishHostedReview(env, 'run_1', report())).rejects.toThrow('GitHub summary update failed (403)');
 
     expect(githubApi.mock.calls.some((call) => String(call[2]).endsWith('/issues/7/comments') && call[3]?.method === 'POST')).toBe(false);
   });

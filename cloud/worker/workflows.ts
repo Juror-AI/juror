@@ -244,6 +244,7 @@ abstract class HostedWorkflowBase extends WorkflowEntrypoint<Env, HostedWorkflow
 
   async run(event: Readonly<WorkflowEvent<HostedWorkflowParams>>, step: WorkflowStep): Promise<void> {
     const runId = event.payload.runId;
+    let publicationFailed = false;
     try {
       const manifest = await step.do('load safe run manifest', () => loadManifest(this.env, runId));
       if (manifest.kind !== this.kind) throw new Error('Workflow kind mismatch');
@@ -280,6 +281,7 @@ abstract class HostedWorkflowBase extends WorkflowEntrypoint<Env, HostedWorkflow
             return publishHostedReview(this.env, runId, JSON.parse(execution.reportJson) as HostedReviewReportV1);
           });
         } catch {
+          publicationFailed = true;
           await appendRunEvent(this.env, runId, 'publishing', 'warning', 'The review is available in Juror Cloud, but GitHub publication failed.');
         }
       }
@@ -296,10 +298,10 @@ abstract class HostedWorkflowBase extends WorkflowEntrypoint<Env, HostedWorkflow
         const started = await this.env.DB.prepare('SELECT started_at FROM run WHERE id = ?').bind(runId).first<{ started_at: string | null }>();
         const duration = started?.started_at ? Date.now() - new Date(started.started_at).getTime() : execution.durationMs;
         const outcome = settlement.outcome;
-        const status = outcome === 'infrastructure_error' ? 'failed' : outcome === 'cancelled' ? 'cancelled' : outcome === 'passed' || outcome === 'no_testable_surface' || outcome === 'completed' ? 'succeeded' : 'warning';
+        const status = outcome === 'infrastructure_error' ? 'failed' : outcome === 'cancelled' ? 'cancelled' : publicationFailed ? 'warning' : outcome === 'passed' || outcome === 'no_testable_surface' || outcome === 'completed' ? 'succeeded' : 'warning';
         const phase = status === 'failed' ? 'failed' : status === 'cancelled' ? 'cancelled' : 'completed';
         const update = await this.env.DB.prepare(`UPDATE run SET status = ?, phase = ?, outcome = ?, reserved_micro_usd = 0, completed_at = ?, duration_ms = ?, updated_at = ? WHERE id = ? AND status != 'cancelled'`).bind(status, phase, outcome, now, duration, now, runId).run();
-        if (update.meta.changes) await appendRunEvent(this.env, runId, phase, status === 'warning' ? 'warning' : status, settlement.reservationExceeded ? 'Actual operator cost exceeded the admitted maximum; the run was not billed.' : status === 'succeeded' ? 'Run completed.' : `Run completed with outcome: ${outcome}.`, { durationMs: duration });
+        if (update.meta.changes) await appendRunEvent(this.env, runId, phase, status === 'warning' ? 'warning' : status, settlement.reservationExceeded ? 'Actual operator cost exceeded the admitted maximum; the run was not billed.' : publicationFailed ? 'Run completed, but GitHub publication needs attention.' : status === 'succeeded' ? 'Run completed.' : `Run completed with outcome: ${outcome}.`, { durationMs: duration });
         return { completed: Boolean(update.meta.changes) };
       });
       if (this.kind === 'qa') try {
