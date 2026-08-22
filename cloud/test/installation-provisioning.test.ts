@@ -10,6 +10,7 @@ interface DatabaseState {
   repositories: Set<string>;
   settings: Set<string>;
   detected: Map<string, number>;
+  owners?: Map<number, string>;
 }
 
 function fakeEnv(state: DatabaseState): Env {
@@ -20,6 +21,10 @@ function fakeEnv(state: DatabaseState): Env {
       first: async () => {
         if (sql.startsWith('SELECT 1 AS deleted')) return null;
         if (sql.startsWith('SELECT id FROM workspace')) return { id: 'ws_12' };
+        if (sql.startsWith('SELECT workspace_id FROM repository')) {
+          const workspaceId = state.owners?.get(Number(parameters[0]));
+          return workspaceId ? { workspace_id: workspaceId } : null;
+        }
         if (sql.startsWith('SELECT action_detected')) return state.settings.has(String(parameters[0])) ? { action_detected: state.detected.get(String(parameters[0])) ?? 0 } : null;
         throw new Error(`Unexpected first(): ${sql}`);
       },
@@ -60,6 +65,20 @@ describe('installation provisioning recovery', () => {
     expect(state.settings).toEqual(new Set(['repo_101', 'repo_102']));
     expect(state.detected).toEqual(new Map([['repo_101', 0], ['repo_102', 1]]));
     expect(githubApi).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects a repository already bound to a different workspace', async () => {
+    const state: DatabaseState = { repositories: new Set(['repo_101']), settings: new Set(['repo_101']), detected: new Map(), owners: new Map([[101, 'ws_other']]) };
+
+    await expect(provisionInstallation(fakeEnv(state), {
+      installation: { id: 12, account: { login: 'octo', type: 'User' }, permissions: {}, repository_selection: 'selected' },
+      repositories: [
+        { id: 101, name: 'alpha', full_name: 'octo/alpha', private: true, archived: false, default_branch: 'main', owner: { login: 'octo' } },
+      ],
+    })).rejects.toThrow('Repository is already bound to another workspace');
+
+    expect(githubApi).not.toHaveBeenCalled();
+    expect(state.settings).toEqual(new Set(['repo_101']));
   });
 
   it('detects the root Juror review Action and keeps hosted automation blocked', async () => {

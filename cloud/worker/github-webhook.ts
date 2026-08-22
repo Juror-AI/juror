@@ -11,6 +11,12 @@ type JsonObject = Record<string, any>;
 function id(prefix: string, value: string | number): string { return `${prefix}_${value}`; }
 function now(): string { return new Date().toISOString(); }
 
+export const BILLING_READMISSION_SQL = `UPDATE run SET status = 'queued', phase = 'queued', outcome = NULL, pull_request_id = ?, reserved_micro_usd = ?, updated_at = ? WHERE id = ? AND workspace_id = ? AND repository_id = ? AND status = 'blocked' AND (phase = 'billing' OR outcome = 'provider_configuration')
+  AND EXISTS (SELECT 1 FROM repository readmission_repository WHERE readmission_repository.id = ? AND readmission_repository.workspace_id = ? AND readmission_repository.github_access_state = 'active')
+  AND EXISTS (SELECT 1 FROM workspace readmission_workspace WHERE readmission_workspace.id = ?
+    AND ? <= readmission_workspace.monthly_cap_micro_usd - COALESCE((SELECT SUM(billable_micro_usd) FROM usage_ledger WHERE workspace_id = readmission_workspace.id AND created_at >= ?), 0) - COALESCE((SELECT SUM(reserved_micro_usd) FROM run WHERE workspace_id = readmission_workspace.id AND status IN ('queued','running')), 0)
+    AND (readmission_workspace.trial_remaining_micro_usd >= ? OR (readmission_workspace.billing_state = 'active' AND EXISTS (SELECT 1 FROM stripe_customer sc WHERE sc.workspace_id = readmission_workspace.id AND sc.payment_state = 'active'))))`;
+
 async function detectJurorWorkflowAtRef(env: Env, installationId: number, fullName: string, ref?: string): Promise<boolean | null> {
   try {
     const refQuery = ref ? `?ref=${encodeURIComponent(ref)}` : '';
@@ -65,6 +71,8 @@ async function upsertRepository(env: Env, installationId: number, repository: Js
   if (!workspace) throw new Error('Installation has no workspace');
   const repositoryId = id('repo', repository.id);
   const timestamp = now();
+  const existingOwner = await env.DB.prepare('SELECT workspace_id FROM repository WHERE github_repository_id = ?').bind(repository.id).first<{ workspace_id: string }>();
+  if (existingOwner && existingOwner.workspace_id !== workspace.id) throw new Error('Repository is already bound to another workspace');
   await env.DB.prepare(`INSERT INTO repository (id, workspace_id, github_repository_id, owner, name, full_name, default_branch, is_private, archived, github_access_state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?) ON CONFLICT(github_repository_id) DO UPDATE SET owner = excluded.owner, name = excluded.name, full_name = excluded.full_name, default_branch = excluded.default_branch, is_private = excluded.is_private, archived = excluded.archived, github_access_state = CASE WHEN ? = 1 THEN 'active' ELSE repository.github_access_state END, updated_at = excluded.updated_at`)
     .bind(repositoryId, workspace.id, repository.id, repository.owner.login, repository.name, repository.full_name, repository.default_branch ?? 'main', repository.private ? 1 : 0, repository.archived ? 1 : 0, timestamp, timestamp, Number(reactivate)).run();
   const currentSettings = await env.DB.prepare('SELECT action_detected FROM repository_settings WHERE repository_id = ?')
@@ -143,7 +151,7 @@ export async function createRun(env: Env, input: { kind: 'review' | 'qa'; identi
   const commitment = await currentCommitment(env, input.workspaceId);
   const decision = canReserveWithinCap({ capMicroUsd: commitment.cap, consumedMicroUsd: commitment.consumed, reservedMicroUsd: commitment.reserved, estimateMicroUsd: estimate });
   const paymentAllowed = commitment.trialRemaining >= estimate || commitment.billingReady;
-  const runId = id('run', crypto.randomUUID());
+  let runId = id('run', crypto.randomUUID());
   const timestamp = now();
   const periodStart = new Date(); periodStart.setUTCDate(1); periodStart.setUTCHours(0, 0, 0, 0);
   const reservation = await env.DB.prepare(`INSERT OR IGNORE INTO run (id, identity, workspace_id, repository_id, pull_request_id, kind, status, phase, pr_number, revision_sha, reserved_micro_usd, created_at, updated_at)
@@ -154,12 +162,20 @@ export async function createRun(env: Env, input: { kind: 'review' | 'qa'; identi
     .bind(runId, input.identity, input.repositoryId, input.pullRequestId, input.kind, input.prNumber, input.sha, estimate, timestamp, timestamp, input.workspaceId, input.repositoryId, estimate, periodStart.toISOString(), estimate).run();
   let allowed = Boolean(reservation.meta.changes);
   if (!allowed) {
-    const duplicate = await env.DB.prepare('SELECT id FROM run WHERE identity = ?').bind(input.identity).first();
-    if (duplicate) return null;
-    const blocked = await env.DB.prepare(`INSERT OR IGNORE INTO run (id, identity, workspace_id, repository_id, pull_request_id, kind, status, phase, pr_number, revision_sha, reserved_micro_usd, created_at, updated_at)
-      SELECT ?, ?, ?, blocked_repository.id, ?, ?, 'blocked', 'billing', ?, ?, 0, ?, ? FROM repository blocked_repository WHERE blocked_repository.id = ? AND blocked_repository.workspace_id = ? AND blocked_repository.github_access_state = 'active'`)
-      .bind(runId, input.identity, input.workspaceId, input.pullRequestId, input.kind, input.prNumber, input.sha, timestamp, timestamp, input.repositoryId, input.workspaceId).run();
-    if (!blocked.meta.changes) return null;
+    const duplicate = await env.DB.prepare('SELECT id, status, phase, outcome FROM run WHERE identity = ? AND workspace_id = ? AND repository_id = ?').bind(input.identity, input.workspaceId, input.repositoryId).first<{ id: string; status: string; phase: string; outcome: string | null }>();
+    if (duplicate) {
+      if (duplicate.status !== 'blocked' || (duplicate.phase !== 'billing' && duplicate.outcome !== 'provider_configuration')) return null;
+      const readmitted = await env.DB.prepare(BILLING_READMISSION_SQL)
+        .bind(input.pullRequestId, estimate, timestamp, duplicate.id, input.workspaceId, input.repositoryId, input.repositoryId, input.workspaceId, input.workspaceId, estimate, periodStart.toISOString(), estimate).run();
+      if (!readmitted.meta.changes) return duplicate.id;
+      runId = duplicate.id;
+      allowed = true;
+    } else {
+      const blocked = await env.DB.prepare(`INSERT OR IGNORE INTO run (id, identity, workspace_id, repository_id, pull_request_id, kind, status, phase, pr_number, revision_sha, reserved_micro_usd, created_at, updated_at)
+        SELECT ?, ?, ?, blocked_repository.id, ?, ?, 'blocked', 'billing', ?, ?, 0, ?, ? FROM repository blocked_repository WHERE blocked_repository.id = ? AND blocked_repository.workspace_id = ? AND blocked_repository.github_access_state = 'active'`)
+        .bind(runId, input.identity, input.workspaceId, input.pullRequestId, input.kind, input.prNumber, input.sha, timestamp, timestamp, input.repositoryId, input.workspaceId).run();
+      if (!blocked.meta.changes) return null;
+    }
   }
   await appendRunEvent(env, runId, allowed ? 'queued' : 'billing', allowed ? 'pending' : 'warning', allowed ? 'Run accepted and capacity reserved.' : !paymentAllowed ? 'Trial credit cannot cover the reservation. Add a payment method to continue.' : !decision.allowed ? 'Monthly cap cannot reserve this run.' : 'Concurrent usage consumed the remaining monthly capacity.');
   if (!allowed) return runId;
@@ -355,8 +371,11 @@ export async function processGitHubWebhook(env: Env, eventName: string, payload:
   }
   if (eventName === 'installation_repositories') {
     for (const repository of payload.repositories_added ?? []) await upsertRepository(env, payload.installation.id, repository, true, true);
-    const removedIds = (payload.repositories_removed ?? []).map((repository: JsonObject) => id('repo', repository.id));
-    for (const repository of payload.repositories_removed ?? []) await env.DB.prepare(`UPDATE repository SET github_access_state = 'removed', updated_at = ? WHERE github_repository_id = ?`).bind(now(), repository.id).run();
+    const removedIds: string[] = [];
+    for (const repository of payload.repositories_removed ?? []) {
+      const removed = await env.DB.prepare(`UPDATE repository SET github_access_state = 'removed', updated_at = ? WHERE github_repository_id = ? AND workspace_id = (SELECT workspace_id FROM installation WHERE github_installation_id = ?)`).bind(now(), repository.id, payload.installation.id).run();
+      if (removed.meta.changes) removedIds.push(id('repo', repository.id));
+    }
     await cancelRunsForAccessRevocation(env, removedIds);
     return;
   }

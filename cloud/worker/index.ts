@@ -439,7 +439,8 @@ app.post('/api/repositories/:id/review-now', async (c) => {
     .bind(pullRequestId, repository.id, pr.id, pr.number, pr.state, pr.base.sha, pr.head.sha, pr.head.repo?.fork ? 1 : 0, pr.user.login, pr.html_url, pr.created_at, timestamp).run();
   const runId = await createRun(c.env, { kind: 'review', identity: `review:${repository.github_repository_id}:${pr.number}:${pr.head.sha}`, workspaceId: principal.workspaceId, repositoryId: repository.id, pullRequestId, prNumber: pr.number, sha: pr.head.sha });
   if (!runId) return c.json({ error: { code: 'already_reviewed', message: 'This pull request revision already has a run.' }, requestId: c.get('requestId') }, 409);
-  return envelope(c, { id: runId, status: 'queued' });
+  const created = await c.env.DB.prepare('SELECT status FROM run WHERE id = ? AND workspace_id = ?').bind(runId, principal.workspaceId).first<{ status: string }>();
+  return envelope(c, { id: runId, status: created?.status ?? 'queued' });
 });
 
 app.patch('/api/repositories/:id', async (c) => {
