@@ -180,7 +180,7 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
   return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, '0')).join('');
 }
 
-async function executeInSandbox(env: Env, manifest: RunManifest): Promise<{ reportJson: string; durationMs: number; cpuTimeMs: number; evidenceBytes: number }> {
+async function executeInSandbox(env: Env, manifest: RunManifest): Promise<{ reportJson: string; durationMs: number; cpuTimeMs: number; evidenceBytes: number; reviewerDiagnostics: string[] }> {
   const namespace = manifest.kind === 'review' ? env.ReviewSandbox : env.QaSandbox;
   const sandbox = getSandbox(namespace, manifest.runId.toLowerCase(), { normalizeId: true, keepAlive: true });
   const started = Date.now();
@@ -278,7 +278,7 @@ async function executeInSandbox(env: Env, manifest: RunManifest): Promise<{ repo
       report.artifacts = report.artifacts.slice(0, 50);
       reportJson = JSON.stringify(report);
     }
-    return { reportJson, durationMs: Date.now() - started, cpuTimeMs: Math.round(cpuSeconds * 1000), evidenceBytes };
+    return { reportJson, durationMs: Date.now() - started, cpuTimeMs: Math.round(cpuSeconds * 1000), evidenceBytes, reviewerDiagnostics };
   } finally {
     await sandbox.destroy();
   }
