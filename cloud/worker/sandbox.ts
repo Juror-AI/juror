@@ -17,7 +17,7 @@ export class JurorSandbox extends Sandbox<Env> {
 export class ReviewSandbox extends JurorSandbox {}
 export class QaSandbox extends JurorSandbox {}
 
-JurorSandbox.outboundHandlers = {
+const jurorOutboundHandlers = {
   authenticatedGithub: async (request: Request, env: Env, context: OutboundHandlerContext<SandboxRunParams>) => {
     if (!sandboxGithubRequestAllowed(request, context.params)) return new Response('GitHub operation denied', { status: 403 });
     const runId = context.params.runId;
@@ -76,3 +76,10 @@ JurorSandbox.outboundHandlers = {
     return fetch(next);
   },
 };
+
+// @cloudflare/containers stores named outbound handlers by the exact runtime
+// class name. They are not inherited from JurorSandbox's registry entry, so
+// every Durable Object class referenced by wrangler must register them.
+JurorSandbox.outboundHandlers = jurorOutboundHandlers;
+ReviewSandbox.outboundHandlers = jurorOutboundHandlers;
+QaSandbox.outboundHandlers = jurorOutboundHandlers;

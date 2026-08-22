@@ -43,6 +43,8 @@ describe('webhook security boundaries', () => {
     expect(sandbox).toContain('enableInternet = false');
     expect(sandbox).toContain("next.headers.set('authorization'");
     expect(sandbox).toContain("redirect: 'manual'");
+    expect(sandbox).toContain('ReviewSandbox.outboundHandlers = jurorOutboundHandlers');
+    expect(sandbox).toContain('QaSandbox.outboundHandlers = jurorOutboundHandlers');
     expect(workflows).toContain("GITHUB_TOKEN: 'injected-by-juror-outbound-handler'");
     expect(workflows).toMatch(/finally\s*{\s*await sandbox\.destroy\(\)/);
     expect(runner).toContain('x-access-token:${githubPlaceholder}@github.com');
