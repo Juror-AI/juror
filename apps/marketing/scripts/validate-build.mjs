@@ -105,7 +105,7 @@ for (const record of records) {
       }
     }
     for (const href of [...html.matchAll(/href="([^"]+)"/g)].map((match) => match[1])) {
-      if (!href.startsWith('/') || href.startsWith('/_astro/') || href.includes('.')) continue;
+      if (!href.startsWith('/') || href.startsWith('/_astro/')) continue;
       const normalizedHref = `${decodeURIComponent(href.split(/[?#]/)[0]).replace(/\/$/, '')}/`;
       if (!publicRoutePaths.has(normalizedHref)) fail(`${routePath} links to an unknown internal route: ${href}`);
     }
@@ -127,6 +127,12 @@ for (const asset of ['sitemap.xml', 'sitemap-en.xml', 'sitemap-de.xml', 'sitemap
 const sitemap = readFileSync(join(distRoot, 'sitemap.xml'), 'utf8');
 if (!sitemap.includes('<sitemapindex')) fail('sitemap.xml is not a sitemap index');
 const robots = readFileSync(join(distRoot, 'robots.txt'), 'utf8');
+const redirects = readFileSync(join(distRoot, '_redirects'), 'utf8');
+if (!redirects.includes('/ /en/ 301')) fail('root redirect must permanently consolidate to the English default locale');
+for (const [locale] of localeColumns) {
+  const childSitemap = readFileSync(join(distRoot, `sitemap-${locale}.xml`), 'utf8');
+  if (childSitemap.includes('<lastmod>')) fail(`${locale} sitemap publishes an unverified static lastmod date`);
+}
 if (releaseReady) {
   if (!robots.includes('Allow: /') || !robots.includes(`Sitemap: ${siteOrigin}/sitemap.xml`)) fail('approved release must allow crawling and reference its sitemap');
   for (const [locale] of localeColumns) {
