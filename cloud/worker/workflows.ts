@@ -10,6 +10,29 @@ import { decryptWorkspaceSecret } from './crypto';
 import { publishHostedReview } from './github-publish';
 import { sanitizeQaReportForRetention } from './report-redaction';
 import { qaTargetHosts } from './sandbox-network';
+import hostedRunnerSource from '../runner/runner.mjs';
+
+const CODEX_HTTPS_WRAPPER = `#!/usr/bin/env node
+import { spawn } from 'node:child_process';
+
+const child = spawn('/usr/local/bin/codex', [
+  '-c', 'model_provider="juror_openai_https"',
+  '-c', 'model_providers.juror_openai_https.name="OpenAI"',
+  '-c', 'model_providers.juror_openai_https.wire_api="responses"',
+  '-c', 'model_providers.juror_openai_https.requires_openai_auth=true',
+  '-c', 'model_providers.juror_openai_https.supports_websockets=false',
+  '-c', 'features.apps=false',
+  ...process.argv.slice(2),
+], { stdio: 'inherit', env: process.env });
+child.once('error', (error) => {
+  console.error('could not start the pinned Codex CLI:', error.message);
+  process.exit(1);
+});
+child.once('close', (code, signal) => {
+  if (signal) process.kill(process.pid, signal);
+  else process.exit(code ?? 1);
+});
+`;
 
 interface HostedQaConfig {
   enabled: boolean;
@@ -177,10 +200,20 @@ async function executeInSandbox(env: Env, manifest: RunManifest): Promise<{ repo
       'api.moonshot.ai': 'authenticatedProvider',
       ...Object.fromEntries(targetHosts.map((host) => [host, { method: 'qaTarget', params: manifest }])),
     });
+    // Production pins immutable Sandbox images. Overlay the small trusted controller
+    // artifacts on every run so Worker and runner releases cannot drift while a new image
+    // rolls out. The wrapper also forces older bundled Juror builds onto HTTPS Responses.
+    const prepare = await sandbox.exec('mkdir -p /tmp/juror-bin && chmod 0700 /tmp/juror-bin');
+    if (!prepare.success) throw new Error('Hosted runtime overlay directory could not be prepared');
+    await sandbox.writeFile('/tmp/juror-runner.mjs', hostedRunnerSource);
+    await sandbox.writeFile('/tmp/juror-bin/codex', CODEX_HTTPS_WRAPPER);
+    const seal = await sandbox.exec('chmod 0555 /tmp/juror-runner.mjs /tmp/juror-bin/codex');
+    if (!seal.success) throw new Error('Hosted runtime overlay could not be sealed');
     await sandbox.writeFile('/tmp/juror-run.json', JSON.stringify(manifest));
-    const result = await sandbox.exec(`/usr/bin/time -f '{"userSeconds":%U,"systemSeconds":%S}' -o /tmp/juror-resource.json node /opt/juror/cloud/runner.mjs /tmp/juror-run.json /tmp/juror-report.json`, {
+    const result = await sandbox.exec(`/usr/bin/time -f '{"userSeconds":%U,"systemSeconds":%S}' -o /tmp/juror-resource.json node /tmp/juror-runner.mjs /tmp/juror-run.json /tmp/juror-report.json`, {
       timeout: manifest.kind === 'review' ? 30 * 60 * 1000 : 20 * 60 * 1000,
       env: {
+        PATH: '/tmp/juror-bin:/usr/local/bin:/usr/bin:/bin',
         GITHUB_TOKEN: 'injected-by-juror-outbound-handler',
         JUROR_OPENAI_API_KEY: 'injected-by-juror-outbound-handler',
         JUROR_ANTHROPIC_API_KEY: 'injected-by-juror-outbound-handler',
