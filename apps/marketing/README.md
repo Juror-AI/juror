@@ -13,16 +13,15 @@ npm test
 ```
 
 The default `SITE_ORIGIN` is the reserved `https://juror.example`, which intentionally keeps
-the generated site out of search. Builds remain non-indexable unless all three production gates
-are true: the origin is a final `https` custom domain, `CONTENT_RELEASE=approved`, and every
-manifest record is marked `approved_*`. This makes a preview or partially edited route manifest
-safe to deploy without competing with production in search.
+local and preview builds out of search. The production launch records are marked
+`approved_launch`; an indexable build still requires the final custom-domain origin and
+`CONTENT_RELEASE=approved`. This keeps non-production deployments from competing with the
+public site in search.
 
-After native editorial, technical, legal, and evidence reviews are recorded in the manifest,
-use the production command:
+Use the production command for the indexable `juror.dev` release:
 
 ```bash
-SITE_ORIGIN=https://www.example.com CONTENT_RELEASE=approved npm run deploy
+SITE_ORIGIN=https://juror.dev CONTENT_RELEASE=approved npm run deploy
 ```
 
 `npm run deploy` blocks on the release gate, static-route checks, and then invokes Workers Static
