@@ -380,7 +380,7 @@ export function OnboardingPage() {
     if (!response.ok || !payload.data) throw new Error(payload.error?.message ?? 'Repositories are not ready yet.');
     setRepositories(payload.data);
     const alreadyEnabled = payload.data.filter((repository) => repository.reviewEnabled && !repository.hostedAutomationBlocked).map((repository) => repository.id);
-    setSelectedRepositories(new Set(alreadyEnabled.length ? alreadyEnabled : payload.data.filter((repository) => repository.connectionStatus !== 'suspended' && !repository.hostedAutomationBlocked).map((repository) => repository.id)));
+    setSelectedRepositories(new Set(alreadyEnabled));
   };
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);

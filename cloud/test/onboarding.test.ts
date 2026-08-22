@@ -13,9 +13,20 @@ const repository = (id: string): RepositoryItem => ({
 describe('onboarding repository selection', () => {
   it('enables hosted reviews only for repositories the user selected', () => {
     expect(repositorySetupMutations([repository('one'), repository('two')], new Set(['two']), 'starter')).toEqual([
-      { id: 'one', body: { reviewEnabled: false } },
       { id: 'two', body: { reviewEnabled: true, reviewPreset: 'starter' } },
     ]);
+  });
+
+  it('only disables repositories whose hosted review setting actually changed', () => {
+    const enabled = { ...repository('enabled'), reviewEnabled: true };
+    expect(repositorySetupMutations([enabled, repository('disabled')], new Set(), 'fast')).toEqual([
+      { id: 'enabled', body: { reviewEnabled: false } },
+    ]);
+  });
+
+  it('does not write an already enabled repository when its preset is unchanged', () => {
+    const enabled = { ...repository('enabled'), reviewEnabled: true, reviewPreset: 'fast' as const };
+    expect(repositorySetupMutations([enabled], new Set(['enabled']), 'fast')).toEqual([]);
   });
 
   it('requests a fresh server-side workflow check when a blocked repository is selected', () => {

@@ -12,10 +12,50 @@ function base64UrlBytes(bytes: Uint8Array): string {
   return btoa(binary).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
 }
 
+function decodeBase64(value: string): Uint8Array {
+  const binary = atob(value);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+function derLength(length: number): Uint8Array {
+  if (length < 0x80) return Uint8Array.of(length);
+  const bytes: number[] = [];
+  for (let remaining = length; remaining > 0; remaining >>>= 8) bytes.unshift(remaining & 0xff);
+  return Uint8Array.of(0x80 | bytes.length, ...bytes);
+}
+
+function derValue(tag: number, value: Uint8Array): Uint8Array {
+  const length = derLength(value.length);
+  const encoded = new Uint8Array(1 + length.length + value.length);
+  encoded[0] = tag;
+  encoded.set(length, 1);
+  encoded.set(value, 1 + length.length);
+  return encoded;
+}
+
+function concatenate(...parts: Uint8Array[]): Uint8Array {
+  const result = new Uint8Array(parts.reduce((total, part) => total + part.length, 0));
+  let offset = 0;
+  for (const part of parts) { result.set(part, offset); offset += part.length; }
+  return result;
+}
+
+/** Wrap GitHub's PKCS#1 RSA key in the PKCS#8 PrivateKeyInfo Web Crypto imports. */
+function pkcs1ToPkcs8(pkcs1: Uint8Array): Uint8Array {
+  const version = Uint8Array.of(0x02, 0x01, 0x00);
+  const rsaAlgorithm = Uint8Array.of(0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00);
+  return derValue(0x30, concatenate(version, rsaAlgorithm, derValue(0x04, pkcs1)));
+}
+
 function decodePem(pem: string): ArrayBuffer {
-  const normalized = pem.replace(/\\n/g, '\n').replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\s/g, '');
-  const binary = atob(normalized);
-  return Uint8Array.from(binary, (character) => character.charCodeAt(0)).buffer;
+  const normalized = pem.replace(/\\r/g, '').replace(/\\n/g, '\n');
+  const pkcs1 = normalized.match(/-----BEGIN RSA PRIVATE KEY-----([\s\S]*?)-----END RSA PRIVATE KEY-----/);
+  const pkcs8 = normalized.match(/-----BEGIN PRIVATE KEY-----([\s\S]*?)-----END PRIVATE KEY-----/);
+  const match = pkcs1 ?? pkcs8;
+  if (!match?.[1]) throw new Error('GitHub App private key must be PKCS#1 or PKCS#8 PEM');
+  const decoded = decodeBase64(match[1].replace(/\s/g, ''));
+  const bytes = pkcs1 ? pkcs1ToPkcs8(decoded) : decoded;
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
 
 export async function createGitHubAppJwt(env: Env): Promise<string> {

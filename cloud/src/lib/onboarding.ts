@@ -9,8 +9,15 @@ interface RepositorySetupMutation {
 }
 
 export function repositorySetupMutations(repositories: RepositoryItem[], selectedIds: ReadonlySet<string>, preset: ReviewPresetId): RepositorySetupMutation[] {
-  return repositories.map((repository) => {
-    if (!selectedIds.has(repository.id)) return { id: repository.id, body: { reviewEnabled: false } };
-    return { id: repository.id, body: { reviewEnabled: true, reviewPreset: preset } };
-  });
+  const mutations: RepositorySetupMutation[] = [];
+  for (const repository of repositories) {
+    const selected = selectedIds.has(repository.id);
+    if (!selected) {
+      if (repository.reviewEnabled) mutations.push({ id: repository.id, body: { reviewEnabled: false } });
+      continue;
+    }
+    if (repository.reviewEnabled && repository.reviewPreset === preset && !repository.hostedAutomationBlocked) continue;
+    mutations.push({ id: repository.id, body: { reviewEnabled: true, reviewPreset: preset } });
+  }
+  return mutations;
 }

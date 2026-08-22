@@ -42,7 +42,12 @@ export async function apiMutation<T>(path: string, method: 'POST' | 'PATCH', bod
     headers: body === undefined ? undefined : { 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  const payload = await response.json() as ApiEnvelope<T> & { error?: { message?: string } };
-  if (!response.ok) throw new Error(payload.error?.message ?? `Request failed (${response.status})`);
+  const isJson = response.headers.get('content-type')?.includes('application/json');
+  const payload = isJson ? await response.json() as ApiEnvelope<T> & { error?: { message?: string } } : null;
+  if (!response.ok) {
+    if (response.status === 401) throw new Error('Sign in to continue.');
+    throw new Error(payload?.error?.message ?? `Request failed (${response.status})`);
+  }
+  if (!payload) throw new Error('The server returned an invalid response.');
   return payload.data;
 }

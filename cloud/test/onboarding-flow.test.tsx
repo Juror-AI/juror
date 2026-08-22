@@ -84,15 +84,13 @@ describe('new-user hosted review onboarding', () => {
     expect(screen.queryByRole('radio')).not.toBeInTheDocument();
     expect(await screen.findByRole('checkbox', { name: /octo\/gamma/i })).not.toBeChecked();
     const beta = await screen.findByRole('checkbox', { name: /octo\/beta/i });
-    expect(beta).toBeChecked();
+    expect(beta).not.toBeChecked();
     fireEvent.click(beta);
     fireEvent.click(screen.getByRole('button', { name: 'Enable reviews for 1' }));
 
     expect(await screen.findByRole('heading', { name: 'Automated reviews are ready' })).toBeInTheDocument();
     expect(mutations).toEqual([
-      { path: '/api/repositories/repo_101', body: { reviewEnabled: true, reviewPreset: 'starter' } },
-      { path: '/api/repositories/repo_102', body: { reviewEnabled: false } },
-      { path: '/api/repositories/repo_103', body: { reviewEnabled: false } },
+      { path: '/api/repositories/repo_102', body: { reviewEnabled: true, reviewPreset: 'starter' } },
     ]);
     await waitFor(() => expect(request).toHaveBeenCalledWith('/api/onboarding/claim-installation', expect.objectContaining({
       method: 'POST',
