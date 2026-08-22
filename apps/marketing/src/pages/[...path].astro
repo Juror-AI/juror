@@ -1,0 +1,18 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PageSections from '../components/PageSections.astro';
+import { LOCALES, PAGES, type Locale } from '../lib/site';
+
+export function getStaticPaths() {
+  return PAGES.flatMap((page) => LOCALES.map((locale) => ({
+    params: { path: page.paths[locale.code].slice(1) },
+    props: { page, locale: locale.code },
+  })));
+}
+
+const { page, locale } = Astro.props as { page: (typeof PAGES)[number]; locale: Locale };
+---
+
+<BaseLayout {page} {locale}>
+  <PageSections {page} {locale} />
+</BaseLayout>
