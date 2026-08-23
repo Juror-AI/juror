@@ -628,3 +628,137 @@ kbd { padding: 2px 5px; border: 1px solid #333; border-radius: 4px; color: #888;
 .legal-page h2 { margin: 32px 0 10px; font-size: 15px; font-weight: 540; }
 .legal-page p { color: #a1a1a1; font-size: 11px; line-height: 1.8; }
 .legal-page article a { color: #ededed; }
+
+/* Readable density: operational text should be comfortable at the browser's
+   default zoom, rather than requiring users to enlarge the whole app. */
+:root { font-size: 16px; }
+body { font-size: 15px; line-height: 1.5; }
+
+.workspace-switch { min-height: 42px; }
+.workspace-switch strong, .sidebar-search, .nav-item, .repo-switch, .topbar-title { font-size: 14px; }
+.workspace-switch small, .nav-item em, .workspace-avatar, .user-avatar, .user-menu span { font-size: 11px; }
+.sidebar-search, .nav-item { min-height: 40px; }
+.trial-card > div:first-child, .agent-label { font-size: 13px; }
+.trial-card p { font-size: 12px; line-height: 1.55; }
+.trial-action { min-height: 34px; font-size: 12px; }
+.search-trigger { min-height: 38px; font-size: 13px; }
+kbd { font-size: 11px; }
+
+.topbar { height: 68px; }
+.button-default { min-height: 40px; padding-inline: 15px; font-size: 14px; }
+.button-small { min-height: 34px; padding-inline: 11px; font-size: 12px; }
+.button-icon { width: 36px; height: 36px; }
+.badge, .live-badge { padding: 4px 8px; font-size: 11.5px; }
+.severity { width: 32px; height: 26px; font-size: 11px; }
+
+.page-header h1, .detail-header h1 { font-size: 26px; }
+.page-header p { font-size: 14px; line-height: 1.55; }
+.eyebrow { font-size: 11px; }
+.metric-card { grid-template-columns: 38px 1fr; min-height: 114px; }
+.metric-card span { font-size: 13px; }
+.metric-card strong { font-size: 24px; }
+.metric-card small, .metric-card > a, .section-header p, .text-link { font-size: 12px; }
+.section-header h2, .card-heading h2 { font-size: 15px; }
+
+.attention-row { min-height: 70px; grid-template-columns: 32px minmax(220px, 1fr) auto 116px 18px; }
+.attention-copy strong, .live-run-main strong { font-size: 13.5px; }
+.attention-copy span, .live-run-main div > span, .live-meta { font-size: 12px; }
+.evidence-pill, .live-phase > span { font-size: 11px; }
+.live-phase strong { font-size: 12.5px; }
+
+.data-table { font-size: 13px; }
+.data-table th { height: 40px; font-size: 11px; }
+.data-table td { height: 64px; padding-inline: 14px; }
+.run-cell strong, .finding-title strong { font-size: 13px; }
+.run-cell small, .table-sub, .finding-title small { font-size: 11px; }
+.icon-link { width: 30px; height: 30px; }
+.segmented button { min-height: 32px; font-size: 12px; }
+.segmented em { font-size: 10px; }
+.search-field, .select-button { height: 40px; font-size: 12px; }
+.search-field input { font-size: 13px; }
+.assignee i { width: 24px; height: 24px; font-size: 10px; }
+.empty-state strong { font-size: 14px; }
+.empty-state p, .back-link { font-size: 13px; }
+
+.detail-header h1 { font-size: 24px; }
+.detail-meta { font-size: 12px; }
+.detail-side h3, .usage-grid .card h3 { font-size: 14px; }
+.finding-explanation > p, .claim-row p, .side-note { font-size: 14px; line-height: 1.65; }
+.claim-row > span { width: 24px; height: 24px; font-size: 10px; }
+.claim-row strong, .side-stat { font-size: 12.5px; }
+.side-stat strong { font-size: 21px; }
+.verification strong, .revision-proof strong, .timeline-mini strong { font-size: 12px; }
+.verification p, .timeline-mini small, .verification span, .revision-proof code { font-size: 11px; }
+
+.diff-file-header, .diff-code { font-size: 12px; }
+.diff-line { grid-template-columns: 44px 44px 1fr; min-height: 25px; line-height: 25px; }
+.line-number { font-size: 10px; }
+.inline-comment { width: min(620px, calc(100% - 100px)); margin-left: 96px; }
+.inline-comment-head { font-size: 11px; }
+.inline-comment > strong { font-size: 13px; }
+.inline-comment > p, .expected-grid p { font-size: 12px; }
+.expected-grid span, .attempt-block > div:first-child { font-size: 11px; }
+.browser-address { font-size: 10px; }
+.browser-frame figcaption { font-size: 11px; }
+
+.phase-event strong, .warning-callout strong, .notice strong { font-size: 13px; }
+.phase-event p, .warning-callout p, .notice p { font-size: 12px; }
+.phase-event > span { font-size: 11px; }
+.terminal-head, .terminal-row, .terminal-row code { font-size: 12px; }
+.terminal-row { grid-template-columns: 76px 16px 1fr; min-height: 28px; }
+.side-list > div, .receipt-list > div { font-size: 12px; }
+
+.repository-identity strong, .config-columns h3 { font-size: 14px; }
+.repo-avatar { font-size: 11px; }
+.repository-identity > div > span, .repo-setting > span, .repo-setting > strong { font-size: 11.5px; }
+.toggle-row strong { font-size: 12.5px; }
+.toggle-row small, .field-hint, .advanced-setting p, .config-footer { font-size: 12px; }
+.field > span, .disclosure, .check-field, .advanced-setting summary, .setup-error { font-size: 12.5px; }
+.field input, .field select, .field textarea { font-size: 14px; }
+.field input, .field select, .input-prefix { height: 40px; }
+.input-prefix span { font-size: 13px; }
+.advanced-setting summary span { font-size: 11px; }
+
+.usage-hero-head span, .usage-projection, .billing-status strong { font-size: 12.5px; }
+.usage-hero-head strong { font-size: 27px; }
+.usage-hero-head small, .cap-labels, .billing-status p { font-size: 11.5px; }
+.cost-donut strong { font-size: 16px; }
+.cost-donut span, .cost-legend > div, .fee-note p { font-size: 11.5px; }
+.settings-nav a { padding: 9px 10px; font-size: 13px; }
+.member-row > div strong { font-size: 12.5px; }
+.member-row > div span, .retention-grid span, .retention-grid small { font-size: 11px; }
+.retention-grid strong { font-size: 14px; }
+
+.command-input input { font-size: 14px; }
+.command-group > span { font-size: 11px; }
+.command-group button, .command-empty { font-size: 13px; }
+.auth-copy > p { font-size: 14px; }
+.oauth-button { min-height: 48px; font-size: 14px; }
+.auth-separator span, .auth-actions > p { font-size: 11px; }
+.preview-top, .preview-receipt, .auth-quote p { font-size: 12px; }
+.preview-finding strong { font-size: 13px; }
+.preview-finding p { font-size: 11.5px; }
+.onboarding-top > span, .onboarding-top button, .onboarding-status { font-size: 12px; }
+.onboarding-shell aside > p, .onboarding-card > p { font-size: 13.5px; }
+.onboarding-shell li { min-height: 52px; font-size: 13px; }
+.onboarding-shell li i { width: 24px; height: 24px; font-size: 10px; }
+.trial-promise strong, .permission-note strong { font-size: 12px; }
+.trial-promise p, .permission-note p { font-size: 11.5px; }
+.permission-list > div { font-size: 12.5px; }
+.onboarding-shell li span, .installation-choice strong { font-size: 13px; }
+.onboarding-shell li small, .installation-choice span, .repository-picker small { font-size: 11px; }
+.repository-picker strong, .defaults-card > div, .trial-balance > div { font-size: 12.5px; }
+.trial-balance p { font-size: 11.5px; }
+
+.route-loading { font-size: 14px; }
+.training-mode strong, .corpus-stat strong { font-size: 12.5px; }
+.training-mode small, .corpus-stat span, .training-repositories > span, .training-repositories label, .training-repositories small, .check-row, .consent-row { font-size: 11.5px; }
+.legal-page > header > a:last-child { font-size: 13px; }
+.legal-page h2 { font-size: 18px; }
+.legal-page p { font-size: 15px; }
+
+@media (max-width: 600px) {
+  .attention-row { grid-template-columns: 32px 1fr 18px; }
+  .data-table td { padding-inline: 12px; }
+  .inline-comment { width: calc(100% - 32px); margin-left: 16px; }
+}
