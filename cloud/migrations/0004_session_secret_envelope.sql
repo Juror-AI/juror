@@ -1,0 +1,1 @@
+ALTER TABLE repository_settings ADD COLUMN qa_session_bootstrap_ciphertext TEXT;

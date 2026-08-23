@@ -148,8 +148,19 @@ export const codexHarness: Harness = {
       if (value) shellEnv[name] = value;
     }
     const config = [
+      // Keep provider traffic on ordinary HTTPS. Hosted sandboxes inject the API key in
+      // their outbound HTTPS handler, which cannot proxy Codex's WebSocket upgrade.
+      'model_provider = "juror_openai_https"',
       `default_permissions = ${JSON.stringify(PERMISSION_PROFILE)}`,
       'approval_policy = "never"',
+      'web_search = "disabled"',
+      '',
+      '[model_providers.juror_openai_https]',
+      // Codex selects first-party OpenAI behavior from this exact provider name.
+      'name = "OpenAI"',
+      'wire_api = "responses"',
+      'requires_openai_auth = true',
+      'supports_websockets = false',
       '',
       '[shell_environment_policy]',
       'inherit = "none"',
@@ -159,6 +170,7 @@ export const codexHarness: Harness = {
       ...Object.entries(shellEnv).map(([name, value]) => `${name} = ${JSON.stringify(value)}`),
       '',
       '[features]',
+      'apps = false',
       'shell_snapshot = false',
       '',
       `[permissions.${PERMISSION_PROFILE}.filesystem]`,

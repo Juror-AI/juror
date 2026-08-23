@@ -1,0 +1,103 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "juror-cloud",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-08-21",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "routes": [
+    { "pattern": "app.juror.dev", "custom_domain": true }
+  ],
+  "rules": [
+    { "type": "Text", "globs": ["**/runner/runner.mjs"], "fallthrough": true }
+  ],
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "juror-cloud",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "REPORTS",
+      "bucket_name": "juror-cloud-private-reports"
+    },
+    {
+      "binding": "CORPUS",
+      "bucket_name": "juror-cloud-training-corpus"
+    }
+  ],
+  "queues": {
+    "producers": [
+      { "binding": "WEBHOOK_QUEUE", "queue": "juror-cloud-webhooks" },
+      { "binding": "CORPUS_QUEUE", "queue": "juror-cloud-corpus" }
+    ],
+    "consumers": [
+      { "queue": "juror-cloud-webhooks", "max_batch_size": 10, "max_batch_timeout": 5, "max_retries": 8, "dead_letter_queue": "juror-cloud-webhooks-dlq" },
+      { "queue": "juror-cloud-corpus", "max_batch_size": 100, "max_batch_timeout": 30, "max_retries": 8, "dead_letter_queue": "juror-cloud-corpus-dlq" }
+    ]
+  },
+  "workflows": [
+    {
+      "name": "juror-review-workflow",
+      "binding": "REVIEW_WORKFLOW",
+      "class_name": "HostedReviewWorkflow"
+    },
+    {
+      "name": "juror-qa-workflow",
+      "binding": "QA_WORKFLOW",
+      "class_name": "HostedQaWorkflow"
+    }
+  ],
+  "containers": [
+    {
+      "class_name": "ReviewSandbox",
+      "image": "../Dockerfile.cloud",
+      "instance_type": "standard-3",
+      "max_instances": 25
+    },
+    {
+      "class_name": "QaSandbox",
+      "image": "../Dockerfile.cloud",
+      "instance_type": "standard-2",
+      "max_instances": 10
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "ReviewSandbox", "class_name": "ReviewSandbox" },
+      { "name": "QaSandbox", "class_name": "QaSandbox" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["ReviewSandbox", "QaSandbox"] }
+  ],
+  "vars": {
+    "APP_URL": "http://localhost:8787",
+    "LEGACY_APP_URL": "",
+    "GITHUB_APP_SLUG": "unconfigured",
+    "CORPUS_CONSENT_VERSION": "2026-08-21.v1",
+    "DEV_BYPASS_AUTH": "false",
+    "STRIPE_METER_EVENT_NAME": "juror_cloud_usage_micro_usd",
+    "STRIPE_PRICE_ID": "price_replace_before_deploy",
+    "CONTAINER_CPU_MICRO_USD_PER_VCPU_SECOND": "20",
+    "CONTAINER_MEMORY_MICRO_USD_PER_GIB_SECOND": "2.5",
+    "CONTAINER_DISK_MICRO_USD_PER_GB_SECOND": "0.07",
+    "R2_STORAGE_MICRO_USD_PER_GB_MONTH": "0"
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "triggers": {
+    "crons": ["*/5 * * * *", "17 3 * * *"]
+  }
+}

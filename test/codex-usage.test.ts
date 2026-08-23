@@ -77,6 +77,10 @@ describe('codex parse() — canonical usage', () => {
     expect(config).toContain('[shell_environment_policy]');
     expect(config).toContain('inherit = "none"');
     expect(config).toContain('shell_snapshot = false');
+    expect(config).toContain('model_provider = "juror_openai_https"');
+    expect(config).toContain('wire_api = "responses"');
+    expect(config).toContain('supports_websockets = false');
+    expect(config).toContain('apps = false');
     rmSync(context.scratchDir, { recursive: true, force: true });
   });
 

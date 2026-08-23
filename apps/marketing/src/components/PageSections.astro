@@ -3,6 +3,7 @@ import {
   COPY,
   EDITORIAL_DATE,
   GITHUB_REPOSITORY,
+  JUROR_CLOUD_SIGN_IN,
   PAGE_BY_ID,
   PAGE_SPECS,
   actionWorkflow,
@@ -25,7 +26,6 @@ interface Props {
 
 const { page, locale } = Astro.props;
 const copy = COPY[locale];
-const spec = PAGE_SPECS[page.id];
 const children = childrenOf(page);
 const related = relatedPages(page);
 const focus = localizedFocus(page, locale);
@@ -72,7 +72,7 @@ const comparisonText = isEnglish ? {
           <h1>{pageTitle(page, locale)}</h1>
           <p class="hero-summary">{localizedSummary(page, locale)}</p>
           <div class="cta-group">
-            <a class="button button-solid button-large" href={GITHUB_REPOSITORY}>{copy.install}</a>
+            <a class="button button-solid button-large" href={JUROR_CLOUD_SIGN_IN}>{copy.cloud}</a>
             <a class="button button-outline button-large" href="#review-artifact">{homeText.reviewCta}</a>
           </div>
           <p class="micro-proof">{homeText.microProof}</p>
@@ -122,7 +122,7 @@ const comparisonText = isEnglish ? {
     <section class="section section-tint">
       <div class="site-shell config-strip"><div><p class="eyebrow">{homeText.startEyebrow}</p><h2>{homeText.startTitle}</h2><p>{homeText.startBody}</p></div><pre><code>{actionWorkflow()}</code></pre></div>
     </section>
-    <section class="section site-shell final-cta"><p class="eyebrow">{homeText.finalEyebrow}</p><h2>{homeText.finalTitle}</h2><div class="cta-group"><a class="button button-solid button-large" href={GITHUB_REPOSITORY}>{copy.install}</a><a class="button button-outline button-large" href={pagePath(docsPage, locale)}>{copy.docs}</a></div></section>
+    <section class="section site-shell final-cta"><p class="eyebrow">{homeText.finalEyebrow}</p><h2>{homeText.finalTitle}</h2><div class="cta-group"><a class="button button-solid button-large" href={JUROR_CLOUD_SIGN_IN}>{copy.cloud}</a><a class="button button-outline button-large" href={pagePath(docsPage, locale)}>{copy.docs}</a></div></section>
   </>
 ) : (
   <>
@@ -133,7 +133,7 @@ const comparisonText = isEnglish ? {
         <h1>{pageTitle(page, locale)}</h1>
         <p class="hero-summary">{localizedSummary(page, locale)}</p>
         <div class="cta-group">
-          <a class="button button-solid" href={page.contentType === 'docs' ? pagePath(docsPage, locale) : GITHUB_REPOSITORY}>{page.contentType === 'docs' ? copy.docs : isEnglish ? spec.cta ?? copy.install : copy.install}</a>
+          <a class="button button-solid" href={page.contentType === 'docs' ? pagePath(docsPage, locale) : JUROR_CLOUD_SIGN_IN}>{page.contentType === 'docs' ? copy.docs : copy.cloud}</a>
           <a class="button button-outline" href={pagePath(actionPage, locale)}>{copy.implementation}</a>
         </div>
         {!isIndexable(page) && <p class="editorial-notice" role="note">{copy.editorialNotice}</p>}

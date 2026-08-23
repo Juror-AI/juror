@@ -26,6 +26,28 @@ jobs:
       - run: npm test
       - run: npm run check:secure-refs
 
+  cloud:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: cloud/package-lock.json
+      - run: npm ci --no-audit --no-fund
+        working-directory: cloud
+      - run: npm run types:check
+        working-directory: cloud
+      - run: npm run typecheck
+        working-directory: cloud
+      - run: npm run typecheck:worker
+        working-directory: cloud
+      - run: npm test
+        working-directory: cloud
+      - run: npm run build
+        working-directory: cloud
+
   marketing:
     runs-on: runnerhut-linux-1vcpu
     defaults:
