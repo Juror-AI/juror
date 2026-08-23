@@ -5,7 +5,7 @@ import { HTTPException } from 'hono/http-exception';
 import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
 import { encryptWorkspaceSecret } from './crypto';
-import { createAuth, requireAdmin, requirePrincipal } from './auth';
+import { appOrigins, createAuth, requireAdmin, requirePrincipal } from './auth';
 import type { Env, Principal } from './env';
 import { appendRunEvent } from './events';
 import { createRun, detectJurorWorkflow, provisionInstallation } from './github-webhook';
@@ -42,13 +42,13 @@ app.use('/api/*', async (c, next) => {
   const providerWebhook = c.req.path === '/api/github/webhooks' || c.req.path === '/api/stripe/webhooks';
   const origin = c.req.header('origin');
   const localOrigin = origin === 'http://localhost:4173' && c.env.APP_URL.startsWith('http://localhost:');
-  if (mutating && !providerWebhook && origin && origin !== c.env.APP_URL && !localOrigin) {
+  if (mutating && !providerWebhook && origin && !appOrigins(c.env).includes(origin) && !localOrigin) {
     return c.json({ error: { code: 'origin_forbidden', message: 'The request origin is not trusted.' }, requestId: c.get('requestId') }, 403);
   }
   await next();
 });
-app.use('/api/auth/*', cors({ origin: (origin, c) => origin === c.env.APP_URL || (c.env.APP_URL.startsWith('http://localhost:') && origin === 'http://localhost:4173') ? origin : c.env.APP_URL, credentials: true }));
-app.all('/api/auth/*', (c) => createAuth(c.env).handler(c.req.raw));
+app.use('/api/auth/*', cors({ origin: (origin, c) => appOrigins(c.env).includes(origin) || (c.env.APP_URL.startsWith('http://localhost:') && origin === 'http://localhost:4173') ? origin : c.env.APP_URL, credentials: true }));
+app.all('/api/auth/*', (c) => createAuth(c.env, c.req.url).handler(c.req.raw));
 
 app.onError((error, c) => {
   if (error instanceof HTTPException) return error.getResponse();
@@ -82,7 +82,7 @@ app.get('/api/readiness', (c) => {
 });
 
 async function authSession(c: Context<AppEnv>) {
-  const session = await createAuth(c.env).api.getSession({ headers: c.req.raw.headers });
+  const session = await createAuth(c.env, c.req.url).api.getSession({ headers: c.req.raw.headers });
   if (!session) throw new HTTPException(401, { message: 'Unauthorized' });
   return session;
 }

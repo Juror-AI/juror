@@ -34,6 +34,7 @@ export interface HostedWorkflowParams {
 type GeneratedBindings = Omit<CloudflareBindings, 'WEBHOOK_QUEUE' | 'CORPUS_QUEUE'>;
 
 export type Env = GeneratedBindings & {
+  LEGACY_APP_URL: string;
   WEBHOOK_QUEUE: Queue<QueueMessage>;
   CORPUS_QUEUE: Queue<QueueMessage>;
   BETTER_AUTH_SECRET: string;

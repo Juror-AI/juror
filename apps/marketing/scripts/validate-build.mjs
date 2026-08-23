@@ -8,7 +8,7 @@ const distRoot = join(appRoot, 'dist');
 const manifestPath = join(repositoryRoot, 'docs', 'seo-route-manifest.csv');
 const siteOrigin = (process.env.SITE_ORIGIN || 'https://juror.example').replace(/\/$/, '');
 const contentRelease = process.env.CONTENT_RELEASE || 'draft';
-const cloudSignInUrl = 'https://juror-cloud.cderinbogaz-5f3.workers.dev/signin';
+const cloudSignInUrl = 'https://app.juror.dev/signin';
 const localeColumns = [
   ['en', 'en_path', 'en'],
   ['de', 'de_path', 'de'],

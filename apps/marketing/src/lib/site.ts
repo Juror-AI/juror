@@ -106,7 +106,7 @@ export const IS_INDEXABLE_RELEASE = CONTENT_RELEASE === 'approved'
   && ALL_PAGES_APPROVED;
 export const EDITORIAL_DATE = '2026-08-22';
 export const GITHUB_REPOSITORY = 'https://github.com/Juror-AI/juror';
-export const JUROR_CLOUD_SIGN_IN = 'https://juror-cloud.cderinbogaz-5f3.workers.dev/signin';
+export const JUROR_CLOUD_SIGN_IN = 'https://app.juror.dev/signin';
 export const ACTION_SHA = '3eb0c88ce1931dd6227d554b2d9707ee4bca123f';
 
 export const PAGE_SPECS: Record<string, PageSpec> = {

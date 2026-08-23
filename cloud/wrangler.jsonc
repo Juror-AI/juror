@@ -4,6 +4,10 @@
   "main": "worker/index.ts",
   "compatibility_date": "2026-08-21",
   "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "routes": [
+    { "pattern": "app.juror.dev", "custom_domain": true }
+  ],
   "rules": [
     { "type": "Text", "globs": ["**/runner/runner.mjs"], "fallthrough": true }
   ],
@@ -78,6 +82,7 @@
   ],
   "vars": {
     "APP_URL": "http://localhost:8787",
+    "LEGACY_APP_URL": "",
     "GITHUB_APP_SLUG": "unconfigured",
     "CORPUS_CONSENT_VERSION": "2026-08-21.v1",
     "DEV_BYPASS_AUTH": "false",

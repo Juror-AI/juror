@@ -3,13 +3,25 @@ import type { Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import type { Env, Principal } from './env';
 
-export function createAuth(env: Env) {
+type AppOriginEnv = { APP_URL: string; LEGACY_APP_URL?: string };
+
+export function appOrigins(env: AppOriginEnv): string[] {
+  return [...new Set([env.APP_URL, env.LEGACY_APP_URL].filter((value): value is string => Boolean(value)))];
+}
+
+export function requestAppOrigin(env: AppOriginEnv, requestUrl?: string): string {
+  if (!requestUrl) return env.APP_URL;
+  const origin = new URL(requestUrl).origin;
+  return appOrigins(env).includes(origin) ? origin : env.APP_URL;
+}
+
+export function createAuth(env: Env, requestUrl?: string) {
   const githubConfigured = Boolean(env.GITHUB_OAUTH_CLIENT_ID && env.GITHUB_OAUTH_CLIENT_SECRET);
   const googleConfigured = Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
-  const trustedOrigins = [env.APP_URL, ...(env.APP_URL.startsWith('http://localhost:') ? ['http://localhost:4173'] : [])];
+  const trustedOrigins = [...appOrigins(env), ...(env.APP_URL.startsWith('http://localhost:') ? ['http://localhost:4173'] : [])];
   return betterAuth({
     appName: 'Juror Cloud',
-    baseURL: env.APP_URL,
+    baseURL: requestAppOrigin(env, requestUrl),
     secret: env.BETTER_AUTH_SECRET,
     database: env.DB,
     trustedOrigins,
@@ -43,7 +55,7 @@ export async function requirePrincipal(c: Context<{ Bindings: Env; Variables: { 
     return { userId: 'development-user', workspaceId: c.req.header('x-juror-workspace') ?? workspace?.id ?? 'development-workspace', role: 'admin' };
   }
 
-  const session = await createAuth(c.env).api.getSession({ headers: c.req.raw.headers });
+  const session = await createAuth(c.env, c.req.url).api.getSession({ headers: c.req.raw.headers });
   if (!session) throw new HTTPException(401, { message: 'Unauthorized' });
   const requestedWorkspace = c.req.header('x-juror-workspace');
   const membership = requestedWorkspace
