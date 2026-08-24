@@ -5,6 +5,7 @@ import { appendRunEvent } from './events';
 import { githubApi } from './github';
 import { missingProviderSecrets } from './providers';
 import { initialRepositorySettings } from './repository-settings';
+import { destroyRunSandbox } from './workflows';
 
 type JsonObject = Record<string, any>;
 
@@ -203,7 +204,10 @@ export async function createRun(env: Env, input: { kind: 'review' | 'qa'; identi
   // throughout creation and a final check closes the remaining create/terminate gap.
   try {
     const cancelled = await env.DB.prepare(`SELECT 1 AS cancelled FROM run WHERE id = ? AND status = 'cancelled'`).bind(runId).first();
-    if (cancelled) await (await workflow.get(workflowId)).terminate();
+    if (cancelled) {
+      await destroyRunSandbox(env, input.kind, runId);
+      await (await workflow.get(workflowId)).terminate();
+    }
   } catch { /* The Workflow itself also refuses a cancelled row before Sandbox admission. */ }
   return runId;
 }
@@ -212,6 +216,7 @@ async function cancelOlderReviews(env: Env, repositoryId: string, prNumber: numb
   const rows = await env.DB.prepare(`SELECT id, workflow_instance_id FROM run WHERE repository_id = ? AND pr_number = ? AND kind = 'review' AND revision_sha != ? AND status IN ('queued', 'running')`)
     .bind(repositoryId, prNumber, headSha).all<{ id: string; workflow_instance_id: string | null }>();
   for (const row of rows.results) {
+    await destroyRunSandbox(env, 'review', row.id);
     if (row.workflow_instance_id) {
       try { await (await env.REVIEW_WORKFLOW.get(row.workflow_instance_id)).terminate(); } catch { /* The workflow may already be terminal. */ }
     }
@@ -237,6 +242,7 @@ async function cancelRunsForAccessRevocation(env: Env, repositoryIds: string[]):
         catch (error) { console.warn(JSON.stringify({ event: 'access_revocation_event_failed', runId: row.id, error: error instanceof Error ? error.message : String(error) })); }
       }
       if (!row.workflow_instance_id) continue;
+      await destroyRunSandbox(env, row.kind, row.id);
       const workflow = row.kind === 'review' ? env.REVIEW_WORKFLOW : env.QA_WORKFLOW;
       const instance = await workflow.get(row.workflow_instance_id);
       let clearWorkflowHandle = false;

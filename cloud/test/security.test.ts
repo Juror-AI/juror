@@ -53,6 +53,8 @@ describe('webhook security boundaries', () => {
     expect(workflows).toContain("replace(/(?:sk|fw|gh[opsu])-");
     expect(workflows).toContain("PATH: '/tmp/juror-bin:/usr/local/bin:/usr/bin:/bin'");
     expect(workflows).toContain('reviewerDiagnostics: string[]');
+    expect(workflows).toContain("sleepAfter: '40m'");
+    expect(workflows).not.toContain('keepAlive: true');
     expect(workflows).toMatch(/finally\s*{\s*await sandbox\.destroy\(\)/);
     expect(runner).toContain('x-access-token:${githubPlaceholder}@github.com');
     expect(runner).toContain('child.stdout.resume()');
