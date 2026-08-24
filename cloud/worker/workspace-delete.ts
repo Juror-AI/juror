@@ -1,5 +1,6 @@
 import type { Env } from './env';
 import { deleteWorkspaceCorpusObjects } from './corpus';
+import { destroyRunSandbox } from './workflows';
 
 async function deleteObjectKeys(bucket: R2Bucket, keys: string[]): Promise<void> {
   for (let index = 0; index < keys.length; index += 1000) await bucket.delete(keys.slice(index, index + 1000));
@@ -13,6 +14,7 @@ async function cancelWorkspaceRuns(env: Env, workspaceId: string): Promise<void>
   const active = await env.DB.prepare(`SELECT id, kind, workflow_instance_id FROM run WHERE workspace_id = ? AND workflow_instance_id IS NOT NULL AND (completed_at IS NULL OR status = 'cancelled')`)
     .bind(workspaceId).all<{ id: string; kind: 'review' | 'qa'; workflow_instance_id: string }>();
   for (const run of active.results) {
+    await destroyRunSandbox(env, run.kind, run.id);
     try {
       const workflow = run.kind === 'review' ? env.REVIEW_WORKFLOW : env.QA_WORKFLOW;
       await (await workflow.get(run.workflow_instance_id)).terminate();

@@ -165,6 +165,20 @@ const EVIDENCE_ROOT = '/tmp/juror-evidence/';
 const MAX_EVIDENCE_FILE_BYTES = 100 * 1024 * 1024;
 const MAX_EVIDENCE_TOTAL_BYTES = 300 * 1024 * 1024;
 
+/**
+ * Workflow termination can interrupt a running step before its `finally` block
+ * reaches the Sandbox. Call this from every external cancellation path so a
+ * cancelled run cannot retain a heartbeat-enabled container.
+ */
+export async function destroyRunSandbox(env: Env, kind: 'review' | 'qa', runId: string): Promise<void> {
+  const namespace = kind === 'review' ? env.ReviewSandbox : env.QaSandbox;
+  try {
+    await getSandbox(namespace, runId.toLowerCase(), { normalizeId: true }).destroy();
+  } catch (error) {
+    console.warn(JSON.stringify({ event: 'sandbox_cleanup_failed', runId, kind, error: error instanceof Error ? error.message : String(error) }));
+  }
+}
+
 function safeEvidenceContentType(kind: string, mimeType?: string): string {
   if (kind === 'screenshot') return 'image/png';
   if (kind === 'video') return 'video/webm';
@@ -187,7 +201,10 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 
 async function executeInSandbox(env: Env, manifest: RunManifest): Promise<{ reportJson: string; durationMs: number; cpuTimeMs: number; evidenceBytes: number; reviewerDiagnostics: string[] }> {
   const namespace = manifest.kind === 'review' ? env.ReviewSandbox : env.QaSandbox;
-  const sandbox = getSandbox(namespace, manifest.runId.toLowerCase(), { normalizeId: true, keepAlive: true });
+  // A review can run for up to 30 minutes. A finite inactivity timeout protects
+  // against a Worker or Workflow termination that prevents the finalizer below
+  // from running, unlike keepAlive which persists indefinitely.
+  const sandbox = getSandbox(namespace, manifest.runId.toLowerCase(), { normalizeId: true, sleepAfter: '40m' });
   const started = Date.now();
   try {
     const targetHosts = qaTargetHosts(manifest.kind, manifest.allowedOrigins);

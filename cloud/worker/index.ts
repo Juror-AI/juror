@@ -13,7 +13,7 @@ import { githubApi } from './github';
 import { discoverGitHubInstallations, installationProvisioningPayload } from './github-installations';
 import { createBillingPortal, createCheckout, verifyStripeSignature } from './stripe';
 import { verifyHmacHeader, createSignedToken, timingSafeEqual } from './crypto';
-import { enqueueNextRepositoryQa, sweepQueuedQaAdmissions } from './workflows';
+import { destroyRunSandbox, enqueueNextRepositoryQa, sweepQueuedQaAdmissions } from './workflows';
 import { corpusExportResponse, runCorpusRetention, type QueueMessage } from './corpus';
 import { processQueueBatch } from './queue';
 import { reconcileStripeMeterEvents } from './billing';
@@ -384,6 +384,7 @@ async function authorizeRun(c: Context<AppEnv>) {
 app.post('/api/runs/:id/cancel', async (c) => {
   const run = await authorizeRun(c);
   if (!['queued', 'running'].includes(run.status)) return c.json({ error: { code: 'not_cancellable', message: 'Run is already terminal' }, requestId: c.get('requestId') }, 409);
+  await destroyRunSandbox(c.env, run.kind, run.id);
   if (run.workflow_instance_id) {
     const workflow = run.kind === 'review' ? c.env.REVIEW_WORKFLOW : c.env.QA_WORKFLOW;
     try { await (await workflow.get(run.workflow_instance_id)).terminate(); } catch { /* Terminal races are resolved by the conditional update. */ }
