@@ -21,7 +21,7 @@ describe('post-merge QA configuration', () => {
         wait_seconds: 900,
       },
       auth: { session_bootstrap: null, browser_secret_headers: [], steps: [] },
-      sandbox: { allowed_origins: [], reset: null },
+      sandbox: { allowed_origins: [], interaction_policy: 'disabled', reset: null },
       limits: {
         max_scenarios: 6,
         max_browser_operations: 40,
@@ -159,6 +159,7 @@ qa:
           'https://api.example.test/',
           'https://app.example.test/',
         ],
+        interaction_policy: 'read_only',
         reset: {
           url: '/internal/qa/reset?scope=current',
           method: 'post',
@@ -201,6 +202,7 @@ qa:
       },
       sandbox: {
         allowed_origins: ['https://app.example.test', 'https://api.example.test'],
+        interaction_policy: 'read_only',
         reset: {
           url: '/internal/qa/reset?scope=current',
           method: 'POST',
@@ -615,6 +617,7 @@ qa:
           'javascript:alert(1)',
           'https://user:password@safe.example.test',
         ],
+        interaction_policy: 'anything_goes',
         reset: {
           url: 'file:///tmp/reset',
           method: 'GET',
@@ -649,6 +652,7 @@ qa:
       expect.stringContaining('qa.target.commit_probe'),
       expect.stringContaining('qa.auth.steps[0].path'),
       expect.stringContaining('qa.auth.steps[1]'),
+      expect.stringContaining('qa.sandbox.interaction_policy'),
       expect.stringContaining('qa.sandbox.reset: invalid URL or method'),
       expect.stringContaining('qa.limits.max_scenarios'),
       expect.stringContaining('qa.evidence.video'),

@@ -558,7 +558,12 @@ describe('QA planner prompt boundaries', () => {
     expect(prompt).toContain(`URL: ${liveTarget.url}`);
     expect(prompt).toContain('Preserve any non-root path in that target exactly');
     expect(prompt).toContain('as blind spots instead of inventing a visible-text checkpoint');
-    expect(prompt).toContain('does not make a change testable');
+    expect(prompt).toContain('current target, configuration, or action policy cannot exercise is blocked');
+    expect(prompt).toContain('submit the exact `testable` scenario');
+    expect(prompt).toContain('finish the scenario with status `blocked`');
+    expect(prompt).toContain('Use `no_testable_surface` only when there is no affected user-observable browser behavior');
+    expect(prompt).toContain('`qa_status.mutating_actions_allowed` is separately authoritative');
+    expect(prompt).toContain('blocks non-safe HTTP methods and outbound WebSocket messages');
   });
 });
 

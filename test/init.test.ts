@@ -222,6 +222,7 @@ describe('managed post-merge QA setup', () => {
     expect(block).toContain('browser_secret_headers: []');
     expect(block).toContain('allowed_origins: []');
     expect(block).toContain('reset: null');
+    expect(block).toContain('interaction_policy: disabled');
     expect(block).toContain('max_scenarios: 6');
     expect(block).toContain('max_browser_operations: 40');
     expect(block).toContain('timeout_seconds: 1200');

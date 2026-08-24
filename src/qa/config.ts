@@ -43,7 +43,7 @@ export function defaultQaConfig(): QaConfig {
       wait_seconds: 900,
     },
     auth: { session_bootstrap: null, browser_secret_headers: [], steps: [] },
-    sandbox: { allowed_origins: [], reset: null },
+    sandbox: { allowed_origins: [], interaction_policy: 'disabled', reset: null },
     limits: {
       max_scenarios: 6,
       max_browser_operations: 40,
@@ -436,7 +436,7 @@ function parseLocator(raw: unknown, at: string, problems: string[]): QaLocator |
 function applySandbox(config: QaConfig, raw: unknown, problems: string[]): void {
   const value = section(raw, 'qa.sandbox', problems);
   if (!value) return;
-  unknownKeys(value, ['allowed_origins', 'reset'], 'qa.sandbox', problems);
+  unknownKeys(value, ['allowed_origins', 'interaction_policy', 'reset'], 'qa.sandbox', problems);
   if ('allowed_origins' in value) {
     const rawOrigins = value['allowed_origins'];
     if (!Array.isArray(rawOrigins) || rawOrigins.length > 50) {
@@ -452,6 +452,16 @@ function applySandbox(config: QaConfig, raw: unknown, problems: string[]): void 
         if (!origins.includes(origin)) origins.push(origin);
       }
       config.sandbox.allowed_origins = origins;
+    }
+  }
+  if ('interaction_policy' in value) {
+    const policy = value['interaction_policy'];
+    if (policy === 'disabled' || policy === 'read_only') {
+      config.sandbox.interaction_policy = policy;
+    } else {
+      problems.push(
+        `qa.sandbox.interaction_policy: expected disabled or read_only, got ${format(policy)} — using ${config.sandbox.interaction_policy}`,
+      );
     }
   }
   if ('reset' in value) {

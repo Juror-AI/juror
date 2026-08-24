@@ -161,8 +161,12 @@ provenance before credential handoff. See the
 [post-merge QA quickstart](docs/2026-08-18-post-merge-qa-quickstart.md) for the fastest local loop,
 staging target setup, synthetic login credentials, and result meanings.
 
-With no trusted reset hook, QA intentionally runs navigation/read-only journeys only. Configure a
-dedicated synthetic tenant and `qa.sandbox.reset` to enable click, fill, press, select, and check.
+By default, a policy without a trusted reset hook runs navigation-only journeys. A change whose
+affected journey requires interaction is reported as blocked, not as having no browser surface.
+Reviewed policy can set `qa.sandbox.interaction_policy: read_only` to enable click, fill, press,
+select, and check while Juror blocks non-safe HTTP methods and outbound WebSocket messages after the
+first action. Persistent mutations still require a dedicated synthetic tenant and
+`qa.sandbox.reset`.
 Each checkpoint fixes its assertion kind and exact locator or URL matcher before the browser opens;
 authenticated or supplied-state scenarios always run a second sealed attempt, and the controller
 derives the result from its private ledger. The final report necessarily reveals one bounded

@@ -68,7 +68,7 @@ rpcTool(
 
 rpcTool(
   'qa_submit_plan',
-  'Submit the complete affected-only QA plan. Browser tools remain locked until this plan is valid.',
+  'Submit the complete affected-only QA plan. Browser tools remain locked until this plan is valid. Use no_testable_surface only when no affected user-observable browser surface exists; a real surface that policy cannot exercise needs a testable plan that becomes blocked during execution.',
   {
     schema_version: z.literal(1),
     impact_assessment: z.string().min(1).max(4000),
@@ -143,35 +143,35 @@ rpcTool(
 
 rpcTool(
   'browser_click',
-  'Click one element using a semantic locator. Requires qa_status.interactive_actions_allowed=true; otherwise never call this tool.',
+  'Click one element using a semantic locator. Requires qa_status.interactive_actions_allowed=true. When qa_status.mutating_actions_allowed=false, mutation must be none and controller network write barriers remain authoritative.',
   { ...locator, mutation: z.enum(['none', 'create', 'update', 'delete', 'upload']).default('none') },
   'click',
 );
 
 rpcTool(
   'browser_fill',
-  'Fill a non-secret value. Requires qa_status.interactive_actions_allowed=true; otherwise never call this tool.',
+  'Fill a non-secret value. Requires qa_status.interactive_actions_allowed=true. When qa_status.mutating_actions_allowed=false, mutation must be none and controller network write barriers remain authoritative.',
   { ...locator, value: z.string().max(20_000), mutation: z.enum(['none', 'create', 'update', 'delete', 'upload']).default('none') },
   'fill',
 );
 
 rpcTool(
   'browser_press',
-  'Press a key. Requires qa_status.interactive_actions_allowed=true; otherwise never call this tool.',
+  'Press a key. Requires qa_status.interactive_actions_allowed=true. When qa_status.mutating_actions_allowed=false, mutation must be none and controller network write barriers remain authoritative.',
   { ...locator, key: z.string().min(1).max(100), mutation: z.enum(['none', 'create', 'update', 'delete', 'upload']).default('none') },
   'press',
 );
 
 rpcTool(
   'browser_select',
-  'Select an option. Requires qa_status.interactive_actions_allowed=true; otherwise never call this tool.',
+  'Select an option using a semantic locator. Requires qa_status.interactive_actions_allowed=true. When qa_status.mutating_actions_allowed=false, mutation must be none and controller network write barriers remain authoritative.',
   { ...locator, value: z.string().optional(), option_label: z.string().optional(), mutation: z.enum(['none', 'create', 'update', 'delete', 'upload']).default('none') },
   'select',
 );
 
 rpcTool(
   'browser_check',
-  'Check or uncheck a box. Requires qa_status.interactive_actions_allowed=true; otherwise never call this tool.',
+  'Check or uncheck a box. Requires qa_status.interactive_actions_allowed=true. When qa_status.mutating_actions_allowed=false, mutation must be none and controller network write barriers remain authoritative.',
   { ...locator, checked: z.boolean().default(true), mutation: z.enum(['none', 'create', 'update', 'delete', 'upload']).default('none') },
   'check',
 );

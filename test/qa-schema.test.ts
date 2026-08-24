@@ -163,6 +163,14 @@ describe('parseQaPlan', () => {
       /must explain why no surface is testable/,
     );
 
+    const namedSurface = testablePlan() as Record<string, unknown>;
+    namedSurface['testability'] = 'no_testable_surface';
+    namedSurface['no_testable_surface_reason'] = 'The required browser action is unavailable.';
+    namedSurface['scenarios'] = [];
+    expect(() => parseQaPlan(namedSurface, { max_scenarios: 6 })).toThrow(
+      /surfaces.*must be empty when testability is no_testable_surface/,
+    );
+
     const noScenarios = testablePlan() as Record<string, unknown>;
     noScenarios['scenarios'] = [];
     expect(() => parseQaPlan(noScenarios, { max_scenarios: 6 })).toThrow(
@@ -173,11 +181,17 @@ describe('parseQaPlan', () => {
   it('returns the public TypeScript contract and publishes a closed JSON schema', () => {
     const parsed: QaPlan = parseQaPlan(testablePlan(), { max_scenarios: 6 });
     const planScenarios = QA_PLAN_JSON_SCHEMA.properties['scenarios'] as { maxItems: number };
+    const testabilityConstraint = QA_PLAN_JSON_SCHEMA.allOf?.[0] as {
+      then: { properties: { surfaces: { maxItems: number } } };
+      else: { properties: { surfaces: { minItems: number } } };
+    };
     const runOutcome = QA_RUN_RESULT_JSON_SCHEMA.properties['outcome'] as { enum: string[] };
     const runPlan = QA_RUN_RESULT_JSON_SCHEMA.properties['plan'];
     expect(parsed.schema_version).toBe(1);
     expect(QA_PLAN_JSON_SCHEMA.additionalProperties).toBe(false);
     expect(planScenarios.maxItems).toBe(6);
+    expect(testabilityConstraint.then.properties.surfaces.maxItems).toBe(0);
+    expect(testabilityConstraint.else.properties.surfaces.minItems).toBe(1);
     expect(QA_RUN_RESULT_JSON_SCHEMA.additionalProperties).toBe(false);
     expect(runOutcome.enum).toContain('product_issue');
     expect(QA_RUN_RESULT_JSON_SCHEMA.required).toEqual(expect.arrayContaining([

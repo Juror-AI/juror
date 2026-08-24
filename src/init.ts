@@ -332,6 +332,7 @@ export function renderQaConfigBlock(options: QaInitConfigOptions = {}): string {
     '    steps: []',
     '  sandbox:',
     ...allowedOrigins,
+    '    interaction_policy: disabled',
     '    reset: null',
     '  limits:',
     '    max_scenarios: 6',
@@ -611,11 +612,16 @@ export async function runInitCommand(options: InitCommandOptions): Promise<InitC
     } else {
       write(`QA target policy enabled for ${effectiveOrigins.length} exact browser origin(s).\n`);
       const resetConfigured = existingQaPolicyPreserved && config.qa.sandbox.reset !== null;
-      if (!resetConfigured) {
+      const readOnlyInteractionsConfigured = existingQaPolicyPreserved
+        && config.qa.sandbox.interaction_policy === 'read_only';
+      if (!resetConfigured && !readOnlyInteractionsConfigured) {
         write(
-          'QA starts in navigation/read-only mode. Configure a trusted qa.sandbox.reset hook ' +
-            'to enable click, fill, press, select, and check actions safely.\n',
+          'QA starts in navigation-only mode. Set qa.sandbox.interaction_policy to read_only ' +
+            'for network-guarded UI actions, or configure a trusted qa.sandbox.reset hook ' +
+            'for persistent mutations.\n',
         );
+      } else if (!resetConfigured) {
+        write('QA read-only UI interactions are enabled with controller network write barriers.\n');
       }
     }
   }

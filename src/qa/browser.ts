@@ -134,6 +134,8 @@ export interface QaBrowserBrokerOptions {
   mobileWhenRelevant?: boolean;
   /** True only when trusted policy provides a reset hook for attempts and teardown. */
   allowMutations?: boolean;
+  /** Admit semantic actions while blocking write-capable traffic after the first action. */
+  allowReadOnlyInteractions?: boolean;
   headless?: boolean;
   /** Test harness escape hatch for hosts that cannot provide Chromium's Linux sandbox. */
   chromiumSandbox?: boolean;
@@ -187,6 +189,8 @@ interface ActiveScenario {
   policyDenials: string[];
   /** Denials that make the exercised journey incomplete, not optional telemetry noise. */
   blockingPolicyDenials: string[];
+  /** Shared with network routes so the first semantic action arms the write barrier. */
+  readOnlyInteractionGuard: { armed: boolean };
   evidenceDir: string;
   tracing: boolean;
   lastNavigationStatus: number | null;
@@ -208,6 +212,7 @@ const AUTH_ASSERTION_NOT_MATCHED = 'Authenticated checkpoint did not match.';
 const AUTH_CONSOLE_OMITTED = 'Browser console text omitted because authenticated state is active.';
 const AUTH_NETWORK_OMITTED = 'Failed-request text omitted because authenticated state is active.';
 const AUTH_POLICY_URL_OMITTED = 'A browser request was denied by the origin policy; its URL was omitted because authenticated state is active.';
+const READ_ONLY_HTTP_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const SEALED_ATTEMPT_SUMMARY = 'Authenticated attempt completed; the controller sealed its outcome.';
 const SENSITIVE_OPERATION_WINDOWS_MS: Readonly<Record<string, number>> = {
   snapshot: 250,
@@ -830,7 +835,13 @@ export class QaBrowserBroker {
       operations_used: this.#operationCount,
       operations_remaining: Math.max(0, this.#options.maxOperations - this.#operationCount),
       max_scenarios: this.#options.maxScenarios,
-      interactive_actions_allowed: Boolean(this.#options.allowMutations),
+      interactive_actions_allowed: Boolean(
+        this.#options.allowMutations || this.#options.allowReadOnlyInteractions,
+      ),
+      mutating_actions_allowed: Boolean(this.#options.allowMutations),
+      interaction_policy: this.#options.allowMutations
+        ? 'resettable'
+        : this.#options.allowReadOnlyInteractions ? 'read_only' : 'disabled',
       browser_output_policy: this.#sensitiveBrowserState
         ? 'sealed_authenticated_checkpoints'
         : 'sanitized_browser_observations',
@@ -1032,6 +1043,7 @@ export class QaBrowserBroker {
       failedRequests: [],
       policyDenials: ['Authenticated scenario setup was blocked; details were sealed by policy.'],
       blockingPolicyDenials: ['Authenticated scenario setup was blocked.'],
+      readOnlyInteractionGuard: { armed: false },
       evidenceDir,
       tracing: false,
       lastNavigationStatus: null,
@@ -1052,6 +1064,7 @@ export class QaBrowserBroker {
     if (signal.aborted) throw new SafeBrokerError('Scenario setup was cancelled');
     const policyDenials: string[] = [];
     const blockingPolicyDenials: string[] = [];
+    const readOnlyInteractionGuard = { armed: false };
     let context: BrowserContext | null = null;
     try {
       context = await this.#newContext(
@@ -1060,6 +1073,7 @@ export class QaBrowserBroker {
         evidenceDir,
         policyDenials,
         blockingPolicyDenials,
+        readOnlyInteractionGuard,
       );
       this.#pendingSetupContext = context;
       if (signal.aborted) throw new SafeBrokerError('Scenario setup was cancelled');
@@ -1117,6 +1131,7 @@ export class QaBrowserBroker {
         failedRequests,
         policyDenials,
         blockingPolicyDenials,
+        readOnlyInteractionGuard,
         evidenceDir,
         tracing,
         lastNavigationStatus: null,
@@ -1136,6 +1151,7 @@ export class QaBrowserBroker {
     evidenceDir?: string,
     policyDenials?: string[],
     blockingPolicyDenials?: string[],
+    readOnlyInteractionGuard?: { armed: boolean },
   ): Promise<BrowserContext> {
     if (!this.#browser) throw new Error('QA browser is not initialized');
     const browserSecretHeaders = this.#browserSecretHeaders.map((header) => {
@@ -1188,6 +1204,23 @@ export class QaBrowserBroker {
         }
         await route.abort('blockedbyclient');
       } else {
+        const requestMethod = route.request().method().toUpperCase();
+        if (
+          readOnlyInteractionGuard?.armed
+          && !READ_ONLY_HTTP_METHODS.has(requestMethod)
+        ) {
+          const denial = this.#sensitiveBrowserState
+            ? 'A write-capable browser request was denied by the read-only interaction policy.'
+            : this.#redact(
+              `${requestMethod} ${cleanUrl(raw)} was denied by the read-only interaction policy`,
+            );
+          if (policyDenials && policyDenials.length < 200) policyDenials.push(denial);
+          if (blockingPolicyDenials && blockingPolicyDenials.length < 200) {
+            blockingPolicyDenials.push(denial);
+          }
+          await route.abort('blockedbyclient');
+          return;
+        }
         if (browserSecretHeaders.length === 0) {
           if (forceSingleNetworkAttempt) {
             await fetchSingleHop();
@@ -1235,7 +1268,20 @@ export class QaBrowserBroker {
         }
         await route.close({ code: 1008, reason: 'Origin blocked by Juror QA policy' });
       } else {
-        route.connectToServer();
+        const server = route.connectToServer();
+        if (readOnlyInteractionGuard) {
+          route.onMessage((message) => {
+            if (!readOnlyInteractionGuard.armed) {
+              server.send(message);
+              return;
+            }
+            const denial = 'An outbound WebSocket message was denied by the read-only interaction policy.';
+            if (policyDenials && policyDenials.length < 200) policyDenials.push(denial);
+            if (blockingPolicyDenials && blockingPolicyDenials.length < 200) {
+              blockingPolicyDenials.push(denial);
+            }
+          });
+        }
       }
     });
     return context;
@@ -1728,7 +1774,7 @@ export class QaBrowserBroker {
 
   #assertMutation(params: unknown, action: string, active: ActiveScenario): void {
     this.#page(active);
-    if (!this.#options.allowMutations) {
+    if (!this.#options.allowMutations && !this.#options.allowReadOnlyInteractions) {
       const denial = `${action} was denied because trusted reset is not configured; use navigation and read-only inspection`;
       if (active.policyDenials.length < 200) active.policyDenials.push(denial);
       if (active.blockingPolicyDenials.length < 200) {
@@ -1741,10 +1787,21 @@ export class QaBrowserBroker {
     if (!['none', 'create', 'update', 'delete', 'upload'].includes(mutation)) {
       throw new Error(`Unknown mutation category ${JSON.stringify(mutation)}`);
     }
+    if (!this.#options.allowMutations && mutation !== 'none') {
+      const denial = `${action} was denied because the read-only interaction policy does not authorize ${mutation} mutations`;
+      if (active.policyDenials.length < 200) active.policyDenials.push(denial);
+      if (active.blockingPolicyDenials.length < 200) {
+        active.blockingPolicyDenials.push(denial);
+      }
+      throw new Error(denial);
+    }
     if (mutation !== 'none' && !active.scenario.allowedMutations.includes(mutation)) {
       throw new Error(
         `Scenario ${active.scenario.id} did not authorize ${mutation} mutations`,
       );
+    }
+    if (!this.#options.allowMutations && this.#options.allowReadOnlyInteractions) {
+      active.readOnlyInteractionGuard.armed = true;
     }
   }
 

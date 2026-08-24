@@ -1093,9 +1093,13 @@ export async function runQa(options: RunQaOptions): Promise<QaRunResult> {
     await writeQaReport(evidenceDir, result, secretValues);
     return result;
   }
-  if (!targetConfig.sandbox.reset) {
+  if (!targetConfig.sandbox.reset && targetConfig.sandbox.interaction_policy === 'disabled') {
     warnings.push(
-      'trusted reset is not configured; the agent is limited to navigation, snapshots, waits, and assertions',
+      'trusted reset is not configured; the agent is limited to navigation, snapshots, waits, and assertions, and interaction-dependent journeys will be reported blocked',
+    );
+  } else if (!targetConfig.sandbox.reset) {
+    warnings.push(
+      'trusted reset is not configured; read-only UI interactions are enabled and controller policy blocks non-safe HTTP methods and outbound WebSocket messages after interaction begins',
     );
   }
   // Reset-only or otherwise unused controller secrets never enter Playwright.
@@ -1136,6 +1140,7 @@ export async function runQa(options: RunQaOptions): Promise<QaRunResult> {
       timeoutMs: targetConfig.limits.timeout_seconds * 1000,
       mobileWhenRelevant: targetConfig.limits.mobile_when_relevant,
       allowMutations: Boolean(targetConfig.sandbox.reset),
+      allowReadOnlyInteractions: targetConfig.sandbox.interaction_policy === 'read_only',
       headless: options.headless ?? true,
       video: sensitiveBrowserState ? 'off' : targetConfig.evidence.video,
       trace: sensitiveBrowserState ? 'off' : targetConfig.evidence.trace,
