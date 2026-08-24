@@ -316,6 +316,14 @@ beforeAll(async () => {
           ws.onopen=()=>{document.querySelector('#loaded').textContent='Loaded';};</script>`);
       return;
     }
+    if (request.url === '/interactive-socket') {
+      response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      response.end(`<h1>QA fixture</h1><p id="loaded">Loading</p><button id="send">Send</button>
+        <script>const ws=new WebSocket((location.protocol==='https:'?'wss:':'ws:')+'//'+location.host+'/socket');
+          ws.onopen=()=>{document.querySelector('#loaded').textContent='Loaded';};
+          document.querySelector('#send').onclick=()=>ws.send('write-after-interaction');</script>`);
+      return;
+    }
     if (request.url === '/read-query') {
       passivePostRequests++;
       response.writeHead(200, { 'content-type': 'application/json' });
@@ -830,6 +838,7 @@ describe.sequential('QaBrowserBroker policy boundary', () => {
       ...plan(),
       testability: 'no_testable_surface',
       no_testable_surface_reason: 'Only documentation changed.',
+      surfaces: [],
       scenarios: [],
     };
     await broker.handle('submit_plan', noSurface);
@@ -1519,6 +1528,151 @@ describe.sequential('QaBrowserBroker policy boundary', () => {
       });
       expect(broker.state().attempts[0]).toMatchObject({ status: 'blocked' });
       expect(broker.state().attempts[0]?.policyDenials.join('\n')).toContain('trusted reset');
+    } finally {
+      await broker.close();
+    }
+  }, 30_000);
+
+  it('allows local-only semantic actions under the trusted read-only interaction policy', async () => {
+    const broker = new QaBrowserBroker(brokerOptions(evidenceDirectory(), {
+      allowMutations: false,
+      allowReadOnlyInteractions: true,
+    }));
+    const custom = plan();
+    custom.scenarios[0]!.checkpoints[0]!.expected = 'Saved';
+    custom.scenarios[0]!.checkpoints[0]!.assertion = cssAssertion('text', '#result');
+    await broker.initialize();
+    try {
+      await expect(broker.handle('qa_status', {})).resolves.toMatchObject({
+        interactive_actions_allowed: true,
+        mutating_actions_allowed: false,
+        interaction_policy: 'read_only',
+      });
+      await broker.handle('submit_plan', custom);
+      await broker.handle('start_scenario', { scenario_id: 'exercise-fixture', attempt: 1 });
+      await broker.handle('navigate', { url: '/' });
+      await broker.handle('fill', {
+        label: 'Name',
+        value: 'local-only value',
+        mutation: 'none',
+      });
+      await broker.handle('click', {
+        role: 'button',
+        name: 'Save',
+        mutation: 'none',
+      });
+      await broker.handle('assert', {
+        checkpoint: 'fixture-heading',
+        kind: 'text',
+        expected: 'Saved',
+        css: '#result',
+      });
+      await broker.handle('finish_scenario', {
+        status: 'passed',
+        summary: 'Local UI state changed without network writes.',
+      });
+      expect(broker.state().attempts[0]).toMatchObject({
+        status: 'passed',
+        policyDenials: [],
+      });
+    } finally {
+      await broker.close();
+    }
+  }, 30_000);
+
+  it('does not let read-only interaction policy admit a mutating plan', async () => {
+    const broker = new QaBrowserBroker(brokerOptions(evidenceDirectory(), {
+      allowMutations: false,
+      allowReadOnlyInteractions: true,
+    }));
+    const mutatingPlan = plan();
+    mutatingPlan.scenarios[0]!.allowed_mutations = ['update'];
+    await broker.initialize();
+    try {
+      await expect(broker.handle('submit_plan', mutatingPlan)).rejects.toThrow(
+        'no reset hook, so mutating scenarios are not allowed',
+      );
+      expect(broker.state().plan).toBeNull();
+      expect(broker.startedBrowser()).toBe(false);
+    } finally {
+      await broker.close();
+    }
+  });
+
+  it('blocks HTTP writes caused by a mislabeled read-only interaction', async () => {
+    const broker = new QaBrowserBroker(brokerOptions(evidenceDirectory(), {
+      allowMutations: false,
+      allowReadOnlyInteractions: true,
+    }));
+    await broker.initialize();
+    try {
+      await broker.handle('submit_plan', plan());
+      await broker.handle('start_scenario', { scenario_id: 'exercise-fixture', attempt: 1 });
+      await broker.handle('navigate', { url: '/unsafe-form' });
+      await broker.handle('press', {
+        role: 'button',
+        name: 'Save',
+        key: 'Enter',
+        mutation: 'none',
+      });
+      await broker.handle('wait', { timeout_ms: 200 });
+      expect(unsafeRequests).toBe(0);
+      await broker.handle('assert', {
+        checkpoint: 'fixture-heading',
+        kind: 'text',
+        expected: 'QA fixture',
+        css: 'h1',
+      });
+      await broker.handle('finish_scenario', {
+        status: 'passed',
+        summary: 'The model mislabeled a server write as read-only.',
+      });
+      expect(broker.state().attempts[0]).toMatchObject({ status: 'blocked' });
+      expect(broker.state().attempts[0]?.policyDenials.join('\n')).toContain(
+        'POST',
+      );
+      expect(broker.state().attempts[0]?.policyDenials.join('\n')).toContain(
+        'read-only interaction policy',
+      );
+    } finally {
+      await broker.close();
+    }
+  }, 30_000);
+
+  it('blocks outbound WebSocket messages after a read-only interaction begins', async () => {
+    const broker = new QaBrowserBroker(brokerOptions(evidenceDirectory(), {
+      allowMutations: false,
+      allowReadOnlyInteractions: true,
+    }));
+    const custom = plan();
+    custom.scenarios[0]!.checkpoints[0]!.expected = 'Loaded';
+    custom.scenarios[0]!.checkpoints[0]!.assertion = cssAssertion('text', '#loaded');
+    await broker.initialize();
+    try {
+      await broker.handle('submit_plan', custom);
+      await broker.handle('start_scenario', { scenario_id: 'exercise-fixture', attempt: 1 });
+      await broker.handle('navigate', { url: '/interactive-socket' });
+      await broker.handle('wait', { text: 'Loaded', timeout_ms: 5_000 });
+      await broker.handle('click', {
+        role: 'button',
+        name: 'Send',
+        mutation: 'none',
+      });
+      await broker.handle('wait', { timeout_ms: 200 });
+      await broker.handle('assert', {
+        checkpoint: 'fixture-heading',
+        kind: 'text',
+        expected: 'Loaded',
+        css: '#loaded',
+      });
+      await broker.handle('finish_scenario', {
+        status: 'passed',
+        summary: 'The model attempted an outbound socket write.',
+      });
+      expect(broker.state().attempts[0]).toMatchObject({ status: 'blocked' });
+      expect(broker.state().attempts[0]?.policyDenials.join('\n')).toContain(
+        'outbound WebSocket message',
+      );
     } finally {
       await broker.close();
     }

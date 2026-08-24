@@ -128,6 +128,11 @@ export interface QaResetConfig {
 export interface QaSandboxConfig {
   /** Exact HTTP(S) origins admitted by both the browser broker and egress proxy. */
   allowed_origins: string[];
+  /**
+   * `read_only` admits semantic UI actions while a controller-owned network
+   * write barrier is armed. Persistent mutations still require `reset`.
+   */
+  interaction_policy: 'disabled' | 'read_only';
   reset: QaResetConfig | null;
 }
 

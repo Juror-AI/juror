@@ -253,7 +253,7 @@ The first required model output is a schema-valid `QaPlan`. Browser operations r
 - Allowed mutation categories and expected cleanup.
 - Risk notes and any expected blind spots.
 
-The planner must choose affected-only testing. Documentation-only, test-only, tooling-only, or backend-internal changes with no reachable user surface may produce `no_testable_surface`; Juror does not add a generic smoke test in that case.
+The planner must choose affected-only testing. Documentation-only, test-only, tooling-only, or backend-internal changes with no reachable user surface may produce `no_testable_surface`; Juror does not add a generic smoke test in that case. A user-observable surface that the current target, configuration, or action policy cannot exercise is blocked, not `no_testable_surface`.
 
 ### 5. Prepare authentication and isolation
 
@@ -349,11 +349,21 @@ account destruction, billing, permission escalation, external messages, and cros
 the mechanical containment is the resettable synthetic tenant plus exact-origin egress, so trusted
 policy must never connect this mode to production data, payment credentials, or real messaging.
 
-When trusted policy has no reset hook, the broker disables click, fill, press, select, and check
-before they touch the page. That mode still supports direct navigation, snapshots, waits, and
-assertions, including passive same-origin GraphQL POST reads and WebSocket-backed rendering. A
-trusted reset hook is the explicit switch that enables human-like interactions in the disposable
-tenant; model-declared mutation labels are additional plan constraints, not the safety boundary.
+When trusted policy has no reset hook and `interaction_policy` is `disabled`, the broker disables
+click, fill, press, select, and check before they touch the page. That mode still supports direct
+navigation, snapshots, waits, and assertions, including passive same-origin GraphQL POST reads and
+WebSocket-backed rendering. If reviewed policy selects `interaction_policy: read_only`, semantic
+actions declared with `mutation: none` are enabled. The first action arms a controller-owned write
+barrier for the remainder of the attempt: HTTP methods other than GET, HEAD, and OPTIONS are denied,
+outbound WebSocket messages are not forwarded, and any such denial makes the attempt blocked. This
+supports local UI state such as dialogs, tabs, filters, and client-side search without trusting the
+model's mutation label as the safety boundary. A trusted reset hook remains the explicit switch for
+persistent create, update, delete, and upload journeys in the disposable tenant.
+
+When an affected journey requires an action disabled by either policy, the planner retains the exact
+affected scenario and checkpoints, executes only its allowed prefix, and closes the attempt as
+blocked. It must not turn a policy or configuration limitation into a neutral
+`no_testable_surface` result.
 
 ### 7. Retry and classify observations
 
@@ -558,6 +568,7 @@ qa:
   sandbox:
     allowed_origins:
       - https://staging.example.com
+    interaction_policy: disabled
     reset: null
   limits:
     max_scenarios: 6
@@ -608,6 +619,7 @@ qa:
     allowed_origins:
       - https://staging.example.com
       - https://api.staging.example.com
+    interaction_policy: read_only
   evidence:
     video: off
     trace: off
@@ -1013,6 +1025,7 @@ Repositories can aggregate these results from GitHub Actions later. A hosted ana
 | Staging contains later commits | Record ancestry and additional commits; avoid causal language |
 | Staging changes while the test runs | Re-resolve deployment identity after execution and mark the run blocked on drift |
 | Broad mutation damages shared data | Require a dedicated synthetic tenant, run prefixes, reset hooks, and verified cleanup |
+| A read-only UI action is mislabeled but emits a write | Arm a controller-owned barrier before the first action, deny non-safe HTTP methods and outbound WebSocket messages, and block the attempt on any required denial |
 | Agent loops or spends excessively | Hard limits of six scenarios, 40 operations, one setup admission per scenario/attempt, a fixed 10-second sensitive-setup window, and 20 minutes enforced outside the model; reject plans that cannot fund navigation, a snapshot, and every checkpoint in two attempts |
 | Supply-chain substitution compromises secrets | Signed public image, immutable digest pin, SBOM/provenance, and pre-secret attestation verification |
 | QA becomes noisy for non-UI changes | Affected-only planning and explicit `no_testable_surface` success |

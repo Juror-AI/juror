@@ -156,12 +156,14 @@ export const QA_PLAN_JSON_SCHEMA: QaJsonSchemaDocument = {
       then: {
         properties: {
           no_testable_surface_reason: nonEmptyString(MAX_LONG_TEXT),
+          surfaces: { maxItems: 0 },
           scenarios: { maxItems: 0 },
         },
       },
       else: {
         properties: {
           no_testable_surface_reason: { type: 'null' },
+          surfaces: { minItems: 1 },
           scenarios: { minItems: 1 },
         },
       },
@@ -568,6 +570,12 @@ export function parseQaPlan(raw: unknown, hardLimits: QaPlanHardLimits): QaPlan 
 
   if (testability === 'no_testable_surface') {
     if (reason === null) fail('$.no_testable_surface_reason', 'must explain why no surface is testable');
+    if (surfaces.length !== 0) {
+      fail(
+        '$.surfaces',
+        'must be empty when testability is no_testable_surface; policy-limited surfaces need a testable plan that becomes blocked during execution',
+      );
+    }
     if (scenarios.length !== 0) fail('$.scenarios', 'must be empty when testability is no_testable_surface');
   } else {
     if (reason !== null) fail('$.no_testable_surface_reason', 'must be null when testability is testable');

@@ -53,11 +53,16 @@ The post-merge Action never accepts an origin expansion from workflow inputs: au
 the allowlist agreed by every trusted pre-merge policy candidate. Add a new origin through a
 reviewed `.juror.yml` change (or `init --qa`) before relying on it in later merged-PR runs.
 
-The generated policy has `sandbox.reset: null`, which deliberately enables only direct navigation,
-snapshots, waits, and assertions. Configure a trusted reset hook against a dedicated synthetic
-tenant before interactive click, fill, press, select, and check tools are enabled. This makes the
-safe first run useful for route, visibility, access-control, and removal checks without pretending
-that arbitrary UI interactions are reversible.
+The generated policy has `sandbox.interaction_policy: disabled` and `sandbox.reset: null`, which
+deliberately enables only direct navigation, snapshots, waits, and assertions. For journeys that
+need local UI state such as opening a dialog, choosing a tab, or entering a search query, reviewed
+policy may set `sandbox.interaction_policy: read_only`. Juror then arms a controller-owned network
+write barrier before the first semantic action: non-safe HTTP methods and outbound WebSocket
+messages are denied, and required denied traffic blocks the result. Actions must declare
+`mutation: none` in this mode. Persistent create, update, delete, and upload journeys still require
+a trusted reset hook against a dedicated synthetic tenant. If an affected browser journey requires
+a disabled interaction, Juror reports the run as blocked; `no_testable_surface` remains reserved
+for changes with no affected user-observable browser behavior.
 
 ### Neutral early exit for non-browser changes
 
@@ -186,6 +191,7 @@ qa:
     allowed_origins:
       - https://staging.example.com
       - https://api.staging.example.com
+    interaction_policy: read_only
   evidence:
     video: off
     trace: off
