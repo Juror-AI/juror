@@ -1069,6 +1069,20 @@ describe('QA result warning bounds', () => {
 });
 
 describe('QA observation bounds', () => {
+  it('records unexecuted planned checkpoints for blocked public attempts', () => {
+    const blocked = attempt(1, 'blocked', 'Interaction policy prevented the journey.');
+    blocked.assertions = [];
+
+    const converted = convertAttempts(state(plan(), [blocked]), [], '/tmp/evidence');
+
+    expect(converted[0]?.checkpoints).toEqual([{
+      checkpoint_id: 'saved',
+      status: 'blocked',
+      expected: 'Saved.',
+      observed: 'Checkpoint was not executed because the attempt ended before it was reached.',
+    }]);
+  });
+
   it('redacts and truncates oversized browser diagnostics to the public result schema', () => {
     const secret = 'observation-secret-value';
     const oversized = (label: string) => `${label}: ${secret} ${'x'.repeat(5_000)}`;

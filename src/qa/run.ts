@@ -81,6 +81,7 @@ const MAX_RESULT_LONG_TEXT_CHARS = 4_000;
 const SEALED_CHECKPOINT_MATCHED = 'Authenticated checkpoint matched.';
 const SEALED_CHECKPOINT_MISMATCH = 'Authenticated checkpoint did not match.';
 const SEALED_CHECKPOINT_UNAVAILABLE = 'Authenticated checkpoint was unavailable.';
+const UNEXECUTED_CHECKPOINT = 'Checkpoint was not executed because the attempt ended before it was reached.';
 const QA_EVIDENCE_RESERVATION_FILE = 'payload-status.json';
 // The composite action grants the container five seconds after SIGTERM. Keep
 // bounded controller cleanup to at most 2.5s so partial report persistence and
@@ -684,10 +685,30 @@ export function convertAttempts(
     summary: boundQaLongText(redactWith(summary, secrets)) || '(empty diagnostic)',
     observed_at: observedAt,
   });
+  const publicCheckpoint = (
+    assertion: QaAttemptRecord['assertions'][number],
+  ): QaAttempt['checkpoints'][number] => ({
+    checkpoint_id: assertion.checkpoint,
+    status: assertion.passed ? 'passed' : 'failed',
+    // Preserve the exact runtime comparator. The higher-level planned outcome
+    // remains available in result.plan and must never be substituted here.
+    expected: safeQaText(
+      assertion.expected,
+      secrets,
+      MAX_RESULT_LONG_TEXT_CHARS,
+      'Expected checkpoint to pass',
+    ),
+    observed: safeQaText(
+      assertion.actual,
+      secrets,
+      MAX_RESULT_LONG_TEXT_CHARS,
+      '(empty observation)',
+    ),
+  });
   return state.attempts.map((attempt) => {
+    const scenario = state.plan?.scenarios.find((item) => item.id === attempt.scenarioId);
+    const assertions = new Map(attempt.assertions.map((assertion) => [assertion.checkpoint, assertion]));
     if (attempt.sensitiveOutput) {
-      const scenario = state.plan?.scenarios.find((item) => item.id === attempt.scenarioId);
-      const assertions = new Map(attempt.assertions.map((assertion) => [assertion.checkpoint, assertion]));
       return {
         scenario_id: attempt.scenarioId,
         attempt: attempt.attempt,
@@ -728,6 +749,21 @@ export function convertAttempts(
     const artifactIds = artifacts
       .filter((artifact) => artifact.path.startsWith(`${relativeEvidence}/`))
       .map((artifact) => artifact.id);
+    const checkpoints = attempt.assertions.map(publicCheckpoint);
+    for (const checkpoint of scenario?.checkpoints ?? []) {
+      if (assertions.has(checkpoint.id)) continue;
+      checkpoints.push({
+        checkpoint_id: checkpoint.id,
+        status: 'blocked',
+        expected: safeQaText(
+          checkpoint.expected,
+          secrets,
+          MAX_RESULT_LONG_TEXT_CHARS,
+          'Expected checkpoint to pass',
+        ),
+        observed: UNEXECUTED_CHECKPOINT,
+      });
+    }
     return {
       scenario_id: attempt.scenarioId,
       attempt: attempt.attempt,
@@ -746,24 +782,7 @@ export function convertAttempts(
           ? null
           : safeQaText(operation.error, secrets, MAX_RESULT_LONG_TEXT_CHARS, '(redacted error)'),
       })),
-      checkpoints: attempt.assertions.map((assertion) => ({
-        checkpoint_id: assertion.checkpoint,
-        status: assertion.passed ? 'passed' : 'failed',
-        // Preserve the exact runtime comparator. The higher-level planned outcome
-        // remains available in result.plan and must never be substituted here.
-        expected: safeQaText(
-          assertion.expected,
-          secrets,
-          MAX_RESULT_LONG_TEXT_CHARS,
-          'Expected checkpoint to pass',
-        ),
-        observed: safeQaText(
-          assertion.actual,
-          secrets,
-          MAX_RESULT_LONG_TEXT_CHARS,
-          '(empty observation)',
-        ),
-      })),
+      checkpoints,
       observations: [
         ...attempt.console.map((summary) => observation('console', summary, attempt.finishedAt)),
         ...attempt.failedRequests.map((summary) => observation('network', summary, attempt.finishedAt)),
