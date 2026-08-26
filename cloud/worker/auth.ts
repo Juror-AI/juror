@@ -66,7 +66,7 @@ export function createAuth(env: Env, requestUrl?: string) {
         scopes: ['juror.read', 'juror.reviews.write'],
         resources: [{ identifier: mcpResourceUrl(env, requestUrl), name: 'Juror MCP', allowedScopes: ['juror.read', 'juror.reviews.write'], accessTokenTtl: 300 }],
         accessTokenExpiresIn: 300,
-        grantTypes: ['authorization_code'],
+        grantTypes: ['authorization_code', 'refresh_token'],
         allowDynamicClientRegistration: true,
         allowUnauthenticatedClientRegistration: true,
         clientRegistrationRequirePKCE: true,

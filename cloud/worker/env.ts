@@ -17,6 +17,8 @@ declare global {
       STRIPE_SECRET_KEY?: string;
       STRIPE_WEBHOOK_SECRET?: string;
       OPENAI_API_KEY?: string;
+      /** Short-lived OpenAI Plugin directory domain-ownership challenge. */
+      OPENAI_APPS_CHALLENGE_TOKEN?: string;
       ANTHROPIC_API_KEY?: string;
       XAI_API_KEY?: string;
       DEEPSEEK_API_KEY?: string;
@@ -55,6 +57,8 @@ export type Env = GeneratedBindings & {
   EVIDENCE_SIGNING_SECRET: string;
   CORPUS_MASTER_KEY_B64?: string;
   OPENAI_API_KEY?: string;
+  /** Short-lived OpenAI Plugin directory domain-ownership challenge. */
+  OPENAI_APPS_CHALLENGE_TOKEN?: string;
   ANTHROPIC_API_KEY?: string;
   XAI_API_KEY?: string;
   DEEPSEEK_API_KEY?: string;
