@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "juror": {
+      "type": "http",
+      "url": "https://app.juror.dev/mcp"
+    }
+  }
+}

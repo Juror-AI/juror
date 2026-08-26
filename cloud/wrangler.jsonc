@@ -15,13 +15,13 @@
     "directory": "./dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
+    "run_worker_first": ["/api/*", "/mcp", "/.well-known/*"]
   },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "juror-cloud",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "c454b62a-da70-4341-aa67-5910e6f38ea2",
       "migrations_dir": "migrations"
     }
   ],
@@ -81,17 +81,18 @@
     { "tag": "v1", "new_sqlite_classes": ["ReviewSandbox", "QaSandbox"] }
   ],
   "vars": {
-    "APP_URL": "http://localhost:8787",
-    "LEGACY_APP_URL": "",
-    "GITHUB_APP_SLUG": "unconfigured",
+    "APP_URL": "https://app.juror.dev",
+    "LEGACY_APP_URL": "https://juror-cloud.cderinbogaz-5f3.workers.dev",
+    "GLAMA_MAINTAINER_EMAIL": "",
+    "GITHUB_APP_SLUG": "juror-cloud",
     "CORPUS_CONSENT_VERSION": "2026-08-21.v1",
     "DEV_BYPASS_AUTH": "false",
     "STRIPE_METER_EVENT_NAME": "juror_cloud_usage_micro_usd",
-    "STRIPE_PRICE_ID": "price_replace_before_deploy",
+    "STRIPE_PRICE_ID": "unconfigured",
     "CONTAINER_CPU_MICRO_USD_PER_VCPU_SECOND": "20",
     "CONTAINER_MEMORY_MICRO_USD_PER_GIB_SECOND": "2.5",
     "CONTAINER_DISK_MICRO_USD_PER_GB_SECOND": "0.07",
-    "R2_STORAGE_MICRO_USD_PER_GB_MONTH": "0"
+    "R2_STORAGE_MICRO_USD_PER_GB_MONTH": "15000"
   },
   "observability": {
     "enabled": true,

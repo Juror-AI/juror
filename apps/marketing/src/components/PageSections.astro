@@ -35,6 +35,12 @@ const usesCode = ['docs', 'template', 'integration'].includes(page.contentType) 
 const isComparison = page.contentType === 'comparison';
 const isLegal = page.contentType === 'legal';
 const isArticle = ['resource', 'template', 'comparison', 'docs'].includes(page.contentType);
+const isAgentIntegration = ['chatgpt_plugin', 'mcp'].includes(page.id);
+const mcpConnection = `{
+  "mcpServers": {
+    "juror": { "type": "http", "url": "https://app.juror.dev/mcp" }
+  }
+}`;
 const actionPage = PAGE_BY_ID.get('github_ai_code_review')!;
 const docsPage = PAGE_BY_ID.get('getting_started')!;
 const sourceLinks = [
@@ -150,6 +156,10 @@ const comparisonText = isEnglish ? {
           <p class="answer-copy">{localizedSummary(page, locale)}</p>
           <div class="focus-grid">{focus.map((item, index) => <div class="focus-item"><span>0{index + 1}</span><strong>{item}</strong></div>)}</div>
         </section>
+
+        {isAgentIntegration && <section class="section section-dark"><div class="site-shell code-layout"><div><p class="eyebrow">{locale === 'en' ? 'JUROR CLOUD MCP' : copy.implementation}</p><h2>{locale === 'en' ? 'Connect to the hosted service, then choose a workspace.' : copy.prerequisites}</h2><p>{locale === 'en' ? 'Add the direct Streamable HTTP endpoint in ChatGPT, Codex, or another MCP client. OAuth links your Juror Cloud account; it does not grant arbitrary GitHub or local-repository access.' : localizedSummary(page, locale)}</p></div><pre><code>{mcpConnection}</code></pre></div></section>}
+
+        {isAgentIntegration && <section class="section site-shell content-grid"><article class="prose"><h2>{locale === 'en' ? 'Supported review workflow' : copy.whatYouGet}</h2><p>{locale === 'en' ? 'List your workspaces first. Inspect concise findings and hosted runs with a selected workspace ID. To run or rerun a review, Juror first preflights the open PR, current SHA, repository policy, GitHub Action conflict, and capacity. Show that result to the user and obtain an explicit confirmation before the write tool can start a hosted review.' : localizedSummary(page, locale)}</p><h2>{locale === 'en' ? 'Clear data boundaries' : copy.limitations}</h2><p>{locale === 'en' ? 'The integration returns minimal metadata and an explicitly requested retained finding body or claim. It never returns raw diffs, source checkouts, full reports, screenshots, artifacts, provider credentials, or prompt text. It runs hosted Juror Cloud—not an arbitrary repository on the agent machine.' : copy.editorialNotice}</p><h2>{locale === 'en' ? 'Starter prompts' : copy.next}</h2><ul><li>{locale === 'en' ? 'Show my Juror workspaces and review findings.' : copy.overview}</li><li>{locale === 'en' ? 'Summarize open P0 and P1 Juror findings in this workspace.' : copy.whatYouGet}</li><li>{locale === 'en' ? 'Prepare a hosted review for this PR and show the SHA and capacity warning before starting.' : copy.implementation}</li></ul></article><aside class="sidecard"><p class="eyebrow">{copy.sources}</p><ul><li><a href="https://app.juror.dev/mcp">MCP endpoint <span aria-hidden="true">↗</span></a></li><li><a href="https://app.juror.dev/signin">Juror Cloud <span aria-hidden="true">↗</span></a></li><li><a href={`${GITHUB_REPOSITORY}/blob/main/registry/server.json`}>Registry metadata <span aria-hidden="true">↗</span></a></li></ul></aside></section>}
 
         {isHub && <section class="section section-tint"><div class="site-shell"><div class="section-heading"><p class="eyebrow">{copy.overview}</p><h2>{copy.whatYouGet}</h2></div><div class="card-grid">{children.map((child) => <a class="route-card" href={pagePath(child, locale)}><span>{copy.typeLabel[child.contentType]}</span><h3>{pageTitle(child, locale)}</h3><p>{locale === 'en' ? PAGE_SPECS[child.id].description : localizedSummary(child, locale)}</p><b>→</b></a>)}</div></div></section>}
 

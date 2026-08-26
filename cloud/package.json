@@ -14,8 +14,11 @@
     "deploy": "npm run build && wrangler deploy"
   },
   "dependencies": {
+    "@better-auth/mcp": "1.7.1",
+    "@better-auth/oauth-provider": "1.7.1",
     "@cloudflare/containers": "0.3.7",
     "@cloudflare/sandbox": "0.12.7",
+    "@modelcontextprotocol/server": "2.0.0",
     "better-auth": "1.7.1",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",

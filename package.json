@@ -2,6 +2,10 @@
   "name": "juror-ai",
   "version": "1.4.3",
   "description": "Multi-model PR review that shows you the bill. Duplicate findings collapse into one, with optional agreement filtering.",
+  "homepage": "https://juror.dev",
+  "bugs": {
+    "url": "https://github.com/Juror-AI/juror/issues"
+  },
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -51,7 +55,14 @@
     "github-action",
     "llm",
     "ai-review",
-    "consensus"
+    "consensus",
+    "mcp",
+    "model-context-protocol",
+    "ai-agent",
+    "agent-tools",
+    "chatgpt",
+    "codex",
+    "github-pr-review"
   ],
   "repository": {
     "type": "git",

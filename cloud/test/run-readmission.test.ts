@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+vi.mock('../worker/workflows', () => ({ destroyRunSandbox: vi.fn() }));
 import { BILLING_READMISSION_SQL } from '../worker/github-webhook';
 
 const databases: DatabaseSync[] = [];
