@@ -42,9 +42,11 @@ describe('Juror MCP contract', () => {
       readFile(new URL('../worker/index.ts', import.meta.url), 'utf8'),
     ]);
     expect(auth).toContain('accessTokenExpiresIn: 300');
-    expect(auth).toContain("grantTypes: ['authorization_code']");
+    expect(auth).toContain("grantTypes: ['authorization_code', 'refresh_token']");
     expect(auth).toContain('clientRegistrationRequirePKCE: true');
-    expect(worker).toContain("token_endpoint_auth_method !== 'none'");
+    expect(worker).toContain('normalizePublicDcrRegistration');
     expect(worker).toContain('PKCE S256 only');
+    expect(worker).toContain("'/.well-known/openai-apps-challenge'");
+    expect(worker).toContain("'cache-control': 'no-store'");
   });
 });

@@ -24,6 +24,7 @@ import { anyReviewPresetReady, qaProviderReady, reviewPresetReadiness } from './
 import { repositorySettingsSchema, resolveSecretHeadersCiphertext } from './repository-settings';
 import { handleMcpRequest } from './mcp';
 import { launchBrowserHostedReview, launchBrowserHostedRerun, ReviewServiceError } from './review-service';
+import { normalizePublicDcrRegistration } from './dcr';
 
 export { ContainerProxy, JurorSandbox, QaSandbox, ReviewSandbox } from './sandbox';
 export { HostedQaWorkflow, HostedReviewWorkflow } from './workflows';
@@ -57,20 +58,35 @@ app.post('/api/auth/oauth2/register', async (c) => {
   if (!c.req.header('content-type')?.toLowerCase().includes('application/json')) {
     return c.json({ error: 'invalid_client_metadata', error_description: 'Dynamic registration requires application/json.' }, 400, { 'cache-control': 'no-store' });
   }
-  let registration: { token_endpoint_auth_method?: unknown; grant_types?: unknown; client_secret?: unknown };
+  let registration: unknown;
   try { registration = await c.req.raw.clone().json(); }
   catch { return c.json({ error: 'invalid_client_metadata', error_description: 'Dynamic registration body must be valid JSON.' }, 400, { 'cache-control': 'no-store' }); }
-  const codeOnly = registration.grant_types === undefined || (Array.isArray(registration.grant_types) && registration.grant_types.length === 1 && registration.grant_types[0] === 'authorization_code');
-  if (registration.token_endpoint_auth_method !== 'none' || !codeOnly || registration.client_secret !== undefined) {
-    return c.json({ error: 'invalid_client_metadata', error_description: 'Juror accepts public authorization-code clients with PKCE S256 only.' }, 400, { 'cache-control': 'no-store' });
+  const publicRegistration = normalizePublicDcrRegistration(registration);
+  if (!publicRegistration) {
+    return c.json({ error: 'invalid_client_metadata', error_description: 'Juror accepts public authorization-code clients, with optional refresh-token rotation, using PKCE S256 only.' }, 400, { 'cache-control': 'no-store' });
   }
-  return createAuth(c.env, c.req.url).handler(c.req.raw);
+  const headers = new Headers(c.req.raw.headers);
+  // The normalized JSON differs from the client body, so retain no stale
+  // length header when constructing the request passed to Better Auth.
+  headers.delete('content-length');
+  headers.set('content-type', 'application/json');
+  return createAuth(c.env, c.req.url).handler(new Request(c.req.raw.url, {
+    method: 'POST', headers, body: JSON.stringify(publicRegistration),
+  }));
 });
 app.all('/api/auth/*', (c) => createAuth(c.env, c.req.url).handler(c.req.raw));
 // These discovery routes must always reach the Worker; Wrangler routes them ahead of the SPA assets.
 app.all('/.well-known/oauth-protected-resource', (c) => createAuth(c.env, c.req.url).handler(c.req.raw));
 app.all('/.well-known/oauth-protected-resource/mcp', (c) => createAuth(c.env, c.req.url).handler(c.req.raw));
 app.all('/.well-known/oauth-authorization-server/api/auth', (c) => createAuth(c.env, c.req.url).handler(c.req.raw));
+// OpenAI's public Plugin directory verifies the publisher's production domain
+// with a short-lived challenge. The value is set as a production secret after
+// the portal supplies it, rather than being committed or cached with assets.
+app.get('/.well-known/openai-apps-challenge', (c) => {
+  const challenge = c.env.OPENAI_APPS_CHALLENGE_TOKEN;
+  if (!challenge) return c.notFound();
+  return c.text(challenge, 200, { 'cache-control': 'no-store' });
+});
 // New remote listings use Streamable HTTP. The modern transport is POST-only;
 // do not expose an SSE compatibility route.
 app.post('/mcp', (c) => handleMcpRequest(c.env, c.req.raw));
