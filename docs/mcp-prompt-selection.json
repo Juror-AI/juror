@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "target": "juror",
+  "direct": [
+    "Show my Juror review findings for an open pull request.",
+    "Start a Juror Cloud review after I confirm the PR and cost warning."
+  ],
+  "indirect": [
+    "Which multi-model review findings need attention in my workspace?",
+    "Rerun the hosted code review I just inspected once I approve it."
+  ],
+  "negative": [
+    "Review the local files on my laptop without connecting to a service.",
+    "Cancel a running review and change our monthly billing cap.",
+    "Fetch a raw GitHub diff and upload its screenshots to chat."
+  ],
+  "expectations": {
+    "direct": "select_juror",
+    "indirect": "select_juror_only_when_workspace_review_context_is_present",
+    "negative": "do_not_select_juror"
+  }
+}

@@ -22,6 +22,24 @@ This repository also contains [`cloud/`](cloud/), a deployable hosted companion 
 
 See the [Juror Cloud deployment guide](cloud/README.md) for the GitHub App permissions, Cloudflare resources, secrets, billing meter, and verification commands.
 
+## ChatGPT, Codex, and MCP
+
+Juror Cloud is also available as a remote, OAuth-protected Streamable HTTP MCP server at `https://app.juror.dev/mcp`. Add that URL in an MCP-compatible client, sign in with your Juror Cloud account, list your workspaces first, and then inspect concise review summaries.
+
+The integration is intentionally narrower than the GitHub Action and local CLI:
+
+- **Juror Cloud MCP / Plugin** — inspects workspace-scoped findings and hosted runs. It can prepare and, after explicit user confirmation, start or rerun an existing hosted Juror Cloud review. It never accesses arbitrary local repositories or returns raw diffs, full reports, artifacts, screenshots, credentials, or prompt text.
+- **Juror Cloud** — the hosted service that owns workspace membership, GitHub App access, isolated execution, retention, and billing.
+- **GitHub Action and CLI** — run from your repository or local environment using the configuration you control. Do not run the hosted service alongside a Juror GitHub Action for the same repository.
+
+Starter prompts:
+
+- “Show my Juror workspaces and review findings.”
+- “Summarize open P0 and P1 Juror findings in this workspace.”
+- “Prepare a hosted review for this open PR; show me the SHA and cost warning before starting.”
+
+The canonical registry metadata is [`registry/server.json`](registry/server.json). See the [directory submission record](docs/mcp-directory-submissions.md) for publication status and the required external verification steps.
+
 ## Add Juror to your repository
 
 Start from the [Juror AI listing in GitHub Marketplace](https://github.com/marketplace/actions/juror-ai):

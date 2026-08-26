@@ -1,0 +1,35 @@
+{
+  "name": "juror",
+  "version": "1.0.0",
+  "description": "Inspect multi-model PR findings and safely run or rerun Juror Cloud reviews.",
+  "author": {
+    "name": "Juror",
+    "url": "https://juror.dev"
+  },
+  "homepage": "https://juror.dev/en/integrations/chatgpt",
+  "repository": "https://github.com/Juror-AI/juror",
+  "license": "MIT",
+  "keywords": ["mcp", "code-review", "pull-request", "chatgpt", "codex", "multi-model"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Juror",
+    "shortDescription": "Inspect multi-model PR findings and safely run or rerun Juror Cloud reviews.",
+    "longDescription": "Use Juror Cloud to inspect concise, workspace-scoped PR findings and, after explicit confirmation, start or rerun a hosted review.",
+    "developerName": "Juror",
+    "category": "Developer Tools",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://juror.dev",
+    "privacyPolicyURL": "https://app.juror.dev/privacy",
+    "termsOfServiceURL": "https://app.juror.dev/terms",
+    "defaultPrompt": [
+      "Show my Juror workspaces and review findings.",
+      "Summarize open P0 and P1 Juror findings.",
+      "Prepare a hosted review for an open pull request."
+    ],
+    "brandColor": "#2946D3",
+    "composerIcon": "./assets/icon.svg",
+    "logo": "./assets/icon.svg",
+    "logoDark": "./assets/icon.svg"
+  }
+}

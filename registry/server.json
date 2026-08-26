@@ -1,0 +1,18 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "dev.juror/juror",
+  "title": "Juror",
+  "description": "Inspect multi-model PR findings and safely run or rerun Juror Cloud reviews.",
+  "version": "1.0.0",
+  "websiteUrl": "https://juror.dev/en/integrations/mcp",
+  "repository": {
+    "url": "https://github.com/Juror-AI/juror",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://app.juror.dev/mcp"
+    }
+  ]
+}

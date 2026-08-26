@@ -39,6 +39,8 @@ integrations,integration,/en/integrations,/de/integrationen,/fr/integrations,/es
 github,integration,/en/integrations/github,/de/integrationen/github,/fr/integrations/github,/es/integraciones/github,/ja/連携/github,/pt-br/integracoes/github,approved_launch
 github_actions,integration,/en/integrations/github-actions,/de/integrationen/github-actions,/fr/integrations/github-actions,/es/integraciones/github-actions,/ja/連携/github-actions,/pt-br/integracoes/github-actions,approved_launch
 codex,integration,/en/integrations/codex,/de/integrationen/codex,/fr/integrations/codex,/es/integraciones/codex,/ja/連携/codex,/pt-br/integracoes/codex,approved_launch
+chatgpt_plugin,integration,/en/integrations/chatgpt,/de/integrationen/chatgpt,/fr/integrations/chatgpt,/es/integraciones/chatgpt,/ja/連携/chatgpt,/pt-br/integracoes/chatgpt,approved_launch
+mcp,integration,/en/integrations/mcp,/de/integrationen/mcp,/fr/integrations/mcp,/es/integraciones/mcp,/ja/連携/mcp,/pt-br/integracoes/mcp,approved_launch
 claude,integration,/en/integrations/claude,/de/integrationen/claude,/fr/integrations/claude,/es/integraciones/claude,/ja/連携/claude,/pt-br/integracoes/claude,approved_launch
 openrouter,integration,/en/integrations/openrouter,/de/integrationen/openrouter,/fr/integrations/openrouter,/es/integraciones/openrouter,/ja/連携/openrouter,/pt-br/integracoes/openrouter,approved_launch
 compare,comparison,/en/compare,/de/vergleich,/fr/comparer,/es/comparar,/ja/比較,/pt-br/comparar,approved_launch

@@ -115,7 +115,7 @@ async function upsertPullRequest(env: Env, repositoryId: string, payload: JsonOb
   return prId;
 }
 
-async function currentCommitment(env: Env, workspaceId: string): Promise<{ cap: number; consumed: number; reserved: number; trialRemaining: number; billingReady: boolean }> {
+export async function currentCommitment(env: Env, workspaceId: string): Promise<{ cap: number; consumed: number; reserved: number; trialRemaining: number; billingReady: boolean }> {
   const start = new Date();
   start.setUTCDate(1); start.setUTCHours(0, 0, 0, 0);
   const row = await env.DB.prepare(`SELECT w.monthly_cap_micro_usd AS cap, w.trial_remaining_micro_usd AS trial_remaining, CASE WHEN w.billing_state = 'active' AND EXISTS (SELECT 1 FROM stripe_customer sc WHERE sc.workspace_id = w.id AND sc.payment_state = 'active') THEN 1 ELSE 0 END AS billing_ready, COALESCE((SELECT SUM(billable_micro_usd) FROM usage_ledger WHERE workspace_id = w.id AND created_at >= ?), 0) AS consumed, COALESCE((SELECT SUM(reserved_micro_usd) FROM run WHERE workspace_id = w.id AND status IN ('queued', 'running')), 0) AS reserved FROM workspace w WHERE w.id = ?`)

@@ -27,7 +27,7 @@ if (!existsSync(distRoot) || !statSync(distRoot).isDirectory()) fail('dist direc
 const [header, ...lines] = readFileSync(manifestPath, 'utf8').trim().split(/\r?\n/);
 const columns = header.split(',');
 const records = lines.map((line) => Object.fromEntries(columns.map((column, index) => [column, line.split(',')[index] ?? ''])));
-if (records.length !== 91) fail(`expected 91 manifest records, found ${records.length}`);
+if (!records.length) fail('route manifest has no records');
 
 const siteUrl = new URL(siteOrigin);
 const productionOrigin = siteUrl.protocol === 'https:'
@@ -40,7 +40,8 @@ const releaseReady = contentRelease === 'approved'
 const expectedRobots = releaseReady ? 'index, follow' : 'noindex, nofollow';
 
 const paths = records.flatMap((record) => localeColumns.map(([, column]) => record[column]));
-if (paths.length !== 546 || new Set(paths).size !== 546) fail('manifest does not have 546 unique localized routes');
+const expectedPathCount = records.length * localeColumns.length;
+if (paths.length !== expectedPathCount || new Set(paths).size !== expectedPathCount) fail(`manifest does not have ${expectedPathCount} unique localized routes`);
 const publicRoutePaths = new Set(paths.map((routePath) => `${routePath}/`));
 const titlesByLocale = new Map(localeColumns.map(([locale]) => [locale, new Map()]));
 const descriptionsByLocale = new Map(localeColumns.map(([locale]) => [locale, new Map()]));

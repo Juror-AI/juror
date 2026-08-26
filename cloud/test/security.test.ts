@@ -138,6 +138,7 @@ describe('webhook security boundaries', () => {
     const onboarding = await readFile(new URL('../src/lib/onboarding.ts', import.meta.url), 'utf8');
     const api = await readFile(new URL('../shared/api.ts', import.meta.url), 'utf8');
     const worker = await readFile(new URL('../worker/index.ts', import.meta.url), 'utf8');
+    const reviewService = await readFile(new URL('../worker/review-service.ts', import.meta.url), 'utf8');
     const webhook = await readFile(new URL('../worker/github-webhook.ts', import.meta.url), 'utf8');
     expect(pages).not.toContain('executionMode');
     expect(pages).not.toContain('mode-options');
@@ -149,7 +150,7 @@ describe('webhook security boundaries', () => {
     expect(worker).toContain('workflowDetection !== false');
     expect(webhook).toContain('upsertRepository(env, installationId, payload.repository, true, false, workflowRefs)');
     expect(webhook).toContain('payload.pull_request.base.sha, payload.pull_request.head.sha');
-    expect(worker).toContain('[pr.base.sha, pr.head.sha]');
+    expect(reviewService).toContain('[pr.base.sha, pr.head.sha]');
     expect(webhook).toContain("if (workflowDetection === null) throw new Error('GitHub workflow verification is temporarily unavailable')");
     expect(webhook).not.toContain('execution_mode = CASE');
     expect(webhook).toContain('review_enabled = CASE WHEN excluded.action_detected = 1 THEN 0');

@@ -22,6 +22,8 @@ import type { QaRunResult } from '../../src/qa/types';
 import { unsafeQaOrigin } from './qa-security';
 import { anyReviewPresetReady, qaProviderReady, reviewPresetReadiness } from './providers';
 import { repositorySettingsSchema, resolveSecretHeadersCiphertext } from './repository-settings';
+import { handleMcpRequest } from './mcp';
+import { launchBrowserHostedReview, launchBrowserHostedRerun, ReviewServiceError } from './review-service';
 
 export { ContainerProxy, JurorSandbox, QaSandbox, ReviewSandbox } from './sandbox';
 export { HostedQaWorkflow, HostedReviewWorkflow } from './workflows';
@@ -48,10 +50,39 @@ app.use('/api/*', async (c, next) => {
   await next();
 });
 app.use('/api/auth/*', cors({ origin: (origin, c) => appOrigins(c.env).includes(origin) || (c.env.APP_URL.startsWith('http://localhost:') && origin === 'http://localhost:4173') ? origin : c.env.APP_URL, credentials: true }));
+// Juror accepts RFC 7591 registration only for public MCP clients. Keeping this
+// guard ahead of Better Auth prevents an unauthenticated caller from obtaining
+// a client secret through the otherwise generic DCR endpoint.
+app.post('/api/auth/oauth2/register', async (c) => {
+  if (!c.req.header('content-type')?.toLowerCase().includes('application/json')) {
+    return c.json({ error: 'invalid_client_metadata', error_description: 'Dynamic registration requires application/json.' }, 400, { 'cache-control': 'no-store' });
+  }
+  let registration: { token_endpoint_auth_method?: unknown; grant_types?: unknown; client_secret?: unknown };
+  try { registration = await c.req.raw.clone().json(); }
+  catch { return c.json({ error: 'invalid_client_metadata', error_description: 'Dynamic registration body must be valid JSON.' }, 400, { 'cache-control': 'no-store' }); }
+  const codeOnly = registration.grant_types === undefined || (Array.isArray(registration.grant_types) && registration.grant_types.length === 1 && registration.grant_types[0] === 'authorization_code');
+  if (registration.token_endpoint_auth_method !== 'none' || !codeOnly || registration.client_secret !== undefined) {
+    return c.json({ error: 'invalid_client_metadata', error_description: 'Juror accepts public authorization-code clients with PKCE S256 only.' }, 400, { 'cache-control': 'no-store' });
+  }
+  return createAuth(c.env, c.req.url).handler(c.req.raw);
+});
 app.all('/api/auth/*', (c) => createAuth(c.env, c.req.url).handler(c.req.raw));
+// These discovery routes must always reach the Worker; Wrangler routes them ahead of the SPA assets.
+app.all('/.well-known/oauth-protected-resource', (c) => createAuth(c.env, c.req.url).handler(c.req.raw));
+app.all('/.well-known/oauth-protected-resource/mcp', (c) => createAuth(c.env, c.req.url).handler(c.req.raw));
+app.all('/.well-known/oauth-authorization-server/api/auth', (c) => createAuth(c.env, c.req.url).handler(c.req.raw));
+// New remote listings use Streamable HTTP. The modern transport is POST-only;
+// do not expose an SSE compatibility route.
+app.post('/mcp', (c) => handleMcpRequest(c.env, c.req.raw));
+app.get('/.well-known/glama.json', (c) => {
+  const email = c.env.GLAMA_MAINTAINER_EMAIL;
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return c.notFound();
+  return c.json({ maintainers: [{ email }] });
+});
 
 app.onError((error, c) => {
   if (error instanceof HTTPException) return error.getResponse();
+  if (error instanceof ReviewServiceError) return c.json({ error: { code: error.code, message: error.message }, requestId: c.get('requestId') }, error.status);
   if (error instanceof z.ZodError) return c.json({ error: { code: 'invalid_request', message: 'The request payload is invalid.', issues: error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message })) }, requestId: c.get('requestId') }, 400);
   if (error instanceof Response) return error;
   console.error(JSON.stringify({ requestId: c.get('requestId'), error: error instanceof Error ? error.message : String(error) }));
@@ -397,20 +428,8 @@ app.post('/api/runs/:id/cancel', async (c) => {
 });
 
 app.post('/api/runs/:id/rerun', async (c) => {
-  const run = await authorizeRun(c);
-  const newId = await createRun(c.env, {
-    kind: run.kind,
-    identity: `rerun:${run.id}:${crypto.randomUUID()}`,
-    workspaceId: run.workspace_id,
-    repositoryId: run.repository_id,
-    pullRequestId: run.pull_request_id,
-    prNumber: run.pr_number,
-    sha: run.revision_sha,
-  });
-  if (!newId) return c.json({ error: { code: 'rerun_conflict', message: 'A matching rerun already exists.' }, requestId: c.get('requestId') }, 409);
-  await appendRunEvent(c.env, newId, 'queued', 'pending', `Manual rerun of ${run.id}.`);
-  const created = await c.env.DB.prepare('SELECT status FROM run WHERE id = ?').bind(newId).first<{ status: string }>();
-  return envelope(c, { id: newId, status: created?.status ?? 'queued' });
+  const principal = await withPrincipal(c);
+  return envelope(c, await launchBrowserHostedRerun(c.env, principal, c.req.param('id')));
 });
 
 app.get('/api/repositories', async (c) => {
@@ -422,26 +441,7 @@ app.get('/api/repositories', async (c) => {
 app.post('/api/repositories/:id/review-now', async (c) => {
   const principal = await withPrincipal(c);
   const input = z.object({ prNumber: z.number().int().positive() }).parse(await c.req.json());
-  const repository = await c.env.DB.prepare(`SELECT repo.*, i.github_installation_id, rs.review_enabled FROM repository repo JOIN installation i ON i.workspace_id = repo.workspace_id JOIN repository_settings rs ON rs.repository_id = repo.id WHERE repo.id = ? AND repo.workspace_id = ?`)
-    .bind(c.req.param('id'), principal.workspaceId).first<any>();
-  if (!repository) return c.json({ error: { code: 'not_found', message: 'Repository not found.' }, requestId: c.get('requestId') }, 404);
-  if (!repository.review_enabled) return c.json({ error: { code: 'cloud_review_disabled', message: 'Enable automated review for this repository first.' }, requestId: c.get('requestId') }, 409);
-  const response = await githubApi(c.env, repository.github_installation_id, `/repos/${repository.full_name}/pulls/${input.prNumber}`);
-  if (!response.ok) return c.json({ error: { code: 'github_pr_unavailable', message: 'GitHub could not load that pull request.' }, requestId: c.get('requestId') }, response.status === 404 ? 404 : 502);
-  const pr = await response.json<any>();
-  const workflowDetection = await detectJurorWorkflow(c.env, repository.github_installation_id, repository.full_name, [pr.base.sha, pr.head.sha]);
-  if (workflowDetection !== false) {
-    await c.env.DB.prepare(`UPDATE repository_settings SET action_detected = 1, review_enabled = 0, qa_enabled = 0, qa_security_ready = 0, updated_at = ? WHERE repository_id = ?`).bind(new Date().toISOString(), repository.id).run();
-    return c.json({ error: { code: 'juror_workflow_check_required', message: workflowDetection ? 'Remove the existing Juror workflow before starting a hosted review.' : 'Juror could not verify this repository workflow configuration. Try again after GitHub access recovers.' }, requestId: c.get('requestId') }, 409);
-  }
-  if (pr.state !== 'open') return c.json({ error: { code: 'pr_not_open', message: 'Review now is available for open pull requests.' }, requestId: c.get('requestId') }, 409);
-  const pullRequestId = `pr_${pr.id}`; const timestamp = new Date().toISOString();
-  await c.env.DB.prepare(`INSERT INTO pull_request (id, repository_id, github_pr_id, number, state, base_sha, head_sha, merge_sha, is_fork, author_login, github_url, opened_at, merged_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, NULL, ?) ON CONFLICT(github_pr_id) DO UPDATE SET state = excluded.state, base_sha = excluded.base_sha, head_sha = excluded.head_sha, is_fork = excluded.is_fork, github_url = excluded.github_url, updated_at = excluded.updated_at`)
-    .bind(pullRequestId, repository.id, pr.id, pr.number, pr.state, pr.base.sha, pr.head.sha, pr.head.repo?.fork ? 1 : 0, pr.user.login, pr.html_url, pr.created_at, timestamp).run();
-  const runId = await createRun(c.env, { kind: 'review', identity: `review:${repository.github_repository_id}:${pr.number}:${pr.head.sha}`, workspaceId: principal.workspaceId, repositoryId: repository.id, pullRequestId, prNumber: pr.number, sha: pr.head.sha });
-  if (!runId) return c.json({ error: { code: 'already_reviewed', message: 'This pull request revision already has a run.' }, requestId: c.get('requestId') }, 409);
-  const created = await c.env.DB.prepare('SELECT status FROM run WHERE id = ? AND workspace_id = ?').bind(runId, principal.workspaceId).first<{ status: string }>();
-  return envelope(c, { id: runId, status: created?.status ?? 'queued' });
+  return envelope(c, await launchBrowserHostedReview(c.env, principal, c.req.param('id'), input.prNumber));
 });
 
 app.patch('/api/repositories/:id', async (c) => {

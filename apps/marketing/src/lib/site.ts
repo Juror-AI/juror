@@ -55,13 +55,14 @@ function parseManifest(): PageRecord[] {
     };
   });
 
-  if (records.length !== 91) throw new Error(`Expected 91 page records; received ${records.length}.`);
+  if (!records.length) throw new Error('The route manifest must contain at least one page record.');
   if (new Set(records.map((record: PageRecord) => record.id)).size !== records.length) {
     throw new Error('The route manifest contains duplicate page IDs.');
   }
   const paths = records.flatMap((record: PageRecord) => Object.values(record.paths));
-  if (paths.length !== 546 || new Set(paths).size !== paths.length || paths.some((path: string) => !path.startsWith('/'))) {
-    throw new Error('The route manifest must contain 546 unique absolute locale paths.');
+  const expectedPathCount = records.length * LOCALES.length;
+  if (paths.length !== expectedPathCount || new Set(paths).size !== paths.length || paths.some((path: string) => !path.startsWith('/'))) {
+    throw new Error(`The route manifest must contain ${expectedPathCount} unique absolute locale paths.`);
   }
   return records;
 }
@@ -150,6 +151,8 @@ export const PAGE_SPECS: Record<string, PageSpec> = {
   github: spec('Juror for GitHub pull requests.', 'Install Juror into the GitHub pull-request workflow with clear permissions and output.', 'Juror posts a merged review to the pull request after independent harnesses have completed. The action should be pinned and its permissions kept minimal.', ['Marketplace path', 'Trigger configuration', 'Sample review output'], 'View setup'),
   github_actions: spec('A GitHub Action for multi-model review.', 'Configure an auditable multi-model review workflow in GitHub Actions.', 'The workflow is ordinary YAML: use a verified action SHA, minimal permissions, protected secrets, and a pull-request event policy that accounts for forks.', ['Pinned YAML', 'Secret handling', 'Troubleshooting steps'], 'Copy workflow'),
   codex: spec('Use Codex in a Juror review preset.', 'Configure the released Codex harness in a Juror preset without implying affiliation.', 'The available harness and model identifiers must match the released Juror configuration. Model capabilities and availability are provider-controlled and can change.', ['Released harness', 'Preset selection', 'Version caveats'], 'Read presets'),
+  chatgpt_plugin: spec('Use Juror in ChatGPT and Codex.', 'Inspect concise multi-model PR findings and safely start a Juror Cloud review after explicit confirmation.', 'The Juror Plugin connects to hosted Juror Cloud through OAuth. It is not a local-repository agent: it exposes only workspace-scoped review metadata and does not return raw diffs, source checkouts, reports, artifacts, screenshots, credentials, or prompt text.', ['Choose a workspace', 'Inspect minimal review summaries', 'Confirm hosted review starts'], 'Connect Juror'),
+  mcp: spec('Connect Juror through MCP.', 'Use Juror’s OAuth-protected Streamable HTTP endpoint for review triage and explicitly confirmed hosted reviews.', 'Connect directly to the Juror MCP endpoint, authenticate with Juror Cloud, list workspaces, and choose one before inspecting findings or runs. The endpoint runs hosted Juror Cloud, not arbitrary local repositories.', ['Streamable HTTP endpoint', 'OAuth workspace access', 'Minimal data boundary'], 'Read MCP setup'),
   claude: spec('Use Claude in a Juror review preset.', 'Configure the released Claude harness in a Juror preset without implying affiliation.', 'Use the harness and version spec supported by the current release. Provider behavior, availability, and billing remain subject to the provider.', ['Released harness', 'Preset selection', 'Version caveats'], 'Read presets'),
   openrouter: spec('Configure a starter multi-model preset with OpenRouter.', 'Use a provider key with explicit cost and security boundaries.', 'The starter preset is opt-in and should be benchmarked before it is promoted. Keep provider credentials in repository secrets, never in the configuration body.', ['Provider requirements', 'Key handling', 'Cost caveats'], 'Read presets'),
   compare: spec('Compare AI code review approaches.', 'Use an evidence-first framework for evaluating AI review tools and workflows.', 'A comparison is useful when it names its evidence, version date, unknowns, and buyer context. Do not compress unlike products into a single score.', ['Decision criteria', 'Source freshness', 'Workflow fit'], 'Read the guide'),

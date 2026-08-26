@@ -1,4 +1,6 @@
 import { betterAuth } from 'better-auth';
+import { jwt } from 'better-auth/plugins';
+import { mcp } from '@better-auth/mcp';
 import type { Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import type { Env, Principal } from './env';
@@ -13,6 +15,15 @@ export function requestAppOrigin(env: AppOriginEnv, requestUrl?: string): string
   if (!requestUrl) return env.APP_URL;
   const origin = new URL(requestUrl).origin;
   return appOrigins(env).includes(origin) ? origin : env.APP_URL;
+}
+
+/** The canonical OAuth issuer and protected resource identifiers are stable in production. */
+export function oauthIssuerUrl(env: AppOriginEnv, requestUrl?: string): string {
+  return new URL('/api/auth', requestAppOrigin(env, requestUrl)).toString().replace(/\/$/, '');
+}
+
+export function mcpResourceUrl(env: AppOriginEnv, requestUrl?: string): string {
+  return new URL('/mcp', requestAppOrigin(env, requestUrl)).toString().replace(/\/$/, '');
 }
 
 export function createAuth(env: Env, requestUrl?: string) {
@@ -42,6 +53,28 @@ export function createAuth(env: Env, requestUrl?: string) {
         trustedProviders: ['github', 'google'],
       },
     },
+    plugins: [
+      jwt({ jwt: { issuer: oauthIssuerUrl(env, requestUrl) }, disableSettingJwtHeader: true }),
+      // mcp() is Better Auth's OAuth 2.1 Provider configured as an RFC 9728
+      // protected resource. The registration route below accepts public DCR
+      // clients only; Better Auth requires PKCE S256 for those clients. Tokens
+      // are audience-bound to /mcp and expire after five minutes.
+      mcp({
+        loginPage: '/signin',
+        consentPage: '/signin',
+        resource: mcpResourceUrl(env, requestUrl),
+        scopes: ['juror.read', 'juror.reviews.write'],
+        resources: [{ identifier: mcpResourceUrl(env, requestUrl), name: 'Juror MCP', allowedScopes: ['juror.read', 'juror.reviews.write'], accessTokenTtl: 300 }],
+        accessTokenExpiresIn: 300,
+        grantTypes: ['authorization_code'],
+        allowDynamicClientRegistration: true,
+        allowUnauthenticatedClientRegistration: true,
+        clientRegistrationRequirePKCE: true,
+        clientRegistrationDefaultResources: [mcpResourceUrl(env, requestUrl)],
+        clientRegistrationDefaultScopes: ['juror.read'],
+        clientRegistrationAllowedScopes: ['juror.reviews.write'],
+      }),
+    ],
     advanced: {
       database: { joins: true },
       useSecureCookies: env.APP_URL.startsWith('https://'),

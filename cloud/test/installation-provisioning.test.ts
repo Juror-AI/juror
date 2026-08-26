@@ -3,6 +3,7 @@ import type { Env } from '../worker/env';
 
 const githubApi = vi.hoisted(() => vi.fn());
 vi.mock('../worker/github', () => ({ githubApi }));
+vi.mock('../worker/workflows', () => ({ destroyRunSandbox: vi.fn() }));
 
 import { provisionInstallation } from '../worker/github-webhook';
 
