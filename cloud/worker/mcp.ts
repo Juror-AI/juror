@@ -12,6 +12,10 @@ const readSecurity = [{ type: 'oauth2', scopes: ['juror.read'] }];
 const writeSecurity = [{ type: 'oauth2', scopes: ['juror.reviews.write'] }];
 const readAnnotations = { readOnlyHint: true, destructiveHint: false, openWorldHint: false } as const;
 const writeAnnotations = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
+// Preparing a review persists a short-lived, single-use confirmation intent.
+// It is private and reversible by expiry, but it is still a state change and
+// must not be advertised as read-only to MCP hosts.
+const preflightAnnotations = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
 const writeTools = new Set(['juror_start_review', 'juror_rerun_review']);
 
 type McpAuth = { userId: string; scopes: string[] };
@@ -168,7 +172,7 @@ function createJurorServer(env: Env, auth: McpAuth) {
 
   server.registerTool('juror_prepare_review', {
     title: 'Prepare a Juror hosted review', description: 'Preflight one open pull request and create a five-minute confirmation intent. Show the repository, PR, SHA, and billing warning to the user before calling start.',
-    inputSchema: z.object({ workspace_id: z.string().min(1), repository_id: z.string().min(1), pr_number: z.number().int().positive() }), annotations: readAnnotations, _meta: { securitySchemes: readSecurity },
+    inputSchema: z.object({ workspace_id: z.string().min(1), repository_id: z.string().min(1), pr_number: z.number().int().positive() }), annotations: preflightAnnotations, _meta: { securitySchemes: readSecurity },
   }, async ({ workspace_id, repository_id, pr_number }) => {
     try {
       const principal = await principalForWorkspace(env, auth, workspace_id);
@@ -190,7 +194,7 @@ function createJurorServer(env: Env, auth: McpAuth) {
 
   server.registerTool('juror_prepare_rerun', {
     title: 'Prepare a Juror hosted review rerun', description: 'Preflight a rerun of one existing hosted review and create a five-minute confirmation intent. Show the current PR SHA and billing warning before rerunning.',
-    inputSchema: z.object({ workspace_id: z.string().min(1), run_id: z.string().min(1) }), annotations: readAnnotations, _meta: { securitySchemes: readSecurity },
+    inputSchema: z.object({ workspace_id: z.string().min(1), run_id: z.string().min(1) }), annotations: preflightAnnotations, _meta: { securitySchemes: readSecurity },
   }, async ({ workspace_id, run_id }) => {
     try {
       const principal = await principalForWorkspace(env, auth, workspace_id);
