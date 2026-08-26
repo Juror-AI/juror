@@ -1,0 +1,212 @@
+{
+  "$schema": "https://developers.openai.com/apps-sdk/schemas/chatgpt-app-submission.v1.json",
+  "schema_version": 1,
+  "app_info": {
+    "display_name": "Juror",
+    "subtitle": "Inspect PR findings",
+    "description": "Juror lets signed-in users inspect concise, workspace-scoped multi-model pull-request findings and hosted review runs. After a current preflight and explicit confirmation, it can start or rerun a hosted Juror Cloud review.",
+    "category": "DEVELOPER_TOOLS"
+  },
+  "tools": {
+    "juror_list_workspaces": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Lists the caller's existing Juror Cloud workspace memberships and roles without changing data.",
+        "open_world_justification": "Only reads private Juror Cloud membership data and cannot publish or contact third parties.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or initiate an irreversible action."
+      }
+    },
+    "juror_overview": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Calculates and returns concise run and finding counts for an authorized workspace without changing data.",
+        "open_world_justification": "Only reads private Juror Cloud workspace data and cannot publish or contact third parties.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or initiate an irreversible action."
+      }
+    },
+    "juror_list_repositories": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Lists authorized workspace repositories and review availability without exposing credentials or changing configuration.",
+        "open_world_justification": "Only reads private Juror Cloud repository metadata and cannot publish or contact third parties.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or initiate an irreversible action."
+      }
+    },
+    "juror_list_findings": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Lists concise finding metadata in an authorized workspace and withholds retained bodies until a specific finding is requested.",
+        "open_world_justification": "Only reads private Juror Cloud finding metadata and cannot publish or contact third parties.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or initiate an irreversible action."
+      }
+    },
+    "juror_get_finding_detail": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Returns retained detail for one explicitly named finding that belongs to the authorized workspace without changing data.",
+        "open_world_justification": "Only reads private Juror Cloud finding data and cannot publish or contact third parties.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or initiate an irreversible action."
+      }
+    },
+    "juror_list_runs": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Lists concise hosted review-run summaries for an authorized workspace without changing run state.",
+        "open_world_justification": "Only reads private Juror Cloud run metadata and cannot publish or contact third parties.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or initiate an irreversible action."
+      }
+    },
+    "juror_get_run": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Returns status, finding count, receipt summary, and deep link for one authorized hosted review run without changing it.",
+        "open_world_justification": "Only reads private Juror Cloud run data and cannot publish or contact third parties.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or initiate an irreversible action."
+      }
+    },
+    "juror_prepare_review": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Validates an authorized open pull request and creates a private, five-minute, single-use confirmation intent without starting a review.",
+        "open_world_justification": "Creates only a private Juror Cloud confirmation record and cannot publish or contact third parties.",
+        "destructive_justification": "The confirmation intent expires automatically and does not delete, overwrite, revoke access, or start a review."
+      }
+    },
+    "juror_start_review": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Consumes a just-confirmed private intent and queues a hosted Juror Cloud review for the preflighted pull request.",
+        "open_world_justification": "Starts a review only within the user's private Juror Cloud workspace and cannot publish or contact third parties.",
+        "destructive_justification": "The tool does not delete, overwrite, revoke access, or perform an irreversible external transaction."
+      }
+    },
+    "juror_prepare_rerun": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Validates an authorized hosted review rerun and creates a private, five-minute, single-use confirmation intent without starting the rerun.",
+        "open_world_justification": "Creates only a private Juror Cloud confirmation record and cannot publish or contact third parties.",
+        "destructive_justification": "The confirmation intent expires automatically and does not delete, overwrite, revoke access, or start a review."
+      }
+    },
+    "juror_rerun_review": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Consumes a just-confirmed private intent and queues a new hosted Juror Cloud run for the preflighted review.",
+        "open_world_justification": "Starts a rerun only within the user's private Juror Cloud workspace and cannot publish or contact third parties.",
+        "destructive_justification": "The tool does not delete, overwrite, revoke access, or perform an irreversible external transaction."
+      }
+    }
+  },
+  "test_cases": [
+    {
+      "description": "List the caller's accessible Juror workspaces before a scoped request.",
+      "user_prompt": "Show my Juror workspaces.",
+      "file_attachment_urls": null,
+      "tools_triggered": "juror_list_workspaces",
+      "expected_output": "Returns only workspaces accessible to the signed-in reviewer, including each role, so the user can choose a workspace.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Triage an explicitly selected workspace for high-priority review signals.",
+      "user_prompt": "In the selected Juror workspace, summarize open P0 and P1 findings and the recent review activity.",
+      "file_attachment_urls": null,
+      "tools_triggered": "juror_overview, juror_list_findings",
+      "expected_output": "Returns concise workspace counts and matching finding metadata, with severity and model-agreement information but no raw repository material.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Retrieve detail only after the user identifies one retained finding.",
+      "user_prompt": "Show the retained detail for finding FINDING_ID in the selected Juror workspace.",
+      "file_attachment_urls": null,
+      "tools_triggered": "juror_get_finding_detail",
+      "expected_output": "Returns the requested finding's retained body and claim together with concise metadata and a Juror Cloud deep link.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Preflight and explicitly confirm a hosted review for an open pull request.",
+      "user_prompt": "Prepare a Juror hosted review for pull request 42 in repository REPOSITORY_ID, show me the PR, SHA, and capacity warning, then start it only after I explicitly confirm.",
+      "file_attachment_urls": null,
+      "tools_triggered": "juror_prepare_review, juror_start_review",
+      "expected_output": "First returns a five-minute confirmation intent and the reviewed PR, SHA, repository, and capacity information; after a separate explicit confirmation, returns the newly queued hosted-run ID and Cloud link.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Preflight and explicitly confirm a rerun of an existing hosted review.",
+      "user_prompt": "Prepare a rerun of hosted review RUN_ID in the selected Juror workspace, show the current PR SHA and capacity warning, and rerun it only after I explicitly confirm.",
+      "file_attachment_urls": null,
+      "tools_triggered": "juror_prepare_rerun, juror_rerun_review",
+      "expected_output": "First returns a five-minute rerun confirmation intent and current PR details; after a separate explicit confirmation, returns the newly queued rerun ID and Cloud link.",
+      "expected_output_url": null
+    }
+  ],
+  "negative_test_cases": [
+    {
+      "description": "Do not expose raw repository source material.",
+      "user_prompt": "Download the full diff and source checkout for my latest pull request.",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "The app should not be invoked because Juror MCP does not provide raw diffs, source checkouts, artifacts, or screenshots.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Do not perform unsupported GitHub or workspace administration.",
+      "user_prompt": "Add a new GitHub repository to my Juror workspace and turn on review settings.",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "The app should not be invoked because repository management and arbitrary GitHub access are outside the supported workflows.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Do not cancel a review or modify billing through the plugin.",
+      "user_prompt": "Cancel my running Juror review and increase the workspace spending cap.",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "The app should not be invoked because cancellation, billing, and workspace settings are not available through Juror MCP.",
+      "expected_output_url": null
+    }
+  ]
+}
