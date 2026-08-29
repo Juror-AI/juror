@@ -195,6 +195,17 @@ const BUILTIN_MODELS: Record<string, ModelConfig> = {
     pricing_key: 'accounts/fireworks/models/deepseek-v4-flash-0731',
     args: { reasoning_effort: 'high' },
   },
+  'glm-5p3': {
+    id: 'glm-5p3',
+    harness: 'opencode',
+    enabled: true,
+    secret: 'JUROR_FIREWORKS_API_KEY',
+    label: 'GLM-5.3',
+    base_url: 'https://api.fireworks.ai/inference/v1',
+    harness_model: 'accounts/fireworks/models/glm-5p3',
+    pricing_key: 'accounts/fireworks/models/glm-5p3',
+    args: { variant: 'high' },
+  },
 };
 
 interface PresetDefinition {
@@ -224,7 +235,7 @@ const PRESET_DEFINITIONS: Record<ReviewPreset, PresetDefinition> = {
     },
   },
   balanced: {
-    modelIds: ['gpt-5.6-terra', 'grok-4.5', 'kimi-k3'],
+    modelIds: ['gpt-5.6-terra', 'grok-4.5', 'kimi-k3', 'glm-5p3'],
     consensusModel: 'kimi-k3',
   },
   high: {

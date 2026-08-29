@@ -7,7 +7,7 @@ harnesses, and versioned pricing table. It describes tested Juror configuration,
 promise that an external provider will keep a model available. Run
 `npm run docs:compatibility` after changing any of those inputs.
 
-Pricing table last checked: **2026-08-11**.
+Pricing table last checked: **2026-08-29**.
 
 ## Built-in models
 
@@ -15,6 +15,7 @@ Pricing table last checked: **2026-08-11**.
 |---|---|---|---|---|---|---|
 | Opus 5<br><sub>`claude-opus-5`</sub> | Anthropic<br><sub>`JUROR_ANTHROPIC_API_KEY`</sub> | Claude Code<br><sub>`claude-code`</sub> | `claude-opus-5` | `high`, `ultra` | provider-reported; unknown on malformed output | [2026-08-06](https://www.anthropic.com/pricing#api) |
 | DeepSeek V4 Flash<br><sub>`deepseek-v4-flash-0731`</sub> | Fireworks<br><sub>`JUROR_FIREWORKS_API_KEY`</sub> | DeepSeek<br><sub>`deepseek`</sub> | `accounts/fireworks/models/deepseek-v4-flash-0731` | `fast`, `ultra` | provider-usage estimated; unknown without usage events | [2026-08-06](https://models.dev) |
+| GLM-5.3<br><sub>`glm-5p3`</sub> | Fireworks<br><sub>`JUROR_FIREWORKS_API_KEY`</sub> | opencode<br><sub>`opencode`</sub> | `accounts/fireworks/models/glm-5p3` | `balanced` | provider-reported per step; unknown on malformed output | [2026-08-29](https://models.dev/) |
 | GPT-5.6 Luna<br><sub>`gpt-5.6-luna`</sub> | OpenAI<br><sub>`JUROR_OPENAI_API_KEY`</sub> | Codex<br><sub>`codex`</sub> | `gpt-5.6-luna` | `fast`, `ultra` | token-estimated; unknown without usage | [2026-08-07](https://developers.openai.com/api/docs/models/gpt-5.6-luna) |
 | GPT-5.6 Sol<br><sub>`gpt-5.6-sol`</sub> | OpenAI<br><sub>`JUROR_OPENAI_API_KEY`</sub> | Codex<br><sub>`codex`</sub> | `gpt-5.6-sol` | `high`, `ultra` | token-estimated; unknown without usage | [2026-08-06](https://openai.com/api/pricing/) |
 | GPT-5.6 Terra<br><sub>`gpt-5.6-terra`</sub> | OpenAI<br><sub>`JUROR_OPENAI_API_KEY`</sub> | Codex<br><sub>`codex`</sub> | `gpt-5.6-terra` | `balanced`, `ultra` | token-estimated; unknown without usage | [2026-08-06](https://developers.openai.com/api/docs/models/gpt-5.6-terra) |
