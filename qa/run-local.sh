@@ -471,6 +471,8 @@ docker create \
   --user "$CONTAINER_USER" \
   --cap-drop=ALL \
   --cap-add=SYS_CHROOT \
+  --security-opt apparmor=unconfined \
+  --security-opt no-new-privileges \
   --security-opt "seccomp=$ROOT/qa/seccomp_profile.json" \
   --pids-limit=512 \
   --memory=4g \

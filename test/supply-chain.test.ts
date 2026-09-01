@@ -190,6 +190,10 @@ describe('supply-chain policy', () => {
     expect(steps[browserIndex]?.run).toContain('--network none');
     expect(steps[browserIndex]?.run).toContain('--user "$RUNTIME_USER"');
     expect(steps[browserIndex]?.run).toContain('seccomp=$GITHUB_ACTION_PATH/seccomp_profile.json');
+    expect(steps[browserIndex]?.run).toContain('--security-opt apparmor=unconfined');
+    expect(steps[browserIndex]?.run).toContain('--security-opt no-new-privileges');
+    expect(steps[qaIndex]?.run).toContain('--security-opt apparmor=unconfined');
+    expect(steps[qaIndex]?.run).toContain('--security-opt no-new-privileges');
   });
 
   it('uploads immutable payload and result artifacts around finalization', () => {
@@ -471,6 +475,7 @@ esac
     expect(action).toContain('seccomp=$GITHUB_ACTION_PATH/seccomp_profile.json');
     expect(action).toContain('--cap-drop=ALL');
     expect(action).toContain('--cap-add=SYS_CHROOT');
+    expect(action.match(/--security-opt apparmor=unconfined/g)).toHaveLength(2);
     expect(dockerfile).toContain('HOME=/home/pwuser');
     expect(action.match(/uid=\$RUNTIME_UID,gid=\$RUNTIME_GID,mode=0700/g)).toHaveLength(3);
     expect(localRunner.match(/uid=\$CONTAINER_UID,gid=\$CONTAINER_GID,mode=0700/g)).toHaveLength(2);

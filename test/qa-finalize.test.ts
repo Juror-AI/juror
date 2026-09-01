@@ -257,6 +257,11 @@ describe('finalizeQaEvidence', () => {
       const report = JSON.parse(readFileSync(reportPath, 'utf8')) as QaRunResult;
       expect(isQaRunResult(report)).toBe(true);
       expect(report.outcome).toBe('infrastructure_error');
+      expect(JSON.parse(readFileSync(join(scratch, 'payload-status.json'), 'utf8'))).toEqual({
+        schema_version: 1,
+        report_present: true,
+        runtime_status: 1,
+      });
       expect(readFileSync(outputPath, 'utf8')).toContain('report-path=\n');
     } finally {
       rmSync(scratch, { recursive: true, force: true });
