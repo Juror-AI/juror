@@ -294,6 +294,15 @@ describe('QA outcome classification safety gates', () => {
     )).toBe('cancelled');
   });
 
+  it('classifies a categorical Chromium launch failure as infrastructure', () => {
+    expect(classifyQaOutcome(
+      { ...state(plan()), infrastructureFailure: 'chromium_launch_failed' },
+      target(),
+      agent,
+      clean,
+    )).toBe('infrastructure_error');
+  });
+
   it('blocks cleanup failure even for a no-surface plan', () => {
     expect(classifyQaOutcome(
       state(plan('no_testable_surface')),

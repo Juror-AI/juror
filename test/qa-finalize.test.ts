@@ -173,6 +173,7 @@ describe('finalizeQaEvidence', () => {
     ['image', 'released QA image could not be verified'],
     ['runtime', 'isolated QA runtime could not be prepared'],
     ['policy', 'trusted QA policy could not be evaluated'],
+    ['browser', 'sandboxed Chromium could not start on this QA runner'],
   ])('publishes static preflight %s failure output without reflecting environment text', (phase, expected) => {
     const scratch = mkdtempSync(join(tmpdir(), 'juror-qa-preflight-'));
     try {
