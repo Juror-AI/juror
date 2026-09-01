@@ -25,8 +25,8 @@ const preflightPhases = new Map([
     detail: 'Juror stopped before starting QA because its trusted policy gate did not complete.',
   }],
   ['browser', {
-    title: 'The sandboxed Chromium could not start on this QA runner',
-    detail: 'Juror stopped before model execution because the released browser runtime failed its runner-local sandbox check.',
+    title: 'The container-isolated Chromium could not start on this QA runner',
+    detail: 'Juror stopped before model execution because the released browser runtime failed its runner-local isolation check.',
   }],
 ]);
 
@@ -119,7 +119,16 @@ function runPreflight() {
   if (process.env.JUROR_QA_PREFLIGHT_WRITE_REPORT === 'true' && (!reportPath || !repositoryAvailable || !prAvailable)) {
     throw new Error('QA preflight could not safely create its report');
   }
-  if (reportPath) fs.writeFileSync(reportPath, `${JSON.stringify(preflightReport(repository, Number(pr)), null, 2)}\n`, { mode: 0o600 });
+  if (reportPath) {
+    const markerPath = safeNewReportPath(path.join(path.dirname(reportPath), 'payload-status.json'));
+    if (!markerPath) throw new Error('QA preflight could not safely create its payload marker');
+    fs.writeFileSync(reportPath, `${JSON.stringify(preflightReport(repository, Number(pr)), null, 2)}\n`, { mode: 0o600 });
+    fs.writeFileSync(markerPath, `${JSON.stringify({
+      schema_version: 1,
+      report_present: true,
+      runtime_status: 1,
+    }, null, 2)}\n`, { mode: 0o600 });
+  }
 
   const identity = repositoryAvailable && prAvailable ? `- Pull request: #${pr}\n` : '- Pull request: unavailable\n';
   const summary = `## 🛑 Juror QA — Setup failure\n\n` +

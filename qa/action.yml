@@ -306,7 +306,7 @@ runs:
           echo "retention-days=$RETENTION"
         } >> "$GITHUB_OUTPUT"
 
-    - name: Verify Chromium on the QA runner
+    - name: Verify container-isolated Chromium on the QA runner
       id: browser
       if: steps.policy.outputs.enabled == 'true'
       shell: bash
@@ -342,7 +342,7 @@ runs:
           --shm-size=1g \
           --user "$RUNTIME_USER" \
           --cap-drop=ALL \
-          --cap-add=SYS_CHROOT \
+          --security-opt no-new-privileges \
           --security-opt "seccomp=$GITHUB_ACTION_PATH/seccomp_profile.json" \
           --pids-limit=512 \
           --memory=4g \
@@ -608,7 +608,7 @@ runs:
           --shm-size=1g \
           --user "$RUNTIME_USER" \
           --cap-drop=ALL \
-          --cap-add=SYS_CHROOT \
+          --security-opt no-new-privileges \
           --security-opt "seccomp=$GITHUB_ACTION_PATH/seccomp_profile.json" \
           --pids-limit=512 \
           --memory=4g \

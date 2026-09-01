@@ -1,6 +1,6 @@
 {
   "name": "juror-ai",
-  "version": "1.4.4",
+  "version": "1.4.5",
   "description": "Multi-model PR review that shows you the bill. Duplicate findings collapse into one, with optional agreement filtering.",
   "homepage": "https://juror.dev",
   "bugs": {

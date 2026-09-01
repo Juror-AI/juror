@@ -1201,7 +1201,7 @@ export async function runQa(options: RunQaOptions): Promise<QaRunResult> {
     });
     state = broker.state();
     if (state.infrastructureFailure === 'chromium_launch_failed') {
-      warnings.push('QA browser startup: sandboxed Chromium could not start on this runner');
+      warnings.push('QA browser startup: container-isolated Chromium could not start on this runner');
     }
     warnings.push(...agent.diagnostics);
   } catch (error) {

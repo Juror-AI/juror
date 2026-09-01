@@ -173,7 +173,7 @@ describe('finalizeQaEvidence', () => {
     ['image', 'released QA image could not be verified'],
     ['runtime', 'isolated QA runtime could not be prepared'],
     ['policy', 'trusted QA policy could not be evaluated'],
-    ['browser', 'sandboxed Chromium could not start on this QA runner'],
+    ['browser', 'container-isolated Chromium could not start on this QA runner'],
   ])('publishes static preflight %s failure output without reflecting environment text', (phase, expected) => {
     const scratch = mkdtempSync(join(tmpdir(), 'juror-qa-preflight-'));
     try {
@@ -257,6 +257,11 @@ describe('finalizeQaEvidence', () => {
       const report = JSON.parse(readFileSync(reportPath, 'utf8')) as QaRunResult;
       expect(isQaRunResult(report)).toBe(true);
       expect(report.outcome).toBe('infrastructure_error');
+      expect(JSON.parse(readFileSync(join(scratch, 'payload-status.json'), 'utf8'))).toEqual({
+        schema_version: 1,
+        report_present: true,
+        runtime_status: 1,
+      });
       expect(readFileSync(outputPath, 'utf8')).toContain('report-path=\n');
     } finally {
       rmSync(scratch, { recursive: true, force: true });

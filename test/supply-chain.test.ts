@@ -138,8 +138,10 @@ describe('supply-chain policy', () => {
     const steps = action.runs.steps;
     const verifyIndex = steps.findIndex((step) => step.name === 'Resolve and verify the released QA image');
     const policyIndex = steps.findIndex((step) => step.name === 'Read trusted QA policy before credential handoff');
-    const browserIndex = steps.findIndex((step) => step.name === 'Verify Chromium on the QA runner');
+    const browserIndex = steps.findIndex((step) => step.name === 'Verify container-isolated Chromium on the QA runner');
     const qaIndex = steps.findIndex((step) => step.name === 'Run Juror QA in the verified image');
+    const qaRun = steps[qaIndex]?.run ?? '';
+    const qaRuntimeCreate = qaRun.slice(qaRun.indexOf('docker create'), qaRun.indexOf('STATUS=$?'));
 
     expect(verifyIndex).toBeGreaterThanOrEqual(0);
     expect(qaIndex).toBeGreaterThan(verifyIndex);
@@ -190,6 +192,12 @@ describe('supply-chain policy', () => {
     expect(steps[browserIndex]?.run).toContain('--network none');
     expect(steps[browserIndex]?.run).toContain('--user "$RUNTIME_USER"');
     expect(steps[browserIndex]?.run).toContain('seccomp=$GITHUB_ACTION_PATH/seccomp_profile.json');
+    expect(steps[browserIndex]?.run).toContain('--security-opt no-new-privileges');
+    expect(steps[browserIndex]?.run).not.toContain('--cap-add=SYS_CHROOT');
+    expect(steps[browserIndex]?.run).not.toContain('apparmor=unconfined');
+    expect(qaRuntimeCreate).toContain('--security-opt no-new-privileges');
+    expect(qaRuntimeCreate).not.toContain('--cap-add=SYS_CHROOT');
+    expect(qaRuntimeCreate).not.toContain('apparmor=unconfined');
   });
 
   it('uploads immutable payload and result artifacts around finalization', () => {
@@ -458,7 +466,7 @@ esac
     );
   });
 
-  it('ships an enabled Chromium sandbox and exact-origin egress boundary', () => {
+  it('ships container-isolated Chromium and an exact-origin egress boundary', () => {
     const dockerfile = read('qa/Dockerfile');
     const action = read('qa/action.yml');
     const localRunner = read('qa/run-local.sh');
@@ -470,7 +478,8 @@ esac
 
     expect(action).toContain('seccomp=$GITHUB_ACTION_PATH/seccomp_profile.json');
     expect(action).toContain('--cap-drop=ALL');
-    expect(action).toContain('--cap-add=SYS_CHROOT');
+    expect(action).not.toContain('--cap-add=SYS_CHROOT');
+    expect(action).not.toContain('apparmor=unconfined');
     expect(dockerfile).toContain('HOME=/home/pwuser');
     expect(action.match(/uid=\$RUNTIME_UID,gid=\$RUNTIME_GID,mode=0700/g)).toHaveLength(3);
     expect(localRunner.match(/uid=\$CONTAINER_UID,gid=\$CONTAINER_GID,mode=0700/g)).toHaveLength(2);
@@ -482,9 +491,9 @@ esac
     expect(imageCi).toContain('/opt/juror/qa/smoke-chromium.mjs');
     expect(imageCi).toContain('run_chromium_smoke "$ARBITRARY_UID" "$ARBITRARY_GID"');
     expect(releaseWorkflow).toContain('/opt/juror/qa/smoke-chromium.mjs');
-    expect(read('qa/seccomp_profile.json')).toContain('Allow create user namespaces');
-    expect(browser).toContain('chromiumSandbox = true');
-    expect(browser).toContain('this.#options.chromiumSandbox ?? true');
+    expect(read('qa/seccomp_profile.json')).not.toContain('Allow create user namespaces');
+    expect(browser).toContain('chromiumSandbox = false');
+    expect(browser).toContain('this.#options.chromiumSandbox ?? false');
     expect(browser).toContain("channel: 'chromium'");
     expect(proxy).toContain('const allowed = new Set');
     expect(proxy).toContain("server.on('connect'");
