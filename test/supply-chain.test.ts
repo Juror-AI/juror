@@ -140,6 +140,8 @@ describe('supply-chain policy', () => {
     const policyIndex = steps.findIndex((step) => step.name === 'Read trusted QA policy before credential handoff');
     const browserIndex = steps.findIndex((step) => step.name === 'Verify Chromium on the QA runner');
     const qaIndex = steps.findIndex((step) => step.name === 'Run Juror QA in the verified image');
+    const qaRun = steps[qaIndex]?.run ?? '';
+    const qaRuntimeCreate = qaRun.slice(qaRun.indexOf('docker create'), qaRun.indexOf('STATUS=$?'));
 
     expect(verifyIndex).toBeGreaterThanOrEqual(0);
     expect(qaIndex).toBeGreaterThan(verifyIndex);
@@ -191,9 +193,9 @@ describe('supply-chain policy', () => {
     expect(steps[browserIndex]?.run).toContain('--user "$RUNTIME_USER"');
     expect(steps[browserIndex]?.run).toContain('seccomp=$GITHUB_ACTION_PATH/seccomp_profile.json');
     expect(steps[browserIndex]?.run).toContain('--security-opt apparmor=unconfined');
-    expect(steps[browserIndex]?.run).toContain('--security-opt no-new-privileges');
-    expect(steps[qaIndex]?.run).toContain('--security-opt apparmor=unconfined');
-    expect(steps[qaIndex]?.run).toContain('--security-opt no-new-privileges');
+    expect(steps[browserIndex]?.run).not.toContain('--security-opt no-new-privileges');
+    expect(qaRuntimeCreate).toContain('--security-opt apparmor=unconfined');
+    expect(qaRuntimeCreate).not.toContain('--security-opt no-new-privileges');
   });
 
   it('uploads immutable payload and result artifacts around finalization', () => {
