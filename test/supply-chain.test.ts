@@ -138,12 +138,15 @@ describe('supply-chain policy', () => {
     const steps = action.runs.steps;
     const verifyIndex = steps.findIndex((step) => step.name === 'Resolve and verify the released QA image');
     const policyIndex = steps.findIndex((step) => step.name === 'Read trusted QA policy before credential handoff');
+    const browserIndex = steps.findIndex((step) => step.name === 'Verify Chromium on the QA runner');
     const qaIndex = steps.findIndex((step) => step.name === 'Run Juror QA in the verified image');
 
     expect(verifyIndex).toBeGreaterThanOrEqual(0);
     expect(qaIndex).toBeGreaterThan(verifyIndex);
     expect(policyIndex).toBeGreaterThan(verifyIndex);
+    expect(browserIndex).toBeGreaterThan(policyIndex);
     expect(qaIndex).toBeGreaterThan(policyIndex);
+    expect(qaIndex).toBeGreaterThan(browserIndex);
     expect(action.inputs).not.toHaveProperty('codex-version');
     expect(action.inputs).not.toHaveProperty('allow-origins');
     expect(steps.some((step) => step.uses?.startsWith('actions/cache@'))).toBe(false);
@@ -180,6 +183,13 @@ describe('supply-chain policy', () => {
     expect(steps[qaIndex]?.run).toContain('configuredRetention ?? fallbackRetention');
     expect(steps[policyIndex]?.run).not.toContain('--allow-origin');
     expect(steps[qaIndex]?.run).not.toContain('--allow-origin');
+    expect(steps[browserIndex]?.if).toBe("steps.policy.outputs.enabled == 'true'");
+    expect(steps[browserIndex]?.env?.['JUROR_OPENAI_API_KEY']).toBe('');
+    expect(steps[browserIndex]?.env?.['JUROR_QA_SECRETS_B64']).toBe('');
+    expect(steps[browserIndex]?.run).toContain('/opt/juror/qa/smoke-chromium.mjs');
+    expect(steps[browserIndex]?.run).toContain('--network none');
+    expect(steps[browserIndex]?.run).toContain('--user "$RUNTIME_USER"');
+    expect(steps[browserIndex]?.run).toContain('seccomp=$GITHUB_ACTION_PATH/seccomp_profile.json');
   });
 
   it('uploads immutable payload and result artifacts around finalization', () => {
@@ -273,15 +283,16 @@ describe('supply-chain policy', () => {
     const image = steps.findIndex((step) => step.id === 'image');
     const runtime = steps.findIndex((step) => step.id === 'runtime');
     const policy = steps.findIndex((step) => step.id === 'policy');
+    const browser = steps.findIndex((step) => step.id === 'browser');
     const preflight = steps.findIndex((step) => step.name === 'Publish QA setup failure');
     const disabled = steps.findIndex((step) => step.name === 'Record disabled QA outcome');
     const conclusion = steps.findIndex((step) => step.name === 'Apply QA conclusion');
     const setup = steps[preflight];
 
-    expect(preflight).toBe(policy + 1);
+    expect(preflight).toBe(browser + 1);
     expect(preflight).toBeGreaterThan(image);
     expect(preflight).toBeGreaterThan(runtime);
-    expect(setup?.if).toBe("${{ failure() && (steps.image.outcome == 'failure' || steps.runtime.outcome == 'failure' || steps.policy.outcome == 'failure') }}");
+    expect(setup?.if).toContain("steps.browser.outcome == 'failure'");
     expect(setup?.env?.['JUROR_QA_PREFLIGHT_PHASE']).toContain("steps.image.outcome == 'failure'");
     for (const key of [
       'JUROR_OPENAI_API_KEY', 'OPENAI_API_KEY', 'JUROR_ANTHROPIC_API_KEY', 'ANTHROPIC_API_KEY',
@@ -461,7 +472,7 @@ esac
     expect(action).toContain('--cap-drop=ALL');
     expect(action).toContain('--cap-add=SYS_CHROOT');
     expect(dockerfile).toContain('HOME=/home/pwuser');
-    expect(action.match(/uid=\$RUNTIME_UID,gid=\$RUNTIME_GID,mode=0700/g)).toHaveLength(2);
+    expect(action.match(/uid=\$RUNTIME_UID,gid=\$RUNTIME_GID,mode=0700/g)).toHaveLength(3);
     expect(localRunner.match(/uid=\$CONTAINER_UID,gid=\$CONTAINER_GID,mode=0700/g)).toHaveLength(2);
     expect(releaseWorkflow).toContain('PW_UID="$(docker run --rm --entrypoint id "$EXACT_IMAGE" -u pwuser)"');
     expect(releaseWorkflow).toContain('uid=$PW_UID,gid=$PW_GID,mode=0700');

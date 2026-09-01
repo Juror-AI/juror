@@ -848,6 +848,61 @@ describe.sequential('QaBrowserBroker policy boundary', () => {
     await broker.close();
   });
 
+  it('does not charge credential-free Chromium startup to the sealed authentication window', async () => {
+    const evidenceDir = evidenceDirectory();
+    const browserLaunchDelayMs = 2_100;
+    const broker = new QaBrowserBroker(brokerOptions(evidenceDir, {
+      authSteps: [{ action: 'navigate', url: '/' }],
+      sensitiveSetupWindowMs: 2_000,
+      timeoutMs: 30_000,
+      launchBrowser: async (options) => {
+        await new Promise((resolve) => setTimeout(resolve, browserLaunchDelayMs));
+        return chromium.launch(options);
+      },
+    }));
+    await broker.initialize();
+    try {
+      await broker.handle('submit_plan', plan());
+      const startedAt = Date.now();
+      await expect(broker.handle('start_scenario', {
+        scenario_id: 'exercise-fixture',
+        attempt: 1,
+      })).resolves.toEqual({ accepted: true, observation: 'sealed' });
+      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(
+        browserLaunchDelayMs + 2_000 - 100,
+      );
+      expect(broker.browserVersion()).not.toBe('unknown');
+    } finally {
+      await broker.close();
+    }
+  }, 35_000);
+
+  it('records a sealed, categorical infrastructure failure when Chromium cannot launch', async () => {
+    const launchErrorCanary = 'runner-launch-error-canary';
+    const broker = new QaBrowserBroker(brokerOptions(evidenceDirectory(), {
+      authSteps: [{ action: 'navigate', url: '/' }],
+      launchBrowser: async () => {
+        throw new Error(launchErrorCanary);
+      },
+    }));
+    await broker.initialize();
+    try {
+      await broker.handle('submit_plan', plan());
+      await expect(broker.handle('start_scenario', {
+        scenario_id: 'exercise-fixture',
+        attempt: 1,
+      })).rejects.toThrow('Authenticated browser operation failed');
+      expect(broker.state()).toMatchObject({
+        attempts: [],
+        infrastructureFailure: 'chromium_launch_failed',
+      });
+      expect(JSON.stringify(broker.state())).not.toContain(launchErrorCanary);
+      expect(broker.browserVersion()).toBe('unknown');
+    } finally {
+      await broker.close();
+    }
+  });
+
   it('rejects oversized supplied storage state before Chromium starts', async () => {
     const evidenceDir = evidenceDirectory();
     const storageState = join(evidenceDir, 'oversized-state.json');

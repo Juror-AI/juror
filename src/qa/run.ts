@@ -585,6 +585,7 @@ export function classifyQaOutcome(
   cancelled = false,
 ): QaOutcome {
   if (cancelled) return 'cancelled';
+  if (state.infrastructureFailure) return 'infrastructure_error';
   if (agent.timedOut || agent.exitCode !== 0 || !agent.completed || !state.plan || !state.agentFinish) {
     return 'infrastructure_error';
   }
@@ -1199,6 +1200,9 @@ export async function runQa(options: RunQaOptions): Promise<QaRunResult> {
       ...(options.signal ? { signal: options.signal } : {}),
     });
     state = broker.state();
+    if (state.infrastructureFailure === 'chromium_launch_failed') {
+      warnings.push('QA browser startup: sandboxed Chromium could not start on this runner');
+    }
     warnings.push(...agent.diagnostics);
   } catch (error) {
     warnings.push(`QA runtime: ${errorMessage(error)}`);

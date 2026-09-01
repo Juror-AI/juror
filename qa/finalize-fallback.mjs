@@ -24,6 +24,10 @@ const preflightPhases = new Map([
     title: 'The trusted QA policy could not be evaluated',
     detail: 'Juror stopped before starting QA because its trusted policy gate did not complete.',
   }],
+  ['browser', {
+    title: 'The sandboxed Chromium could not start on this QA runner',
+    detail: 'Juror stopped before model execution because the released browser runtime failed its runner-local sandbox check.',
+  }],
 ]);
 
 function validRepository(value) {

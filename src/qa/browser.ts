@@ -122,6 +122,8 @@ export interface QaBrokerState {
   attempts: QaAttemptRecord[];
   operationCount: number;
   agentFinish: QaAgentFinish | null;
+  /** Fixed controller-owned category; never contains browser or page error text. */
+  infrastructureFailure?: 'chromium_launch_failed' | null;
 }
 
 export interface QaBrowserBrokerOptions {
@@ -164,6 +166,8 @@ export interface QaBrowserBrokerOptions {
   /** Trusted, controller-supplied Playwright storage state for fast local iteration. */
   storageState?: string;
   beforeAttempt?: (scenarioId: string, attempt: 1 | 2, signal: AbortSignal) => Promise<void>;
+  /** @internal Browser launcher override used only by Playwright broker tests. */
+  launchBrowser?: (options: LaunchOptions) => Promise<Browser>;
   /** @internal Shorter fixed setup window used only by the Playwright broker tests. */
   sensitiveSetupWindowMs?: number;
 }
@@ -204,6 +208,7 @@ const MAX_SUPPORT_SESSION_LIFETIME_MS = 60 * 60 * 1_000;
 const SUPPORT_SESSION_CLOCK_TOLERANCE_MS = 30_000;
 const SENSITIVE_SETUP_WINDOW_MS = 10_000;
 const SENSITIVE_SETUP_DEADLINE_MARGIN_MS = 250;
+const BROWSER_LAUNCH_TIMEOUT_MS = 30_000;
 const AUTH_TEXT_OMITTED = 'Authenticated browser text omitted by policy.';
 const AUTH_URL_OMITTED = 'Authenticated browser URL omitted by policy.';
 const AUTH_BROWSER_ERROR_OMITTED = 'Authenticated browser operation failed; page-controlled details were omitted.';
@@ -592,6 +597,7 @@ export class QaBrowserBroker {
   readonly #interruptController = new AbortController();
   #browser: Browser | null = null;
   #browserStarted = false;
+  #infrastructureFailure: QaBrokerState['infrastructureFailure'] = null;
   #pendingSetupContext: BrowserContext | null = null;
   #storageState: string | undefined;
   #plan: QaBrokerPlan | null = null;
@@ -709,15 +715,26 @@ export class QaBrowserBroker {
 
   async #ensureBrowser(timeoutMs?: number): Promise<void> {
     if (this.#browser) return;
+    if (this.#infrastructureFailure === 'chromium_launch_failed') {
+      throw new SafeBrokerError('Chromium could not start on the QA runner');
+    }
     this.#throwIfInterrupted();
     this.#browserStarted = true;
-    const browser = await chromium.launch({
-      ...launchOptions(
-        this.#options.headless ?? true,
-        this.#options.chromiumSandbox ?? true,
-      ),
-      ...(timeoutMs === undefined ? {} : { timeout: Math.max(1, timeoutMs) }),
-    });
+    let browser: Browser;
+    try {
+      const launchBrowser = this.#options.launchBrowser
+        ?? ((options: LaunchOptions) => chromium.launch(options));
+      browser = await launchBrowser({
+        ...launchOptions(
+          this.#options.headless ?? true,
+          this.#options.chromiumSandbox ?? true,
+        ),
+        ...(timeoutMs === undefined ? {} : { timeout: Math.max(1, timeoutMs) }),
+      });
+    } catch {
+      this.#infrastructureFailure = 'chromium_launch_failed';
+      throw new SafeBrokerError('Chromium could not start on the QA runner');
+    }
     if (this.#interruptController.signal.aborted) {
       await browser.close().catch(() => {});
       this.#throwIfInterrupted();
@@ -731,6 +748,7 @@ export class QaBrowserBroker {
       attempts: structuredClone(this.#attempts),
       operationCount: this.#operationCount,
       agentFinish: this.#agentFinish ? structuredClone(this.#agentFinish) : null,
+      infrastructureFailure: this.#infrastructureFailure,
     };
   }
 
@@ -972,6 +990,24 @@ export class QaBrowserBroker {
         this.#interruptController.signal,
       );
       return { started: true, scenario_id: scenario.id, attempt, viewport: scenario.viewport };
+    }
+
+    // Chromium startup is credential-free and page-independent, so it does not
+    // belong inside the constant-time authentication envelope. DinD runners can
+    // legitimately need longer than that envelope to launch a healthy browser.
+    // Keep launch bounded by both its own cap and the remaining overall run budget.
+    const browserLaunchBudgetMs = Math.min(
+      BROWSER_LAUNCH_TIMEOUT_MS,
+      this.#options.timeoutMs - (Date.now() - this.#startedAt)
+        - setupWindowMs - SENSITIVE_SETUP_DEADLINE_MARGIN_MS,
+    );
+    if (browserLaunchBudgetMs < 1) {
+      throw new SafeBrokerError('The remaining QA run budget cannot start Chromium and authenticate safely');
+    }
+    await this.#ensureBrowser(browserLaunchBudgetMs);
+    const remainingRunMs = this.#options.timeoutMs - (Date.now() - this.#startedAt);
+    if (remainingRunMs < setupWindowMs + SENSITIVE_SETUP_DEADLINE_MARGIN_MS) {
+      throw new SafeBrokerError('Chromium startup left too little QA run budget for sealed authentication');
     }
 
     const setupStartedAt = Date.now();

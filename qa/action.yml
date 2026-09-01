@@ -306,9 +306,54 @@ runs:
           echo "retention-days=$RETENTION"
         } >> "$GITHUB_OUTPUT"
 
+    - name: Verify Chromium on the QA runner
+      id: browser
+      if: steps.policy.outputs.enabled == 'true'
+      shell: bash
+      env:
+        EXACT_IMAGE: ${{ steps.image.outputs.ref }}
+        RUNTIME_USER: ${{ steps.runtime.outputs.runtime-user }}
+        JUROR_OPENAI_API_KEY: ''
+        OPENAI_API_KEY: ''
+        JUROR_ANTHROPIC_API_KEY: ''
+        ANTHROPIC_API_KEY: ''
+        JUROR_XAI_API_KEY: ''
+        XAI_API_KEY: ''
+        JUROR_FIREWORKS_API_KEY: ''
+        FIREWORKS_API_KEY: ''
+        JUROR_OPENROUTER_API_KEY: ''
+        OPENROUTER_API_KEY: ''
+        JUROR_QA_SECRETS_B64: ''
+        CODEX_HOME: ''
+      run: |
+        set -euo pipefail
+        if ! [[ "$RUNTIME_USER" =~ ^[0-9]+:[0-9]+$ ]]; then
+          echo "::error::Prepared QA browser user must be a numeric UID:GID"
+          exit 1
+        fi
+        RUNTIME_UID="${RUNTIME_USER%%:*}"
+        RUNTIME_GID="${RUNTIME_USER##*:}"
+        docker run --rm --init \
+          --pull=never \
+          --network none \
+          --read-only \
+          --tmpfs /tmp:rw,nosuid,nodev,size=256m \
+          --tmpfs "/home/pwuser:rw,nosuid,nodev,size=64m,uid=$RUNTIME_UID,gid=$RUNTIME_GID,mode=0700" \
+          --shm-size=1g \
+          --user "$RUNTIME_USER" \
+          --cap-drop=ALL \
+          --cap-add=SYS_CHROOT \
+          --security-opt "seccomp=$GITHUB_ACTION_PATH/seccomp_profile.json" \
+          --pids-limit=512 \
+          --memory=4g \
+          --cpus=2 \
+          --entrypoint node \
+          "$EXACT_IMAGE" \
+          /opt/juror/qa/smoke-chromium.mjs
+
     - name: Publish QA setup failure
       id: preflight
-      if: ${{ failure() && (steps.image.outcome == 'failure' || steps.runtime.outcome == 'failure' || steps.policy.outcome == 'failure') }}
+      if: ${{ failure() && (steps.image.outcome == 'failure' || steps.runtime.outcome == 'failure' || steps.policy.outcome == 'failure' || steps.browser.outcome == 'failure') }}
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
@@ -324,7 +369,7 @@ runs:
         RUNTIME_USER: ${{ steps.runtime.outputs.runtime-user }}
         RUNTIME_PREPARED: ${{ steps.runtime.outcome == 'success' }}
         INPUT_POST: ${{ inputs.post }}
-        JUROR_QA_PREFLIGHT_PHASE: ${{ steps.image.outcome == 'failure' && 'image' || steps.runtime.outcome == 'failure' && 'runtime' || 'policy' }}
+        JUROR_QA_PREFLIGHT_PHASE: ${{ steps.image.outcome == 'failure' && 'image' || steps.runtime.outcome == 'failure' && 'runtime' || steps.policy.outcome == 'failure' && 'policy' || 'browser' }}
         JUROR_OPENAI_API_KEY: ''
         OPENAI_API_KEY: ''
         JUROR_ANTHROPIC_API_KEY: ''
