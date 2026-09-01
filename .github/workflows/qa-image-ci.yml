@@ -52,7 +52,7 @@ jobs:
             .
           test "$(docker image inspect --format '{{.Architecture}}' juror-qa:ci)" = amd64
 
-      - name: Verify hardened sandboxed Chromium
+      - name: Verify container-isolated Chromium
         shell: bash
         run: |
           set -euo pipefail
@@ -71,8 +71,7 @@ jobs:
               --shm-size=1g \
               --user "$runtime_uid:$runtime_gid" \
               --cap-drop=ALL \
-              --cap-add=SYS_CHROOT \
-              --security-opt apparmor=unconfined \
+              --security-opt no-new-privileges \
               --security-opt "seccomp=$GITHUB_WORKSPACE/qa/seccomp_profile.json" \
               --pids-limit=256 \
               --memory=2g \

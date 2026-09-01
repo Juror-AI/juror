@@ -139,7 +139,7 @@ export interface QaBrowserBrokerOptions {
   /** Admit semantic actions while blocking write-capable traffic after the first action. */
   allowReadOnlyInteractions?: boolean;
   headless?: boolean;
-  /** Test harness escape hatch for hosts that cannot provide Chromium's Linux sandbox. */
+  /** Opt into Chromium's native sandbox when the host permits unprivileged user namespaces. */
   chromiumSandbox?: boolean;
   video?: QaEvidenceMode;
   trace?: QaEvidenceMode;
@@ -280,7 +280,7 @@ async function bestEffortBeforeDeadline(
   }
 }
 
-function launchOptions(headless: boolean, chromiumSandbox = true): LaunchOptions {
+function launchOptions(headless: boolean, chromiumSandbox = false): LaunchOptions {
   const rawProxy = process.env['JUROR_QA_BROWSER_PROXY']?.trim();
   let proxy: LaunchOptions['proxy'] | undefined;
   if (rawProxy) {
@@ -727,7 +727,7 @@ export class QaBrowserBroker {
       browser = await launchBrowser({
         ...launchOptions(
           this.#options.headless ?? true,
-          this.#options.chromiumSandbox ?? true,
+          this.#options.chromiumSandbox ?? false,
         ),
         ...(timeoutMs === undefined ? {} : { timeout: Math.max(1, timeoutMs) }),
       });

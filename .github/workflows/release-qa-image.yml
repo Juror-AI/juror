@@ -173,8 +173,7 @@ jobs:
             --shm-size=1g \
             --user "$PW_UID:$PW_GID" \
             --cap-drop=ALL \
-            --cap-add=SYS_CHROOT \
-            --security-opt apparmor=unconfined \
+            --security-opt no-new-privileges \
             --security-opt seccomp=qa/seccomp_profile.json \
             --pids-limit=256 \
             --memory=2g \
