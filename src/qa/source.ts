@@ -3,6 +3,8 @@
 import { lstat, readFile, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
+import { redact } from '../util/log.js';
+
 const MAX_SOURCE_CALLS = 20;
 const MAX_FILE_BYTES = 512 * 1024;
 const MAX_READ_CHARS = 100_000;
@@ -17,6 +19,61 @@ const SKIPPED_DIRECTORIES = new Set([
   'node_modules',
   'vendor',
 ]);
+const INSPECTABLE_EXTENSIONS = new Set([
+  '.astro',
+  '.c',
+  '.cc',
+  '.cjs',
+  '.cpp',
+  '.cs',
+  '.css',
+  '.dart',
+  '.elm',
+  '.ex',
+  '.exs',
+  '.fs',
+  '.fsx',
+  '.go',
+  '.gql',
+  '.graphql',
+  '.h',
+  '.hbs',
+  '.hpp',
+  '.html',
+  '.java',
+  '.js',
+  '.jsx',
+  '.kt',
+  '.kts',
+  '.less',
+  '.lua',
+  '.md',
+  '.mdx',
+  '.mjs',
+  '.php',
+  '.proto',
+  '.py',
+  '.rb',
+  '.rs',
+  '.sass',
+  '.scala',
+  '.scss',
+  '.svelte',
+  '.swift',
+  '.ts',
+  '.tsx',
+  '.vue',
+]);
+const SENSITIVE_FILENAMES = [
+  /^\./,
+  /(?:^|[._-])credentials?(?:[._-]|$)/i,
+  /(?:^|[._-])secrets?(?:[._-]|$)/i,
+  /(?:^|[._-])passw(?:or)?d(?:[._-]|$)/i,
+  /(?:^|[._-])private[._-]?keys?(?:[._-]|$)/i,
+  /(?:^|[._-])service[._-]?accounts?(?:[._-]|$)/i,
+  /^auth\.json$/i,
+  /^id_(?:dsa|ecdsa|ed25519|rsa)(?:\.pub)?$/i,
+];
 
 export interface QaSourceReadResult {
   path: string;
@@ -87,7 +144,14 @@ async function safeSourceEntry(
 
 function sourceText(buffer: Buffer): string | null {
   if (buffer.includes(0)) return null;
-  return buffer.toString('utf8');
+  return redact(buffer.toString('utf8'));
+}
+
+function inspectableFile(relativePath: string): boolean {
+  const basename = path.posix.basename(relativePath);
+  return INSPECTABLE_EXTENSIONS.has(path.posix.extname(basename).toLocaleLowerCase('en-US'))
+    && !relativePath.split('/').some((part) =>
+      SENSITIVE_FILENAMES.some((pattern) => pattern.test(part)));
 }
 
 export class QaSourceInspector {
@@ -114,6 +178,9 @@ export class QaSourceInspector {
       throw new Error('Source read max_lines must be an integer from 1 through 400');
     }
     const entry = await safeSourceEntry(this.#root, relativePath, 'file');
+    if (!inspectableFile(entry.relative)) {
+      throw new Error('Source inspection accepts allowlisted source and documentation files only');
+    }
     const metadata = await lstat(entry.absolute);
     if (metadata.size > MAX_FILE_BYTES) {
       throw new Error(`Source file exceeds the ${MAX_FILE_BYTES}-byte inspection limit`);
@@ -121,16 +188,31 @@ export class QaSourceInspector {
     const text = sourceText(await readFile(entry.absolute));
     if (text === null) throw new Error('Source inspection accepts text files only');
     const lines = text.split(/\r?\n/);
-    const selected = lines.slice(startLine - 1, startLine - 1 + maxLines).join('\n');
-    const content = selected.slice(0, MAX_READ_CHARS);
-    const endLine = Math.min(lines.length, startLine - 1 + maxLines);
+    const requested = lines.slice(startLine - 1, startLine - 1 + maxLines);
+    const delivered: string[] = [];
+    let deliveredChars = 0;
+    let characterTruncated = false;
+    for (const line of requested) {
+      const separatorLength = delivered.length === 0 ? 0 : 1;
+      const remaining = MAX_READ_CHARS - deliveredChars - separatorLength;
+      if (remaining < line.length) {
+        if (delivered.length === 0) delivered.push(line.slice(0, MAX_READ_CHARS));
+        characterTruncated = true;
+        break;
+      }
+      delivered.push(line);
+      deliveredChars += separatorLength + line.length;
+    }
+    const content = delivered.join('\n');
+    const requestedEndLine = Math.min(lines.length, startLine - 1 + maxLines);
+    const endLine = delivered.length === 0 ? startLine - 1 : startLine - 1 + delivered.length;
     return {
       path: entry.relative,
       start_line: startLine,
-      end_line: Math.max(startLine - 1, endLine),
+      end_line: endLine,
       total_lines: lines.length,
       content,
-      truncated: endLine < lines.length || content.length < selected.length,
+      truncated: requestedEndLine < lines.length || characterTruncated,
     };
   }
 
@@ -174,6 +256,7 @@ export class QaSourceInspector {
           continue;
         }
         if (!entry.isFile()) continue;
+        if (!inspectableFile(relative)) continue;
         if (filesScanned >= MAX_SEARCH_FILES || bytesScanned >= MAX_SEARCH_BYTES) {
           limitsReached = true;
           return;
