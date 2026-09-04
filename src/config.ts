@@ -206,6 +206,17 @@ const BUILTIN_MODELS: Record<string, ModelConfig> = {
     pricing_key: 'accounts/fireworks/models/glm-5p3',
     args: { variant: 'high' },
   },
+  'minimax-m3': {
+    id: 'minimax-m3',
+    harness: 'opencode',
+    enabled: true,
+    secret: 'JUROR_FIREWORKS_API_KEY',
+    label: 'MiniMax M3',
+    base_url: 'https://api.fireworks.ai/inference/v1',
+    harness_model: 'accounts/fireworks/models/minimax-m3',
+    pricing_key: 'accounts/fireworks/models/minimax-m3',
+    args: { variant: 'high' },
+  },
 };
 
 interface PresetDefinition {
@@ -235,7 +246,7 @@ const PRESET_DEFINITIONS: Record<ReviewPreset, PresetDefinition> = {
     },
   },
   balanced: {
-    modelIds: ['gpt-5.6-terra', 'grok-4.5', 'kimi-k3', 'glm-5p3'],
+    modelIds: ['gpt-5.6-terra', 'grok-4.5', 'kimi-k3', 'glm-5p3', 'minimax-m3'],
     consensusModel: 'kimi-k3',
   },
   high: {

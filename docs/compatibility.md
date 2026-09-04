@@ -7,7 +7,7 @@ harnesses, and versioned pricing table. It describes tested Juror configuration,
 promise that an external provider will keep a model available. Run
 `npm run docs:compatibility` after changing any of those inputs.
 
-Pricing table last checked: **2026-08-29**.
+Pricing table last checked: **2026-08-31**.
 
 ## Built-in models
 
@@ -21,6 +21,7 @@ Pricing table last checked: **2026-08-29**.
 | GPT-5.6 Terra<br><sub>`gpt-5.6-terra`</sub> | OpenAI<br><sub>`JUROR_OPENAI_API_KEY`</sub> | Codex<br><sub>`codex`</sub> | `gpt-5.6-terra` | `balanced`, `ultra` | token-estimated; unknown without usage | [2026-08-06](https://developers.openai.com/api/docs/models/gpt-5.6-terra) |
 | Grok 4.5<br><sub>`grok-4.5`</sub> | xAI<br><sub>`JUROR_XAI_API_KEY`</sub> | Grok Build<br><sub>`grok-build`</sub> | `grok-4.5` | `balanced`, `high`, `ultra` | provider-reported when present; unknown otherwise | [2026-08-06](https://docs.x.ai/docs/models) |
 | Kimi K3<br><sub>`kimi-k3`</sub> | Fireworks<br><sub>`JUROR_FIREWORKS_API_KEY`</sub> | Kimi Code CLI<br><sub>`kimi-code`</sub> | `accounts/fireworks/models/kimi-k3` | `balanced`, `ultra` | usage-estimated; unknown without usage records | [2026-08-06](https://fireworks.ai/models/fireworks/kimi-k3) |
+| MiniMax M3<br><sub>`minimax-m3`</sub> | Fireworks<br><sub>`JUROR_FIREWORKS_API_KEY`</sub> | opencode<br><sub>`opencode`</sub> | `accounts/fireworks/models/minimax-m3` | `balanced` | provider-reported per step; unknown on malformed output | [2026-08-31](https://models.dev/) |
 | DeepSeek V4 Flash<br><sub>`openrouter-deepseek-v4-flash`</sub> | OpenRouter<br><sub>`JUROR_OPENROUTER_API_KEY`</sub> | Generic OpenAI<br><sub>`generic-openai`</sub> | `deepseek/deepseek-v4-flash-0731` | `starter` | provider-reported; price fallback | [2026-08-11](https://openrouter.ai/api/v1/models) |
 | GPT-5.6 Luna<br><sub>`openrouter-gpt-5.6-luna`</sub> | OpenRouter<br><sub>`JUROR_OPENROUTER_API_KEY`</sub> | Generic OpenAI<br><sub>`generic-openai`</sub> | `openai/gpt-5.6-luna` | `starter` | provider-reported; price fallback | [2026-08-11](https://openrouter.ai/api/v1/models) |
 

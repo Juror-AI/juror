@@ -102,7 +102,7 @@ describe('defaultConfig', () => {
     expect(fast.models.map((m) => m.args?.['reasoning_effort'] ?? m.args?.['variant'])).toEqual(['low', 'high']);
     expect(fast.consensus.referee_model).toBe('deepseek-v4-flash-0731');
     // No longer the default, so this is the only place its membership is pinned.
-    expect(balanced.models.map((m) => m.id)).toEqual(['gpt-5.6-terra', 'grok-4.5', 'kimi-k3', 'glm-5p3']);
+    expect(balanced.models.map((m) => m.id)).toEqual(['gpt-5.6-terra', 'grok-4.5', 'kimi-k3', 'glm-5p3', 'minimax-m3']);
     expect(balanced.models[0]?.args?.['reasoning_effort']).toBe('max');
     expect(balanced.models[1]?.args?.['reasoning_effort']).toBe('high');
     expect(balanced.consensus.referee_model).toBe('kimi-k3');
