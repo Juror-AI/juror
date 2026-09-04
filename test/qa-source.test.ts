@@ -16,7 +16,7 @@ async function fixture(): Promise<string> {
     path.join(root, 'apps', 'web', 'routes.tsx'),
     [
       "import { ZenoChat } from './ZenoChat';",
-      "export const chatRoute = '/user/dashboard/zeno-mode';",
+      "export const chatRoute = '/c';",
       'export const element = <ZenoChat />;',
       '',
     ].join('\n'),
@@ -51,7 +51,7 @@ describe('QA source inspection', () => {
       start_line: 2,
       end_line: 2,
       total_lines: 4,
-      content: "export const chatRoute = '/user/dashboard/zeno-mode';",
+      content: "export const chatRoute = '/c';",
       truncated: true,
     });
   });
