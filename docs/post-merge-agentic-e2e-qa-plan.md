@@ -311,6 +311,12 @@ Codex never receives the GitHub token, application credentials, cookies, authori
 authentication storage state, decoded secret bundle, or authenticated checkpoint outcome. The model
 sees only logical identities such as `qa_admin`; trusted setup errors use fixed controller messages.
 
+Before planning, Codex may search for literal text and read bounded line ranges through a dedicated
+source inspector. It is confined to regular text files in the sealed checkout, does not expose
+version-control metadata, never follows symbolic links, and enforces per-file, aggregate-byte,
+result, and call limits. This lets the planner derive affected routes and stable locators without
+receiving a general shell or filesystem tool.
+
 ### 6. Execute scenarios
 
 After the plan gate opens, Codex operates Chromium through a narrow Playwright broker. The broker exposes semantic browser tools such as navigation, role- or label-based element lookup, click, fill, select, key press, wait, text inspection, URL inspection, and checkpoint assertion.
@@ -687,9 +693,9 @@ The implementation has four explicit zones:
 1. **Host controller:** Holds the GitHub token, reads trusted configuration, resolves deployments, verifies the image, starts the runtime, uploads evidence, and publishes results.
 2. **Trusted bootstrap and broker:** Receives only the application secrets it needs, logs in, owns authenticated browser state and outcome ledgers, enforces tools and limits, and sanitizes or seals browser observations.
 3. **Codex agent:** Receives untrusted source/diff context, sanitized unauthenticated observations,
-   and fixed acknowledgements for sensitive-state browser calls. It has no raw secrets, GitHub
-   token, general shell, direct filesystem, unrestricted network access, or authenticated outcome
-   feedback.
+   bounded read/search results from the sealed source checkout, and fixed acknowledgements for
+   sensitive-state browser calls. It has no raw secrets, GitHub token, general shell, direct
+   filesystem, unrestricted network access, or authenticated outcome feedback.
 4. **Trusted teardown and publisher:** Resets test state, exact-redacts and selects artifacts, writes
    and scans the final result and summary, and performs GitHub mutations.
 
@@ -742,6 +748,7 @@ src/
     rpc.ts                 # local controller/broker transport
     run.ts                 # orchestration, classification, cleanup, and artifacts
     schema.ts              # versioned plan/result schemas and validation
+    source.ts              # bounded read-only inspection of the sealed checkout
     types.ts               # QA domain contracts
   github/
     deployments.ts         # deployments, statuses, and commit comparison
@@ -913,7 +920,9 @@ Artifact capture and report rendering are parallelizable; final publication depe
 
 - The model process cannot read the GitHub token or application secret bundle.
 - The model cannot access cookies, storage state, broker-owned evidence, or private homes.
-- Direct Chromium launch, arbitrary JavaScript, shell, filesystem, and raw network tools are unavailable.
+- Direct Chromium launch, arbitrary JavaScript, shell, general filesystem, and raw network tools are
+  unavailable; source inspection is read-only, bounded, and confined to regular text files in the
+  sealed checkout.
 - Chromium inherits no GitHub, provider, application, or QA secret environment variables.
 - Requests to an origin not on the proxy allowlist fail, including redirects, WebSockets, and worker requests.
 - A browser secret header is absent from same-suffix, redirect, preview, and all other unlisted
