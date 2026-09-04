@@ -74,6 +74,32 @@ const SENSITIVE_FILENAMES = [
   /^auth\.json$/i,
   /^id_(?:dsa|ecdsa|ed25519|rsa)(?:\.pub)?$/i,
 ];
+const PRIVATE_KEY_BLOCK = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----/g;
+const JWT = /\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\b/g;
+const AUTH_SCHEME_VALUE = /\b(Bearer|Basic)[ \t]+[A-Za-z0-9._~+/-]{8,}={0,2}/gi;
+const CREDENTIALED_URL = /\b(https?:\/\/)[^/\s:@]+:[^/\s@]+@/gi;
+const SENSITIVE_ASSIGNMENT = new RegExp(
+  '((?:["\'`])?\\b(?:' + [
+    'api[_-]?key',
+    'access[_-]?(?:key(?:[_-]?id)?|token)',
+    'authorization',
+    'client[_-]?(?:id|secret)',
+    'connection[_-]?string',
+    'cookie',
+    'credentials?',
+    'database[_-]?url',
+    'dsn',
+    'encryption[_-]?key',
+    'passw(?:or)?d',
+    'private[_-]?key',
+    'refresh[_-]?token',
+    'secrets?',
+    'session(?:[_-]?(?:id|key|secret|token))?',
+    'tokens?',
+  ].join('|') + ')\\b(?:["\'`])?\\s*[:=]\\s*)' +
+  '(?:"(?:\\\\.|[^"\\\\\\r\\n])*"|\'(?:\\\\.|[^\'\\\\\\r\\n])*\'|`(?:\\\\.|[^`\\\\\\r\\n])*`|[^\\s,;#}\\]]+)',
+  'gi',
+);
 
 export interface QaSourceReadResult {
   path: string;
@@ -144,7 +170,12 @@ async function safeSourceEntry(
 
 function sourceText(buffer: Buffer): string | null {
   if (buffer.includes(0)) return null;
-  return redact(buffer.toString('utf8'));
+  return redact(buffer.toString('utf8'))
+    .replace(PRIVATE_KEY_BLOCK, '[redacted private key]')
+    .replace(JWT, '[redacted jwt]')
+    .replace(AUTH_SCHEME_VALUE, (_match, scheme: string) => `${scheme} [redacted]`)
+    .replace(CREDENTIALED_URL, '$1[redacted]@')
+    .replace(SENSITIVE_ASSIGNMENT, '$1"[redacted]"');
 }
 
 function inspectableFile(relativePath: string): boolean {

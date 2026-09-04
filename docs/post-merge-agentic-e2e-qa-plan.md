@@ -313,7 +313,7 @@ sees only logical identities such as `qa_admin`; trusted setup errors use fixed 
 
 Before planning, Codex may search for literal text and read bounded line ranges through a dedicated
 source inspector. It is confined to an explicit allowlist of source and documentation extensions
-in the sealed checkout, excludes sensitive filenames and secret-shaped values, does not expose
+in the sealed checkout, excludes sensitive filenames and known credential-shaped values, does not expose
 version-control metadata, never follows symbolic links, and enforces per-file, aggregate-byte,
 result, and call limits. This lets the planner derive affected routes and stable locators without
 receiving a general shell or filesystem tool.

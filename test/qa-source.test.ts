@@ -88,18 +88,45 @@ describe('QA source inspection', () => {
     expect(result.truncated).toBe(true);
   });
 
-  it('redacts provider-shaped credentials embedded in otherwise inspectable source', async () => {
+  it('redacts credential shapes embedded in otherwise inspectable source', async () => {
     const root = await fixture();
     await writeFile(
       path.join(root, 'apps', 'web', 'route-with-token.ts'),
-      'export const route = "/c"; // sk-proj-abcdefghijklmnopqrstuvwxyz123456\n',
+      [
+        'export const route = "/c"; // sk-proj-abcdefghijklmnopqrstuvwxyz123456',
+        'const password = "hunter2";',
+        'const bearer = "Bearer internal-session-token";',
+        'const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJxYSJ9.signaturepart";',
+        'const databaseUrl = "https://database-user:database-pass@example.test/app";',
+        'const endpoint = "https://endpoint-user:endpoint-pass@example.test/app";',
+        'const key = `-----BEGIN PRIVATE KEY-----',
+        'private-key-material',
+        '-----END PRIVATE KEY-----`;',
+        '',
+      ].join('\n'),
     );
     const source = new QaSourceInspector(root);
 
     const read = await source.read('apps/web/route-with-token.ts');
     expect(read.content).toContain('export const route = "/c"; // [redacted]');
-    expect(read.content).not.toContain('sk-proj-');
-    await expect(source.search('sk-proj-', 'apps/web')).resolves.toMatchObject({ matches: [] });
+    expect(read.content).toContain('const password = "[redacted]";');
+    expect(read.content).toContain('Bearer [redacted]');
+    expect(read.content).toContain('[redacted jwt]');
+    expect(read.content).toContain('const databaseUrl = "[redacted]";');
+    expect(read.content).toContain('https://[redacted]@example.test/app');
+    expect(read.content).toContain('[redacted private key]');
+    for (const secret of [
+      'sk-proj-',
+      'hunter2',
+      'internal-session-token',
+      'eyJhbGci',
+      'database-pass',
+      'endpoint-pass',
+      'private-key-material',
+    ]) {
+      expect(read.content).not.toContain(secret);
+      await expect(source.search(secret, 'apps/web')).resolves.toMatchObject({ matches: [] });
+    }
   });
 
   it('caps the total number of model-driven source inspection calls', async () => {
