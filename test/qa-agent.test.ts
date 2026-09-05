@@ -97,6 +97,8 @@ describe('QA Codex process isolation', () => {
       expect(config).toContain('wire_api = "responses"');
       expect(config).toContain('requires_openai_auth = true');
       expect(config).toContain('supports_websockets = false');
+      expect(config).toContain(`"--source-dir","${repoDir}"`);
+      expect(config).toContain('"source_search", "source_read", "qa_submit_plan"');
     } finally {
       await rm(root, { recursive: true, force: true });
     }

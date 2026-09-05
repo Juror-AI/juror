@@ -177,7 +177,13 @@ export async function runQaAgent(options: QaAgentOptions): Promise<QaAgentResult
     '',
     '[mcp_servers.juror_qa]',
     `command = ${JSON.stringify(mcp.command)}`,
-    `args = ${JSON.stringify([...mcp.args, '--socket', options.socketPath])}`,
+    `args = ${JSON.stringify([
+      ...mcp.args,
+      '--socket',
+      options.socketPath,
+      '--source-dir',
+      options.repoDir,
+    ])}`,
     `cwd = ${JSON.stringify(options.scratchDir)}`,
     'startup_timeout_sec = 30',
     // A navigation may include bounded transient-network retries. Keep the MCP
@@ -186,10 +192,10 @@ export async function runQaAgent(options: QaAgentOptions): Promise<QaAgentResult
     'tool_timeout_sec = 120',
     'required = true',
     // This private, single-purpose MCP is the entire model capability surface. Its
-    // trusted broker performs the actual policy and budget checks, so an interactive
-    // Codex approval here would deadlock non-interactive CI.
+    // bounded source inspector and trusted browser broker perform the actual policy
+    // and budget checks, so an interactive Codex approval here would deadlock CI.
     'default_tools_approval_mode = "approve"',
-    'enabled_tools = ["qa_status", "qa_submit_plan", "browser_start_scenario", "browser_snapshot", "browser_navigate", "browser_click", "browser_fill", "browser_press", "browser_select", "browser_check", "browser_wait", "browser_assert", "browser_finish_scenario", "qa_finish"]',
+    'enabled_tools = ["qa_status", "source_search", "source_read", "qa_submit_plan", "browser_start_scenario", "browser_snapshot", "browser_navigate", "browser_click", "browser_fill", "browser_press", "browser_select", "browser_check", "browser_wait", "browser_assert", "browser_finish_scenario", "qa_finish"]',
     '',
   ].join('\n');
   writeFileSync(path.join(codexHome, 'config.toml'), config, { encoding: 'utf8', mode: 0o600 });

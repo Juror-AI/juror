@@ -217,6 +217,15 @@ origins cannot receive the staging session, Access service token, or WAF header.
 they must not be embedded in a frontend build. The `X-Staging-Gateway-Token` value remains a separate
 staging WAF credential and should be omitted if that WAF rule is retired.
 
+The full `static_url`, including a non-root path, is the trusted bootstrap page for every scenario;
+it is not a route allowlist. Juror first loads that exact URL, then may exercise an affected route
+elsewhere on the same origin when the route and any non-secret query or fragment can be derived from
+repository-owned routing or source. The planner can search and read bounded, allowlisted source and
+documentation files from the sealed checkout for this purpose; sensitive filenames and
+known credential-shaped values are excluded. It cannot execute repository code, follow symbolic links, or
+inspect paths outside that checkout. The broker continues to reject navigation outside the allowed
+origins, and the QA agent must not navigate to API, sign-out, or state-changing endpoints.
+
 For example, the unencoded secret map would contain values provisioned specifically for this
 staging monitor:
 
