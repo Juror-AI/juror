@@ -13,8 +13,6 @@ export const COMPANY = {
   registerCourt: 'Amtsgericht Charlottenburg (Berlin)',
   registerNumber: 'HRB 232104 B',
   email: 'jay@stackcap.cc',
-  phone: '+49 151 58041814',
-  phoneHref: 'tel:+4915158041814',
 } as const;
 
 export const FOUNDERS = [
@@ -206,12 +204,11 @@ export const POLICIES: Record<PolicyId, Policy> = {
   },
   imprint: {
     title: 'Legal notice / Impressum',
-    summary: 'Company and contact information for the operator of Juror.',
+    summary: 'Company information for the operator of Juror.',
     sections: [
       { id: 'operator', title: 'Service provider', paragraphs: [COMPANY.name, COMPANY_ADDRESS, 'Juror is a product operated by this company.'] },
       { id: 'representation', title: 'Represented by', paragraphs: [`Managing director: ${COMPANY.managingDirector}.`] },
       { id: 'register', title: 'Commercial register', paragraphs: [`Register court: ${COMPANY.registerCourt}.`, `Registration number: ${COMPANY.registerNumber}.`] },
-      { id: 'contact', title: 'Contact', paragraphs: ['For company, service, and privacy enquiries:'], links: [contactLink, { label: COMPANY.phone, href: COMPANY.phoneHref }] },
     ],
   },
   security: {
