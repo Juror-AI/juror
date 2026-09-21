@@ -30,6 +30,7 @@ const router = createBrowserRouter([
   { path: '/signin', element: <SignInPage /> },
   { path: '/terms', element: <LegalPage kind="terms" /> },
   { path: '/privacy', element: <LegalPage kind="privacy" /> },
+  { path: '/imprint', element: <LegalPage kind="imprint" /> },
   { path: '/onboarding', element: <OnboardingPage /> },
   {
     element: <DashboardGate />,

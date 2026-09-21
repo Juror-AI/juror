@@ -1,3 +1,4 @@
+import { POLICIES, POLICY_DATE } from '../../shared/public-content';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
@@ -376,20 +377,28 @@ export function SignInPage() {
   return <div className="auth-page"><div className="auth-card"><div className="auth-brand"><img src="/mark.svg" alt="" /><span>Juror <b>Cloud</b></span></div><div className="auth-copy"><Badge tone="gold">{isOAuthConsent ? 'MCP connection' : 'Hosted companion'}</Badge><h1>{isOAuthConsent ? 'Authorize Juror Cloud' : 'Your AI review and QA inbox.'}</h1><p>{isOAuthConsent ? 'Allow this MCP client to inspect only the Juror Cloud workspaces you can already access. Starting a review still requires a separate preflight and explicit confirmation.' : 'Connect GitHub and see every actionable finding, live run, and cost receipt in one lean workspace.'}</p></div><div className="auth-actions">{isOAuthConsent && <><div className="notice compact-callout"><ShieldCheck size={15} /><div><strong>Requested access</strong><p>{requestedScopes.includes('juror.reviews.write') ? 'Inspect findings and request confirmed hosted review starts or reruns.' : 'Inspect concise workspace, repository, run, and finding summaries.'}</p></div></div>{consentError && <div className="setup-error"><CircleAlert size={15} />{consentError}</div>}<Button onClick={() => void submitConsent(true)} disabled={consenting}>{consenting ? 'Authorizing…' : 'Allow Juror access'}</Button><Button variant="secondary" onClick={() => void submitConsent(false)} disabled={consenting}>Deny</Button><div className="auth-separator"><span>Or sign in first</span></div></>}{checks && !checks.github && <div className="setup-error"><CircleAlert size={15} />GitHub sign-in is not configured by the operator.</div>}{checks && checks.github && (!checks.reviews || !checks.costs) && <div className="setup-error"><CircleAlert size={15} />Hosted execution setup is incomplete. Sign-in works, but new runs remain unavailable.</div>}<button className="oauth-button github-oauth" disabled={checks ? !checks.github : true} onClick={() => void signInWith('github', signInCallback)}><GitBranch size={18} />Continue with GitHub</button><button className="oauth-button" disabled={checks ? !checks.google : true} onClick={() => void signInWith('google', signInCallback)}><span className="google-g">G</span>Continue with Google</button><div className="auth-separator"><span>Secure sign in</span></div><p>By continuing, you agree to the <Link to="/terms">Terms</Link> and <Link to="/privacy">Privacy Policy</Link>.</p></div></div><div className="auth-aside"><div className="auth-grid" /><div className="auth-preview"><div className="preview-top"><LiveRunBadge label="Review running" /><span>juror-ai/console · #95</span></div><div className="preview-finding"><SeverityBadge severity="P1" /><div><strong>Retry path can create a duplicate charge</strong><p>2 of 3 models agree · verified</p></div></div><div className="preview-finding"><SeverityBadge severity="P2" /><div><strong>Session expiry leaves an empty shell</strong><p>QA reproduced 2 of 2 attempts</p></div></div><div className="preview-receipt"><span>Transparent run receipt</span><strong>$2.21</strong></div></div><div className="auth-quote"><ShieldCheck size={22} /><p>Source lives only inside an isolated runtime. Reports are sanitized before they reach the dashboard.</p></div></div></div>;
 }
 
-export function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
-  const privacy = kind === 'privacy';
-  return <div className="legal-page"><header><Link className="auth-brand" to="/signin"><img src="/mark.svg" alt="" /><span>Juror <b>Cloud</b></span></Link><Link to="/signin">Back to sign in</Link></header><article><span className="eyebrow">Effective August 26, 2026</span><h1>{privacy ? 'Privacy Notice' : 'Terms of Service'}</h1>{privacy ? <>
-    <p>Juror Cloud processes account identity, GitHub App installation metadata, selected repository metadata, run summaries, findings, billing records, and configured QA evidence to provide the hosted service.</p>
-    <h2>Repository and model data</h2><p>Repository checkouts exist only inside a per-run isolated Sandbox and are destroyed after the run. Source checkouts, full patches, model scratch text, and chain-of-thought are not retained. Sanitized reports are retained for up to one year and QA evidence for up to 90 days.</p>
-    <h2>Optional training corpus</h2><p>Training collection is disabled by default. After explicit administrator consent, selected review bodies and comments are redacted, pseudonymized, compressed, encrypted per workspace, and stored in private object storage—not D1. PR descriptions and raw paths are separate opt-ins. Administrators can export or delete the corpus in Settings.</p>
-    <h2>Plugin and MCP access</h2><p>ChatGPT, Codex, and other MCP clients connect through OAuth 2.1 using the same Juror Cloud identity and workspace memberships. Tokens are resource-bound and short lived. The integration returns minimal review metadata; a retained finding body or claim is returned only for a specifically requested finding. It never returns raw diffs, source checkouts, full reports, screenshots, artifacts, provider credentials, or prompt text. OAuth consent, revocation, and five-minute confirmation records are retained only to secure the connection and prevent replay.</p>
-    <h2>Providers and control</h2><p>Cloudflare supplies hosting, GitHub supplies repository events, configured AI providers process review material, and Stripe processes billing. We do not sell personal information. Workspace administrators control membership, repositories, retention, consent, export, deletion, and connected-client revocation. Directory analytics are aggregate and operational only; prompts, tool arguments, finding text, repository names, and secrets are not logged for analytics.</p>
-  </> : <>
-    <p>These terms cover the hosted Juror Cloud service. The open-source Juror software remains separately available under the MIT License.</p>
-    <h2>Use of the service</h2><p>By connecting a repository, you confirm that you are authorized to permit its configured processing. Juror Cloud is an engineering aid, not a guarantee that software is correct, secure, or fit for a particular purpose. You may not use it unlawfully or to attack the service, providers, other tenants, or third parties.</p>
-    <h2>Plugin, MCP, and billing</h2><p>The Plugin and MCP integration run hosted Juror Cloud only; they do not authorize arbitrary local repository access, raw GitHub access, workspace administration, or provider credentials. Starting or rerunning a review requires a current preflight, explicit user confirmation, and the platform confirmation for the write operation. Usage caps, trial credit, and billable outcomes are displayed before paid use. Abusive, unsafe, unpaid, or over-cap use may be suspended.</p>
-    <h2>Availability and liability</h2><p>The hosted service is provided on an as-available basis without warranties to the maximum extent permitted by law. Indirect, special, consequential, and lost-profit damages are excluded where permitted. Direct liability is limited to fees paid during the preceding three months, except where prohibited.</p>
-  </>}<p>Questions or private requests can use the security contact process in the <a href="https://github.com/Juror-AI/juror/blob/main/SECURITY.md">open-source repository</a>.</p></article></div>;
+export function LegalPage({ kind }: { kind: 'terms' | 'privacy' | 'imprint' }) {
+  const policy = POLICIES[kind];
+  return <div className="legal-page">
+    <header><Link className="auth-brand" to="/signin"><img src="/mark.svg" alt="" /><span>Juror <b>Cloud</b></span></Link><Link to="/signin">Back to sign in</Link></header>
+    <article lang="en">
+      <span className="eyebrow">Last updated <time dateTime={POLICY_DATE}>September 21, 2026</time></span>
+      <h1>{policy.title}</h1>
+      <p>{policy.summary}</p>
+      <nav className="legal-toc" aria-label="On this page"><strong>On this page</strong><ol>{policy.sections.map((section) => <li key={section.id}><a href={`#${section.id}`}>{section.title}</a></li>)}</ol></nav>
+      {policy.sections.map((section) => <section id={section.id} key={section.id} aria-labelledby={`${section.id}-heading`}>
+        <h2 id={`${section.id}-heading`}>{section.title}</h2>
+        {section.paragraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+        {section.items && <ul>{section.items.map((item) => <li key={item}>{item}</li>)}</ul>}
+        {section.links && <ul className="legal-links">{section.links.map((link) => <li key={link.href}><a href={link.href}>{link.label}</a></li>)}</ul>}
+      </section>)}
+      <nav className="legal-crosslinks" aria-label="Company information">
+        {(['privacy', 'terms', 'imprint'] as const).filter((id) => id !== kind).map((id) => <Link key={id} to={`/${id}`}>{POLICIES[id].title}</Link>)}
+        <a href="https://juror.dev/en/founders/">Meet the founders</a>
+        <a href="https://juror.dev/en/contact/">Contact</a>
+      </nav>
+    </article>
+  </div>;
 }
 
 const onboardingSteps = ['Link GitHub', 'Install app', 'Choose repositories', 'Enable review'];

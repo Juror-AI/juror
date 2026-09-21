@@ -1,5 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { COMPANY_COPY, isCompanyPage } from './company';
+import { POLICIES } from '../../../../shared/public-content';
 
 export const LOCALES = [
   { code: 'en', manifestKey: 'en_path', language: 'English', htmlLang: 'en' },
@@ -123,13 +125,15 @@ export const PAGE_SPECS: Record<string, PageSpec> = {
   benchmarks: spec('Measure reviewers on real pull requests.', 'Benchmark with adjudicated corpora, visible limitations, and a reproducible command.', 'A single favorable pull request is not a benchmark. Juror keeps the corpus, expected findings, coverage, cost, and missed defects visible for review.', ['Adjudicated corpus', 'Precision and recall definitions', 'Known limitations'], 'Inspect the corpus'),
   examples: spec('Read the review before you install it.', 'Inspect reproducible examples of findings, deduplication, disagreement, and receipts.', 'Examples are useful only when they preserve context and label their evidence. Review the finding lifecycle before using examples as a product claim.', ['A bug found', 'Duplicates collapsed', 'A consensus refutation'], 'Install Juror'),
   pricing: spec('Pay the model providers. See the receipt.', 'Juror is open source; provider charges depend on your chosen configuration.', 'There are no invented plan tiers here. Configure providers, set a target, and inspect the receipt that comes back with each review.', ['Open-source route', 'Provider billing remains yours', 'Budget guardrails'], 'Get started'),
-  security: spec('Designed for a review workflow with clear boundaries.', 'Review data flow, read-only checkouts, fork protections, and provider-key boundaries.', 'Security claims must follow the released workflow. Juror keeps privileged GitHub tokens out of model processes and documents safety boundaries for forks.', ['Read-only review context', 'Separate privileged tokens', 'Fork-safe workflow conditions'], 'Read security notes'),
+  security: spec(POLICIES.security.title, POLICIES.security.summary, POLICIES.security.summary, []),
   open_source: spec('Keep open-source pull requests moving.', 'A measured review workflow for maintainers who need to protect attention and contributor trust.', 'Open-source maintainers need a useful first pass without a noisy automated gate. Configure Juror around safe events, clear ownership, and transparent limits.', ['Contributor-safe workflow', 'Maintainer triage', 'Open-source license'], 'Add to an OSS repo'),
   changelog: spec('Every release, explained.', 'Versioned release notes, migration context, and links to the source release.', 'Product changes should be understandable at the point of upgrade. Juror releases are tied to source history rather than a generic marketing timeline.', ['Release provenance', 'Migration notes', 'GitHub release links'], 'View GitHub'),
-  about: spec('Why Juror exists.', 'The project principles behind evidence-led multi-model pull-request review.', 'Juror exists to make an AI review easier to inspect: multiple viewpoints, one decision surface, and a receipt that acknowledges cost.', ['Review before speed', 'Evidence over claims', 'MIT-licensed project'], 'Read the docs'),
-  contact: spec('Talk to the Juror team.', 'Route support, security, and partnership questions to the right public channel.', 'Use the public repository for product questions and the security policy for vulnerability reports. Do not put credentials, code, or private repository data into a contact request.', ['Product support', 'Security reports', 'Project collaboration'], 'Open GitHub'),
-  privacy: spec('Privacy policy', 'Privacy information for the Juror marketing site and product documentation.', 'This page is a publication surface for counsel-approved policy text. It does not replace the repository security policy or provider agreements.', ['Data minimization', 'No secret collection', 'Policy versioning']),
-  terms: spec('Terms of service', 'Terms and conditions for using the Juror marketing site and related project resources.', 'This page is a publication surface for counsel-approved terms. Product use also remains subject to the licenses and provider terms that apply to the selected workflow.', ['Scope of service', 'Open-source license', 'Policy versioning']),
+  about: spec(COMPANY_COPY.en.titles.about, COMPANY_COPY.en.summaries.about, COMPANY_COPY.en.summaries.about, []),
+  founders: spec(COMPANY_COPY.en.titles.founders, COMPANY_COPY.en.summaries.founders, COMPANY_COPY.en.summaries.founders, []),
+  contact: spec(COMPANY_COPY.en.titles.contact, COMPANY_COPY.en.summaries.contact, COMPANY_COPY.en.summaries.contact, []),
+  privacy: spec(POLICIES.privacy.title, POLICIES.privacy.summary, POLICIES.privacy.summary, []),
+  terms: spec(POLICIES.terms.title, POLICIES.terms.summary, POLICIES.terms.summary, []),
+  imprint: spec(POLICIES.imprint.title, COMPANY_COPY.en.summaries.imprint, POLICIES.imprint.summary, []),
   features: spec('Juror features for clearer pull-request decisions', 'Explore the review controls that turn several model outputs into one auditable result.', 'Each feature is designed around a concrete decision: what evidence to collect, what to merge, what to publish, and what to leave to the reviewer.', ['Review architecture', 'Decision controls', 'Documented limits'], 'View product'),
   parallel_model_review: spec('Parallel model review for pull requests', 'Run supported harnesses independently against a sealed checkout.', 'Parallel review increases perspective, not certainty. Keep the configured model set visible and weigh timing, cost, and review quality together.', ['Supported harnesses', 'Independent checkout', 'Time and cost trade-offs'], 'Choose a preset'),
   deduplicated_findings: spec('One bug should produce one finding.', 'Collapse exact and similar reports without losing evidence or coverage.', 'A useful review must preserve each reviewer observation while returning a human-readable decision. Juror uses anchors, similarity, and a referee stage to do that.', ['Anchor to the diff', 'Cluster overlap', 'Audit coverage'], 'See examples'),
@@ -290,6 +294,7 @@ export function canonicalUrl(page: PageRecord, locale: Locale): string {
 }
 
 export function pageTitle(page: PageRecord, locale: Locale): string {
+  if (isCompanyPage(page.id)) return COMPANY_COPY[locale].titles[page.id];
   if (locale === 'en') return PAGE_SPECS[page.id].h1;
   if (page.id === 'home') return COPY[locale].homeTitle;
   const readableSegment = decodeURIComponent(page.paths[locale].split('/').filter(Boolean).at(-1) || '')
@@ -299,6 +304,7 @@ export function pageTitle(page: PageRecord, locale: Locale): string {
 }
 
 export function pageDescription(page: PageRecord, locale: Locale): string {
+  if (isCompanyPage(page.id)) return COMPANY_COPY[locale].summaries[page.id];
   if (locale === 'en') return PAGE_SPECS[page.id].description;
   const name = pageTitle(page, locale);
   const templates: Record<Locale, string> = {
@@ -313,6 +319,7 @@ export function pageDescription(page: PageRecord, locale: Locale): string {
 }
 
 export function localizedSummary(page: PageRecord, locale: Locale): string {
+  if (isCompanyPage(page.id)) return COMPANY_COPY[locale].summaries[page.id];
   if (locale === 'en') return PAGE_SPECS[page.id].summary;
   const title = pageTitle(page, locale);
   const summaries: Record<Locale, string> = {

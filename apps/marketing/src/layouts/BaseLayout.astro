@@ -2,6 +2,8 @@
 import '../styles/global.css';
 import iconUrl from '../../../../assets/icon.svg';
 import socialImageUrl from '../../../../assets/social-preview.png';
+import { COMPANY, FOUNDERS } from '../../../../shared/public-content';
+import { COMPANY_COPY, isCompanyPage } from '../lib/company';
 import {
   COPY,
   EDITORIAL_DATE,
@@ -38,6 +40,7 @@ const {
   description: descriptionOverride,
 } = Astro.props;
 const copy = COPY[locale];
+const companyCopy = COMPANY_COPY[locale];
 const title = titleOverride ?? `${pageTitle(page, locale)} | Juror`;
 const description = descriptionOverride ?? pageDescription(page, locale);
 const canonical = canonicalUrl(page, locale);
@@ -57,7 +60,9 @@ const graph: Record<string, unknown>[] = [
   {
     '@type': 'Organization',
     '@id': `${SITE_ORIGIN}/#organization`,
-    name: 'Juror',
+    name: COMPANY.name,
+    legalName: COMPANY.name,
+    brand: { '@type': 'Brand', name: 'Juror' },
     url: SITE_ORIGIN,
     sameAs: [GITHUB_REPOSITORY],
   },
@@ -103,7 +108,16 @@ if (articleTypes.has(page.contentType)) {
   });
 }
 
-if (productTypes.has(page.contentType)) {
+if (page.id === 'founders') {
+  graph.push(...FOUNDERS.map((founder) => ({
+    '@type': 'Person',
+    name: founder.name,
+    description: `${companyCopy.cofounder} · Juror`,
+    sameAs: [founder.linkedIn],
+  })));
+}
+
+if (productTypes.has(page.contentType) && !isCompanyPage(page.id)) {
   graph.push({
     '@type': 'SoftwareApplication',
     name: 'Juror',
@@ -187,6 +201,7 @@ const schema = { '@context': 'https://schema.org', '@graph': graph };
         <div>
           <a class="brand" href={pagePath(PAGE_BY_ID.get('home')!, locale)}><span class="brand-mark" aria-hidden="true">J</span><span>Juror</span></a>
           <p>{copy.footer}</p>
+          <p class="footer-company">{COMPANY.name}</p>
         </div>
         <div>
           <strong>{copy.nav.product}</strong>
@@ -201,11 +216,13 @@ const schema = { '@context': 'https://schema.org', '@graph': graph };
           <a href={pagePath(PAGE_BY_ID.get('docs')!, locale)}>{copy.nav.docs}</a>
         </div>
         <div>
-          <strong>Juror</strong>
-          <a href={JUROR_CLOUD_SIGN_IN}>{copy.cloud}</a>
+          <strong>{companyCopy.company}</strong>
+          {(['about', 'founders', 'contact'] as const).map((id) => <a href={pagePath(PAGE_BY_ID.get(id)!, locale)}>{companyCopy.titles[id]}</a>)}
           <a href={GITHUB_REPOSITORY}>{copy.viewOnGitHub}</a>
-          <a href={pagePath(PAGE_BY_ID.get('security')!, locale)}>{COPY[locale].typeLabel.legal}</a>
-          <a href={pagePath(PAGE_BY_ID.get('privacy')!, locale)}>{pageTitle(PAGE_BY_ID.get('privacy')!, locale)}</a>
+        </div>
+        <div>
+          <strong>{companyCopy.legal}</strong>
+          {(['privacy', 'terms', 'imprint', 'security'] as const).map((id) => <a href={pagePath(PAGE_BY_ID.get(id)!, locale)}>{companyCopy.titles[id]}</a>)}
         </div>
       </div>
     </footer>

@@ -628,6 +628,15 @@ kbd { padding: 2px 5px; border: 1px solid #333; border-radius: 4px; color: #888;
 .legal-page h2 { margin: 32px 0 10px; font-size: 15px; font-weight: 540; }
 .legal-page p { color: #a1a1a1; font-size: 11px; line-height: 1.8; }
 .legal-page article a { color: #ededed; }
+.legal-page article { overflow-wrap: anywhere; }
+.legal-page article a { text-decoration: underline; text-underline-offset: 4px; }
+.legal-page article section { scroll-margin-top: 24px; }
+.legal-page article li { margin-bottom: 12px; color: #a1a1a1; font-size: 15px; line-height: 1.8; }
+.legal-page .legal-toc { margin-block: 28px; padding: 24px; border: 1px solid #262626; border-radius: 10px; }
+.legal-page .legal-toc ol { padding-left: 22px; margin-bottom: 0; list-style: decimal; }
+.legal-page .legal-links { padding: 0; list-style: none; }
+.legal-page .legal-crosslinks { display: flex; flex-wrap: wrap; gap: 16px 24px; margin-top: 40px; padding-top: 24px; border-top: 1px solid #262626; font-size: 14px; }
+.legal-page .legal-crosslinks a { min-width: 0; }
 
 /* Readable density: operational text should be comfortable at the browser's
    default zoom, rather than requiring users to enlarge the whole app. */
