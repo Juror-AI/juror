@@ -1,0 +1,98 @@
+---
+import { COMPANY, COMPANY_ADDRESS, FOUNDERS, POLICIES, POLICY_DATE, type PolicyId } from '../../../../shared/public-content';
+import { COMPANY_COPY, type CompanyPageId } from '../lib/company';
+import { GITHUB_REPOSITORY, PAGE_BY_ID, pagePath, type Locale } from '../lib/site';
+
+const { id, locale } = Astro.props as { id: CompanyPageId; locale: Locale };
+const copy = COMPANY_COPY[locale];
+const policy = Object.hasOwn(POLICIES, id) ? POLICIES[id as PolicyId] : undefined;
+const href = (pageId: string) => pagePath(PAGE_BY_ID.get(pageId)!, locale);
+---
+
+<section class="company-hero site-shell narrow">
+  <p class="eyebrow">{policy ? copy.legal : copy.company}</p>
+  <h1>{copy.titles[id]}</h1>
+  <p class="hero-summary">{copy.summaries[id]}</p>
+  {locale !== 'en' && id !== 'founders' && <p class="language-notice">{copy.englishNotice} <a href={pagePath(PAGE_BY_ID.get(id)!, 'en')} lang="en">English →</a></p>}
+</section>
+
+{policy ? (
+  <article class="site-shell narrow policy-content" lang="en">
+    <p class="metadata">Last updated: <time datetime={POLICY_DATE}>September 21, 2026</time></p>
+    <nav class="policy-toc" aria-label="On this page">
+      <strong>On this page</strong>
+      <ol>{policy.sections.map((section) => <li><a href={`#${section.id}`}>{section.title}</a></li>)}</ol>
+    </nav>
+    {policy.sections.map((section) => (
+      <section id={section.id} class="policy-section" aria-labelledby={`${section.id}-heading`}>
+        <h2 id={`${section.id}-heading`}>{section.title}</h2>
+        {section.paragraphs.map((paragraph) => <p>{paragraph}</p>)}
+        {section.items && <ul>{section.items.map((item) => <li>{item}</li>)}</ul>}
+        {section.links && <ul class="policy-links">{section.links.map((link) => <li><a href={link.href}>{link.label}</a></li>)}</ul>}
+      </section>
+    ))}
+    <nav class="company-crosslinks" aria-label="Company policies">
+      {(['privacy', 'terms', 'imprint', 'security'] as const).filter((pageId) => pageId !== id).map((pageId) => <a href={href(pageId)}>{POLICIES[pageId].title} →</a>)}
+    </nav>
+  </article>
+) : id === 'founders' ? (
+  <section class="site-shell narrow founders-section" aria-label={copy.titles.founders}>
+    <div class="founder-grid">
+      {FOUNDERS.map((founder) => (
+        <article class="founder-card">
+          <span class="founder-monogram" aria-hidden="true">{founder.initials}</span>
+          <p class="eyebrow">{copy.cofounder} · Juror</p>
+          <h2>{founder.name}</h2>
+          <a class="founder-profile" href={founder.linkedIn} aria-label={`${copy.profile} — ${founder.name}`}>{copy.profile} <span aria-hidden="true">↗</span></a>
+        </article>
+      ))}
+    </div>
+    <div class="company-identity">
+      <p>{copy.company}</p>
+      <strong>{COMPANY.name}</strong>
+      <nav class="company-crosslinks" aria-label={copy.company}>
+        <a href={href('about')}>{copy.titles.about} →</a>
+        <a href={href('contact')}>{copy.titles.contact} →</a>
+        <a href={href('imprint')}>{copy.titles.imprint} →</a>
+      </nav>
+    </div>
+  </section>
+) : id === 'about' ? (
+  <article class="site-shell narrow policy-content" lang="en">
+    <section class="policy-section">
+      <h2>Built for the review that happens before you merge.</h2>
+      <p>Juror gives a pull request several independent AI reviews, combines overlapping findings, and shows the cost of the work. Engineers can inspect the evidence, understand where reviewers agree, and decide what to change.</p>
+      <p>The product includes an open-source CLI and GitHub Action, alongside Juror Cloud for hosted reviews and browser QA. Human review, tests, and ownership remain part of the release process.</p>
+    </section>
+    <section class="policy-section">
+      <h2>The people and company behind Juror</h2>
+      <p>Juror was co-founded by Jay Derinbogaz and Tugberk Ayar. It is operated by {COMPANY.name}, based in Berlin, Germany.</p>
+      <p><a href={href('founders')}>Meet the founders and view their public profiles →</a></p>
+      <p><a href={href('imprint')}>Company registration and contact details →</a></p>
+    </section>
+    <nav class="company-crosslinks" aria-label="Explore Juror">
+      <a href={GITHUB_REPOSITORY}>Explore the source on GitHub ↗</a>
+      <a href={href('contact')}>Contact us →</a>
+    </nav>
+  </article>
+) : (
+  <article class="site-shell narrow policy-content" lang="en">
+    <section class="policy-section">
+      <h2>General enquiries, accounts, and privacy</h2>
+      <p>For product questions, partnerships, account assistance, billing, or a request about your personal data, contact the company operating Juror.</p>
+      <p><a class="contact-email" href={`mailto:${COMPANY.email}`}>{COMPANY.email}</a></p>
+      <p>{COMPANY.name}<br />{COMPANY_ADDRESS}<br /><a href={COMPANY.phoneHref}>{COMPANY.phone}</a></p>
+      <p>Include enough information to identify your request. Please do not send passwords, API keys, payment-card details, or private repository content in an initial message.</p>
+    </section>
+    <section class="policy-section">
+      <h2>Product issues and security reports</h2>
+      <p>Public bug reports and feature requests can go to <a href={`${GITHUB_REPOSITORY}/issues`}>GitHub Issues</a>. Use synthetic examples and remove private information first.</p>
+      <p>Report vulnerabilities through <a href={`${GITHUB_REPOSITORY}/security/advisories/new`}>GitHub’s private vulnerability reporting form</a>. If it is unavailable, email us to arrange a private channel.</p>
+    </section>
+    <nav class="company-crosslinks" aria-label="Company information">
+      <a href={href('founders')}>Meet the founders →</a>
+      <a href={href('privacy')}>Privacy policy →</a>
+      <a href={href('imprint')}>Legal notice →</a>
+    </nav>
+  </article>
+)}

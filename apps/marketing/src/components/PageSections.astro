@@ -33,7 +33,6 @@ const isHome = page.id === 'home';
 const isHub = children.length > 0;
 const usesCode = ['docs', 'template', 'integration'].includes(page.contentType) || ['github_ai_code_review', 'github_actions_code_review'].includes(page.id);
 const isComparison = page.contentType === 'comparison';
-const isLegal = page.contentType === 'legal';
 const isArticle = ['resource', 'template', 'comparison', 'docs'].includes(page.contentType);
 const isAgentIntegration = ['chatgpt_plugin', 'mcp'].includes(page.id);
 const mcpConnection = `{
@@ -146,9 +145,6 @@ const comparisonText = isEnglish ? {
       </div>
     </section>
 
-    {isLegal ? (
-      <section class="section site-shell narrow legal-copy"><p class="metadata">{copy.reviewed}: {EDITORIAL_DATE}</p><h2>{copy.overview}</h2><p>{localizedSummary(page, locale)}</p><h2>{copy.limitations}</h2><p>{locale === 'en' ? 'Counsel-approved legal language is required before this record can be marked approved and indexed. This implementation deliberately does not invent legal commitments or collect data through this page.' : copy.editorialNotice}</p><h2>{copy.sources}</h2><p><a href={GITHUB_REPOSITORY}>Juror repository</a></p></section>
-    ) : (
       <>
         <section class="section site-shell narrow answer-section">
           {isArticle && <p class="metadata">Juror · {copy.reviewed}: {EDITORIAL_DATE}</p>}
@@ -172,8 +168,7 @@ const comparisonText = isEnglish ? {
           <aside class="sidecard"><p class="eyebrow">{copy.sources}</p><ul>{sourceLinks.map((source) => <li><a href={source.href}>{source.label} <span aria-hidden="true">↗</span></a></li>)}</ul><p class="metadata">{copy.reviewed}: {EDITORIAL_DATE}</p></aside>
         </section>
       </>
-    )}
 
-    {!isLegal && <section class="section section-tint"><div class="site-shell"><div class="section-heading"><p class="eyebrow">{copy.related}</p><h2>{copy.next}</h2></div><div class="card-grid card-grid-three">{related.map((relatedPage) => <a class="route-card compact" href={pagePath(relatedPage, locale)}><span>{copy.typeLabel[relatedPage.contentType]}</span><h3>{pageTitle(relatedPage, locale)}</h3><b>→</b></a>)}</div></div></section>}
+    <section class="section section-tint"><div class="site-shell"><div class="section-heading"><p class="eyebrow">{copy.related}</p><h2>{copy.next}</h2></div><div class="card-grid card-grid-three">{related.map((relatedPage) => <a class="route-card compact" href={pagePath(relatedPage, locale)}><span>{copy.typeLabel[relatedPage.contentType]}</span><h3>{pageTitle(relatedPage, locale)}</h3><b>→</b></a>)}</div></div></section>
   </>
 )}

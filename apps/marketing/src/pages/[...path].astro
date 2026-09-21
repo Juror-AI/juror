@@ -1,6 +1,8 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import PageSections from '../components/PageSections.astro';
+import CompanySections from '../components/CompanySections.astro';
+import { isCompanyPage } from '../lib/company';
 import { LOCALES, PAGES, type Locale } from '../lib/site';
 
 export function getStaticPaths() {
@@ -14,5 +16,5 @@ const { page, locale } = Astro.props as { page: (typeof PAGES)[number]; locale: 
 ---
 
 <BaseLayout {page} {locale}>
-  <PageSections {page} {locale} />
+  {isCompanyPage(page.id) ? <CompanySections id={page.id} {locale} /> : <PageSections {page} {locale} />}
 </BaseLayout>

@@ -15,9 +15,11 @@ security,core,/en/security,/de/sicherheit,/fr/securite,/es/seguridad,/ja/セキ�
 open_source,core,/en/open-source,/de/open-source,/fr/open-source,/es/codigo-abierto,/ja/オープンソース,/pt-br/codigo-aberto,approved_launch
 changelog,core,/en/changelog,/de/aenderungsprotokoll,/fr/journal-des-modifications,/es/registro-de-cambios,/ja/変更履歴,/pt-br/registro-de-alteracoes,approved_launch
 about,core,/en/about,/de/ueber-uns,/fr/a-propos,/es/acerca-de,/ja/jurorについて,/pt-br/sobre,approved_launch
+founders,core,/en/founders,/de/gruender,/fr/fondateurs,/es/fundadores,/ja/創業者,/pt-br/fundadores,approved_launch
 contact,core,/en/contact,/de/kontakt,/fr/contact,/es/contacto,/ja/お問い合わせ,/pt-br/contato,approved_launch
 privacy,legal,/en/legal/privacy,/de/rechtliches/datenschutz,/fr/mentions-legales/confidentialite,/es/legal/privacidad,/ja/法務/プライバシー,/pt-br/legal/privacidade,approved_launch
 terms,legal,/en/legal/terms,/de/rechtliches/nutzungsbedingungen,/fr/mentions-legales/conditions,/es/legal/terminos,/ja/法務/利用規約,/pt-br/legal/termos,approved_launch
+imprint,legal,/en/legal/imprint,/de/rechtliches/impressum,/fr/mentions-legales/entreprise,/es/legal/aviso-legal,/ja/法務/運営会社,/pt-br/legal/aviso-legal,approved_launch
 features,feature,/en/features,/de/funktionen,/fr/fonctionnalites,/es/funciones,/ja/機能,/pt-br/funcionalidades,approved_launch
 parallel_model_review,feature,/en/features/parallel-model-review,/de/funktionen/parallele-modell-code-review,/fr/fonctionnalites/revue-de-code-parallele-par-modeles,/es/funciones/revision-de-codigo-paralela-por-modelos,/ja/機能/並列モデルコードレビュー,/pt-br/funcionalidades/revisao-paralela-por-modelos,approved_launch
 deduplicated_findings,feature,/en/features/deduplicated-findings,/de/funktionen/deduplizierte-befunde,/fr/fonctionnalites/constats-dedupliques,/es/funciones/hallazgos-sin-duplicados,/ja/機能/重複のない検出結果,/pt-br/funcionalidades/descobertas-sem-duplicacao,approved_launch
