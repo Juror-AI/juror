@@ -12,7 +12,7 @@ export const COMPANY = {
   managingDirector: 'Ceyhun Afsin Derinbogaz',
   registerCourt: 'Amtsgericht Charlottenburg (Berlin)',
   registerNumber: 'HRB 232104 B',
-  email: 'jay@stackcap.cc',
+  email: 'jay@juror.dev',
 } as const;
 
 export const FOUNDERS = [
