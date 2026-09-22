@@ -11,6 +11,7 @@ import {
   isIndexable,
   localizedFocus,
   localizedSummary,
+  pageDescription,
   pagePath,
   pageTitle,
   relatedPages,
@@ -31,7 +32,7 @@ const related = relatedPages(page);
 const focus = localizedFocus(page, locale);
 const isHome = page.id === 'home';
 const isHub = children.length > 0;
-const usesCode = ['docs', 'template', 'integration'].includes(page.contentType) || ['github_ai_code_review', 'github_actions_code_review'].includes(page.id);
+const usesCode = ['docs', 'template', 'integration'].includes(page.contentType) || ['github_ai_code_review', 'github_actions_code_review', 'cli'].includes(page.id);
 const isComparison = page.contentType === 'comparison';
 const isArticle = ['resource', 'template', 'comparison', 'docs'].includes(page.contentType);
 const isAgentIntegration = ['chatgpt_plugin', 'mcp'].includes(page.id);
@@ -40,12 +41,20 @@ const mcpConnection = `{
     "juror": { "type": "http", "url": "https://app.juror.dev/mcp" }
   }
 }`;
+const cliQuickstart = `npm i -g juror-ai
+
+# Review the branch you are working on
+juror review --base main
+
+# Or review a pull request without posting
+juror review --pr 1234 --repo owner/name`;
 const actionPage = PAGE_BY_ID.get('github_ai_code_review')!;
 const docsPage = PAGE_BY_ID.get('getting_started')!;
 const sourceLinks = [
   { label: locale === 'en' ? 'Juror source repository' : copy.sources, href: GITHUB_REPOSITORY },
   { label: locale === 'en' ? 'Configuration reference' : copy.implementation, href: `${GITHUB_REPOSITORY}/blob/main/action.yml` },
   { label: locale === 'en' ? 'Benchmark methodology' : copy.whatYouGet, href: `${GITHUB_REPOSITORY}/blob/main/docs/benchmarking.md` },
+  ...(page.id === 'juror_vs_greptile' ? [{ label: 'Greptile public pricing (checked 2026-09-21)', href: 'https://www.greptile.com/pricing' }] : []),
 ];
 const isEnglish = locale === 'en';
 const homeText = isEnglish ? {
@@ -53,7 +62,14 @@ const homeText = isEnglish ? {
 } : {
   eyebrow: copy.typeLabel.core, reviewCta: copy.implementation, microProof: focus.join(' · '), artifactTop: `Juror · ${copy.implementation}`, reviewers: copy.whatYouGet, changedLines: '+42 −11', finding: pageTitle(page, locale), findingDetail: localizedSummary(page, locale), confidence: copy.limitations, receipt: copy.whatYouGet, problemEyebrow: copy.overview, problemTitle: copy.directAnswer, problemBody: localizedSummary(page, locale), flowEyebrow: copy.implementation, flowTitle: pageTitle(page, locale), outcomeEyebrow: copy.whatYouGet, outcomeTitle: copy.implementation, lifecycleEyebrow: copy.implementation, lifecycleTitle: copy.whatYouGet, timeline: [copy.overview, copy.implementation, copy.whatYouGet, copy.limitations, copy.next], receiptEyebrow: copy.whatYouGet, receiptTitle: copy.implementation, receiptBody: localizedSummary(page, locale), headers: [copy.typeLabel.integration, copy.overview, copy.whatYouGet, copy.implementation, copy.limitations], startEyebrow: copy.prerequisites, startTitle: copy.implementation, startBody: localizedSummary(page, locale), finalEyebrow: copy.next, finalTitle: pageTitle(page, locale), pipelineAlt: localizedSummary(page, locale)
 };
-const comparisonText = isEnglish ? {
+const greptileComparison = page.id === 'juror_vs_greptile' && isEnglish;
+const comparisonText = greptileComparison ? {
+  eyebrow: 'OPEN-SOURCE ALTERNATIVE', title: 'The difference is who controls the review.', headers: ['Decision area', 'Juror', 'Greptile', 'Source status'], rows: [
+    ['Ownership', 'MIT-licensed Action and CLI. Review orchestration and configuration are visible in the repository.', 'Hosted commercial product.', 'Confirmed'],
+    ['How you pay', 'Juror has no seat fee or credit balance. You connect and pay model providers directly; Juror labels reported, estimated, partial, and unknown cost.', 'Its public pricing lists a $30 per-seat/month Pro plan with 50 credits per seat; extra credits are listed at $1. Check the current plan before deciding.', 'Checked 2026-09-21'],
+    ['Review model', 'Several independently configured model harnesses review a sealed checkout, then Juror anchors and merges overlapping findings.', 'Greptile documents an indexed codebase and a swarm of agents that learns from team feedback.', 'Checked 2026-09-21'],
+  ], jurorChoice: 'You want the review system in your control: open source, direct provider accounts, configurable models, and a receipt attached to every pull request.', alternativeChoice: 'You prefer a vendor-managed, credit-based service and its documented hosted workflow.'
+} : isEnglish ? {
   eyebrow: 'EVIDENCE-FIRST COMPARISON', title: 'How it works', headers: ['Decision area', 'Juror', 'Other approach', 'Source status'], rows: [
     ['Review workflow', 'Independent reviewers merged into one evidence-backed result.', 'Confirm current behavior in the vendor’s primary documentation.'],
     ['Pricing and availability', 'Open-source orchestration; provider billing is separate.', 'Check the current public pricing and plan terms.'],
@@ -66,6 +82,129 @@ const comparisonText = isEnglish ? {
     [copy.limitations, copy.editorialNotice, copy.statusUnknown],
   ], jurorChoice: localizedSummary(page, locale), alternativeChoice: copy.editorialNotice
 };
+const landingCopy: Record<string, { eyebrow: string; title: string; paragraphs: string[]; checklist: string[] }> = {
+  product: {
+    eyebrow: 'WHY JUROR', title: 'Review AI-generated code with a jury, not a black box.',
+    paragraphs: ['AI can write a pull request in minutes. The bottleneck is deciding whether it is safe to merge. Juror gives that decision more than one perspective, then turns the noise into a single, anchored review.', 'Everything important is inspectable: the action you run, the prompts and presets you select, the model harnesses, the merge logic, and the receipt. You are never asked to trust a score you cannot explain.'],
+    checklist: ['Several models can examine the same change independently.', 'One issue is published once, with the supporting observations preserved.', 'Cost is attached to the review instead of hidden behind a credit balance.'],
+  },
+  agent: {
+    eyebrow: 'THE REVIEW AGENT YOU CAN VERIFY', title: 'A reviewer should bring evidence, not another opaque opinion.',
+    paragraphs: ['Juror starts where an AI review agent should start: with a pull request, a sealed checkout, and a clear scope. Independent harnesses inspect the change, and the merge layer turns overlapping observations into a review an engineer can verify.', 'The output is designed for the GitHub conversation you already have. It points to the changed code, preserves the reason behind a finding, and leaves every decision to the people responsible for shipping.'],
+    checklist: ['Run as a GitHub Action in the pull-request workflow.', 'Review with several configurable model harnesses.', 'Publish one clear result instead of a comment storm.'],
+  },
+  cli: {
+    eyebrow: 'LOCAL REVIEW', title: 'Find the problem while the fix is still cheap.',
+    paragraphs: ['Run Juror before you push. It reviews your local change with the same configurable harnesses that power the GitHub Action, so the feedback loop stays close to your editor and branch.', 'There is no separate “local” product, trial gate, or proprietary review format. The CLI is part of the open-source project and uses the providers you configure.'],
+    checklist: ['Generate a pinned GitHub workflow when you are ready to automate.', 'Run a selected preset against staged or tracked work.', 'Use the terminal result to fix, rerun, and then open the pull request.'],
+  },
+  independence: {
+    eyebrow: 'MODEL INDEPENDENCE', title: 'Do not ask one model to grade its own homework.',
+    paragraphs: ['AI-written code needs a review process that is less likely to inherit the same blind spots. Juror can run several model families independently against the same pull request, so one model’s answer does not quietly become the conclusion.', 'Agreement is useful only when you can inspect it. Juror anchors observations to the diff, collapses duplicates, and gives a referee stage the job of challenging weak consensus before the review is posted.'],
+    checklist: ['Separate model runs before findings are compared.', 'Evidence retained behind each merged finding.', 'Consensus controls that trade recall for less noise.'],
+  },
+  knowledge_base: {
+    eyebrow: 'CONTEXT WITHOUT CAPTIVITY', title: 'Your codebase is context. It does not have to become a product database.',
+    paragraphs: ['Juror’s reviewers use the sealed checkout and configured read/search tools to understand a change in context. That supports cross-file reasoning without requiring a continuously indexed copy of your repository in a vendor-owned knowledge base.', 'The boundary is deliberate: reviewers see what the workflow exposes for the review, and the project retains control over configuration, provider keys, and the source used to make a finding.'],
+    checklist: ['Scoped context from the current checkout.', 'No standing semantic index of the repository.', 'Configuration recorded in the repository with the workflow.'],
+  },
+  security_review: {
+    eyebrow: 'SAFE BY CONFIGURATION', title: 'AI review should not turn a pull request into a secret-extraction path.',
+    paragraphs: ['Juror runs from a read-only reviewer checkout and keeps the workflow policy visible in Git. Its recommended GitHub Action uses minimal permissions, isolates model work from credential-bearing repository metadata, and blocks untrusted fork runs before provider keys are exposed.', 'That is an execution boundary, not a claim to replace a security scanner. Keep specialist security tools, tests, and code owners in the loop; use Juror for an inspectable AI first pass with clear operational limits.'],
+    checklist: ['Read-only reviewer checkout with a defined context boundary.', 'Safe fork conditions before any provider secret is available.', 'Pinned Action version and repository-visible configuration.'],
+  },
+  careers: {
+    eyebrow: 'BUILT IN PUBLIC', title: 'The best way to work on Juror is to improve the product everyone can inspect.',
+    paragraphs: ['Juror is an open-source project before it is a marketing story. Read the implementation, take part in public issue discussions, and submit improvements that come with clear tests and evidence.', 'We will publish specific roles when there are real openings. Until then, the useful invitation is direct: help make AI review more inspectable, practical, and affordable.'],
+    checklist: ['Start with the public source and issue tracker.', 'Propose changes with a reproducible problem and test.', 'Keep security-sensitive reports in private channels.'],
+  },
+  design: {
+    eyebrow: 'DESIGN PRINCIPLE', title: 'The output should make the model easier to challenge.',
+    paragraphs: ['A review is not useful because it looks certain. Juror gives engineers the changed line, the claim, the evidence behind it, and the level of agreement so they can decide what to do next.', 'That is why duplicate reports become one finding, costs have a receipt, and unknowns stay labeled. The interface is there to support engineering judgment, not to dress up an opaque verdict.'],
+    checklist: ['Anchored findings instead of generic summaries.', 'Agreement and refutation visible in the decision trail.', 'Reported, estimated, partial, and unknown costs remain distinct.'],
+  },
+  enterprise: {
+    eyebrow: 'CONTROL AT ORGANIZATIONAL SCALE', title: 'The review system should meet your controls in the open.',
+    paragraphs: ['Platform teams can standardize a useful AI first pass without accepting a black-box review engine. Juror keeps the Action, configuration, provider choice, and review artifact visible so your own security and governance process can evaluate them.', 'Juror does not claim features it has not shipped. Use it where GitHub Actions, your provider accounts, and an inspectable workflow meet your organization’s actual requirements.'],
+    checklist: ['Review configuration lives with the repository.', 'Provider keys and spend remain under your organization’s control.', 'Evidence is attached to the pull request for engineers to inspect.'],
+  },
+  partners: {
+    eyebrow: 'OPEN INTEGRATION', title: 'Integrate with the review workflow instead of negotiating around it.',
+    paragraphs: ['Juror is designed to be useful through visible interfaces: a GitHub Action for pull requests, provider configuration for model access, and an OAuth-protected MCP endpoint for hosted review triage.', 'If an integration needs improvement, the source and documentation give it a place to start. There is no opaque partner badge required to understand how the workflow behaves.'],
+    checklist: ['GitHub-native review workflow.', 'Released model and provider configuration.', 'MCP for workspace-scoped hosted review actions.'],
+  },
+  reports: {
+    eyebrow: 'RESEARCH THAT CAN BE CHECKED', title: 'Make the AI review decision with evidence you can revisit.',
+    paragraphs: ['Vendor reports often summarize a result but hide the conditions that produced it. Juror’s reporting material starts from a more useful standard: state the dataset, the protocol, the cost, the misses, and what remains unknown.', 'Use these resources to decide whether an AI review workflow reduces work on your pull requests. If the conditions do not resemble your codebase, run the evaluation again.'],
+    checklist: ['Method before headline.', 'Representative pull requests over toy prompts.', 'Results that identify their limits.'],
+  },
+  state_of_ai_coding: {
+    eyebrow: 'AI CODING IN 2026', title: 'The bottleneck moved from writing code to validating it.',
+    paragraphs: ['When code is cheap to generate, review becomes the scarce resource. Teams need a faster first pass, but they still need evidence, ownership, tests, and a clear decision before merge.', 'Juror is built for that transition: independent model perspectives, a merged and anchored result, and a cost receipt that keeps higher review volume from becoming a mystery bill.'],
+    checklist: ['More code changes demand stronger triage.', 'AI findings must remain inspectable.', 'Human ownership and tests still decide what ships.'],
+  },
+  ai_code_review_leaderboard: {
+    eyebrow: 'EVALUATION, NOT MARKETING', title: 'A ranking is only useful when you can inspect the cases behind it.',
+    paragraphs: ['A reviewer can look excellent on a narrow set of defects and still waste your team’s attention on ordinary pull requests. Evaluate tools on representative changes and record false positives, misses, latency, and cost alongside recall.', 'Juror does not ask teams to trust a permanent leaderboard. It gives them a repeatable method for finding the workflow that fits their repository and tolerance for noise.'],
+    checklist: ['Match the corpus to your stack and change size.', 'Publish every rule used to count a catch.', 'Measure cost and nuisance comments, not only recall.'],
+  },
+  customer_stories: {
+    eyebrow: 'PROOF YOU CAN INSPECT', title: 'We will not borrow trust from logos we cannot explain.',
+    paragraphs: ['A customer name says little about the pull requests, models, or rules behind a review result. Juror will publish a customer story when it can include those conditions and the customer is ready to stand behind it.', 'Until then, the honest proof is public: source code, released configuration, benchmark material, examples, and a review output you can read.'],
+    checklist: ['Source code available for inspection.', 'Examples show a finding and its evidence.', 'Benchmarks name their method and limits.'],
+  },
+  podcast: {
+    eyebrow: 'TECHNICAL NOTES, NOT FILLER', title: 'Follow the product where its technical decisions are visible.',
+    paragraphs: ['Juror does not publish a fictional podcast feed to fill a navigation slot. The useful conversation happens in release notes, documentation, issue discussions, and the source itself—where a claim can be checked against the implementation.', 'Those materials let engineers see how the review workflow changes, what is supported, and where its boundaries are.'],
+    checklist: ['Read release notes for shipped behavior.', 'Use documentation for configuration details.', 'Join public discussions through the source repository.'],
+  },
+  review_standards: {
+    eyebrow: 'EXPLICIT REVIEW STANDARDS', title: 'Teach the workflow with policy your team can read and change.',
+    paragraphs: ['A review standard should be a document your engineers can challenge, not an invisible profile built from their behavior. Juror keeps the workflow configuration and review policy close to the repository, where code owners can review changes.', 'That makes exceptions discussable, makes the rollout reversible, and lets every team decide where AI feedback belongs in its merge process.'],
+    checklist: ['Write rules and escalation paths in version control.', 'Keep exceptions in the pull-request record.', 'Review policy changes like any other engineering change.'],
+  },
+  post_merge_qa: {
+    eyebrow: 'AFTER THE PULL REQUEST', title: 'Review tells you what changed. A real journey tells you what happened.',
+    paragraphs: ['Some failures only appear after merge: a redirect lands on the wrong page, a new control has no working path, or a deployment is healthy while the user journey is not. Juror’s opt-in browser QA connects that second question to the review workflow.', 'The boundary stays strict. Juror selects an approved staging deployment, uses a synthetic session, keeps evidence sealed, and reports when there is no safe or testable surface instead of improvising against production.'],
+    checklist: ['Choose a specific approved deployment.', 'Use synthetic identity and bounded browser actions.', 'Publish traceable evidence or an explicit no-testable-surface result.'],
+  },
+  startups: {
+    eyebrow: 'FOR TEAMS THAT NEED LEVERAGE', title: 'Spend on the models doing the review—not a markup on every engineer.',
+    paragraphs: ['Early teams need a review process that grows with code volume without committing to seat tiers or a vendor’s credit meter. Juror is MIT-licensed, runs in GitHub Actions, and lets you begin with the provider accounts you already have.', 'Start with one preset, inspect the findings and cost receipt, then tune the reviewer set as your codebase and risk change. The workflow remains yours when the team changes shape.'],
+    checklist: ['No Juror seat fee to add the next engineer.', 'Begin with a small, visible budget target.', 'Keep the configuration and review policy in Git.'],
+  },
+  examples: {
+    eyebrow: 'READ THE EVIDENCE', title: 'Do not install an AI reviewer before you have seen what it says.',
+    paragraphs: ['A useful code-review example shows more than a polished summary. It shows the changed code, the claim, the evidence behind it, how duplicates were merged, and what happened when reviewers disagreed.', 'Juror’s examples are a standard for the output you should expect from any review tool: a finding an engineer can check, not a score or a volume of comments that asks for blind trust.'],
+    checklist: ['Inspect the finding against the changed line.', 'See how overlapping reports become one issue.', 'Understand the confidence and cost labels before rollout.'],
+  },
+  pricing: {
+    eyebrow: 'PRICING THAT ADDS UP', title: 'The software is free. The model bill is yours to see.',
+    paragraphs: ['Juror is MIT-licensed. There is no Juror seat count, credit bucket, forced annual contract, or markup layered over the model work. Connect the providers you choose and pay them under the account you control.', 'Each review returns a cost receipt. When a provider reports a value, Juror says so. When a value is estimated, partial, or unavailable, it says that too. That is enough information to set a budget and make an informed trade-off.'],
+    checklist: ['Use the free Action or CLI in any repository.', 'Choose providers and models per repository or preset.', 'Treat a missing price as unknown—not as zero.'],
+  },
+  open_source: {
+    eyebrow: 'OPEN BY DEFAULT', title: 'Your review workflow should not become someone else’s walled garden.',
+    paragraphs: ['Juror is open source because a code-review system should be reviewable too. Read the code, change the configuration, run it with your own model accounts, and contribute the improvement back when it helps the community.', 'For maintainers, that also means no qualifying process for a special OSS plan and no conversion from a free trial to a credit meter. The same project works for public and private repositories.'],
+    checklist: ['MIT license and public source.', 'Configuration and policy live alongside the code being reviewed.', 'Fork-safe workflows keep secrets out of untrusted pull requests.'],
+  },
+  benchmarks: {
+    eyebrow: 'PROVE IT ON YOUR CODE', title: 'A percentage without the cases is an advertisement.',
+    paragraphs: ['AI review claims age quickly. A useful benchmark tells you which pull requests were used, what counted as a catch, which findings were missed, how noise was handled, and how much each run cost.', 'Juror’s benchmark materials are public so you can inspect the protocol or repeat it with the tools and configuration your team is considering. The goal is not to win a static chart; it is to choose a workflow that holds up on your code.'],
+    checklist: ['Use adjudicated defects rather than comment volume.', 'Record false positives, misses, latency, and cost.', 'Version the corpus and configuration so the result can be reproduced.'],
+  },
+  juror_vs_greptile: {
+    eyebrow: 'LEAVE THE CREDIT METER BEHIND', title: 'Choose the open stack when you want control over the bill and the review.',
+    paragraphs: ['Greptile’s public plan is built around seats and credits. That can be a sensible managed-service choice, but it means a vendor controls the review engine, usage unit, and commercial terms.', 'Juror takes the other route. The Action and CLI are MIT-licensed; you select the model providers, keep their accounts, and can inspect every part of the orchestration. If the review needs to change, you change the configuration or the code—not your plan.'],
+    checklist: ['No Juror per-seat fee or review credits.', 'Direct model-provider billing with a visible receipt.', 'Open-source workflow you can audit, fork, and adapt.'],
+  },
+};
+const landing = isEnglish ? landingCopy[page.id] : landingCopy[page.id] ? {
+  eyebrow: copy.typeLabel[page.contentType],
+  title: pageTitle(page, locale),
+  paragraphs: [localizedSummary(page, locale), pageDescription(page, locale)],
+  checklist: [...focus],
+} : undefined;
 ---
 
 {isHome ? (
@@ -153,6 +292,8 @@ const comparisonText = isEnglish ? {
           <div class="focus-grid">{focus.map((item, index) => <div class="focus-item"><span>0{index + 1}</span><strong>{item}</strong></div>)}</div>
         </section>
 
+        {landing && <section class="section section-dark"><div class="site-shell landing-message"><div><p class="eyebrow">{landing.eyebrow}</p><h2>{landing.title}</h2></div><div class="landing-copy">{landing.paragraphs.map((paragraph) => <p>{paragraph}</p>)}<ul>{landing.checklist.map((item) => <li>{item}</li>)}</ul></div></div></section>}
+
         {isAgentIntegration && <section class="section section-dark"><div class="site-shell code-layout"><div><p class="eyebrow">{locale === 'en' ? 'JUROR CLOUD MCP' : copy.implementation}</p><h2>{locale === 'en' ? 'Connect to the hosted service, then choose a workspace.' : copy.prerequisites}</h2><p>{locale === 'en' ? 'Add the direct Streamable HTTP endpoint in ChatGPT, Codex, or another MCP client. OAuth links your Juror Cloud account; it does not grant arbitrary GitHub or local-repository access.' : localizedSummary(page, locale)}</p></div><pre><code>{mcpConnection}</code></pre></div></section>}
 
         {isAgentIntegration && <section class="section site-shell content-grid"><article class="prose"><h2>{locale === 'en' ? 'Supported review workflow' : copy.whatYouGet}</h2><p>{locale === 'en' ? 'List your workspaces first. Inspect concise findings and hosted runs with a selected workspace ID. To run or rerun a review, Juror first preflights the open PR, current SHA, repository policy, GitHub Action conflict, and capacity. Show that result to the user and obtain an explicit confirmation before the write tool can start a hosted review.' : localizedSummary(page, locale)}</p><h2>{locale === 'en' ? 'Clear data boundaries' : copy.limitations}</h2><p>{locale === 'en' ? 'The integration returns minimal metadata and an explicitly requested retained finding body or claim. It never returns raw diffs, source checkouts, full reports, screenshots, artifacts, provider credentials, or prompt text. It runs hosted Juror Cloud—not an arbitrary repository on the agent machine.' : copy.editorialNotice}</p><h2>{locale === 'en' ? 'Starter prompts' : copy.next}</h2><ul><li>{locale === 'en' ? 'Show my Juror workspaces and review findings.' : copy.overview}</li><li>{locale === 'en' ? 'Summarize open P0 and P1 Juror findings in this workspace.' : copy.whatYouGet}</li><li>{locale === 'en' ? 'Prepare a hosted review for this PR and show the SHA and capacity warning before starting.' : copy.implementation}</li></ul></article><aside class="sidecard"><p class="eyebrow">{copy.sources}</p><ul><li><a href="https://app.juror.dev/mcp">MCP endpoint <span aria-hidden="true">↗</span></a></li><li><a href="https://app.juror.dev/signin">Juror Cloud <span aria-hidden="true">↗</span></a></li><li><a href={`${GITHUB_REPOSITORY}/blob/main/registry/server.json`}>Registry metadata <span aria-hidden="true">↗</span></a></li></ul></aside></section>}
@@ -161,7 +302,7 @@ const comparisonText = isEnglish ? {
 
         {isComparison && <section class="section site-shell"><div class="comparison-header"><div><p class="eyebrow">{comparisonText.eyebrow}</p><h2>{comparisonText.title}</h2></div><p>{copy.reviewed}: {EDITORIAL_DATE}</p></div><div class="comparison-table-wrap"><table class="comparison-table"><thead><tr>{comparisonText.headers.map((header) => <th>{header}</th>)}</tr></thead><tbody>{comparisonText.rows.map((row, index) => <tr><th>{row[0]}</th><td>{row[1]}</td><td>{row[2]}</td><td><span class={`pill ${index ? 'pill-muted' : ''}`}>{index ? copy.statusUnknown : copy.statusConfirmed}</span></td></tr>)}</tbody></table></div><div class="decision-grid"><article><h3>{copy.chooseJuror}</h3><p>{comparisonText.jurorChoice}</p></article><article><h3>{copy.chooseAlternative}</h3><p>{comparisonText.alternativeChoice}</p></article></div></section>}
 
-        {usesCode && <section class="section section-dark"><div class="site-shell code-layout"><div><p class="eyebrow">{copy.implementation}</p><h2>{locale === 'en' ? 'Start from a pinned, least-privilege workflow.' : copy.steps}</h2><p>{locale === 'en' ? 'The action reference uses a released commit SHA. Store provider keys in GitHub secrets and inspect the first review before you require it.' : localizedSummary(page, locale)}</p></div><pre><code>{actionWorkflow()}</code></pre></div></section>}
+        {usesCode && <section class="section section-dark"><div class="site-shell code-layout"><div><p class="eyebrow">{copy.implementation}</p><h2>{locale === 'en' ? (page.id === 'cli' ? 'Run the same review loop before you push.' : 'Start from a pinned, least-privilege workflow.') : copy.steps}</h2><p>{locale === 'en' ? (page.id === 'cli' ? 'Install the open-source CLI, supply only the provider keys you choose, and inspect findings before they reach a pull request.' : 'The action reference uses a released commit SHA. Store provider keys in GitHub secrets and inspect the first review before you require it.') : localizedSummary(page, locale)}</p></div><pre><code>{page.id === 'cli' ? cliQuickstart : actionWorkflow()}</code></pre></div></section>}
 
         <section class="section site-shell content-grid">
           <article class="prose"><h2>{copy.implementation}</h2><p>{localizedSummary(page, locale)}</p><p>{locale === 'en' ? `For ${PAGE_SPECS[page.id].h1.toLowerCase()}, use the published configuration and source repository as the product record. Keep the workflow small enough to inspect, and record any exception in the pull request rather than assuming a model result is final.` : localizedSummary(page, locale)}</p><h2>{copy.limitations}</h2><p>{locale === 'en' ? 'Models, providers, and benchmark conditions change. Juror does not replace code ownership, test suites, static analysis, or a human decision to merge. Treat unknown cost and unevaluated compatibility as explicit unknowns.' : copy.editorialNotice}</p></article>
