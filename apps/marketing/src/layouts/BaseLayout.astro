@@ -172,6 +172,7 @@ const schema = { '@context': 'https://schema.org', '@graph': graph };
         </a>
         <nav class="main-nav" aria-label={copy.primaryNavigation}>
           <a href={pagePath(PAGE_BY_ID.get('product')!, locale)}>{copy.nav.product}</a>
+          <a href={pagePath(PAGE_BY_ID.get('security_review')!, locale)}>{copy.nav.security}</a>
           <a href={pagePath(PAGE_BY_ID.get('solutions')!, locale)}>{copy.nav.solutions}</a>
           <a href={pagePath(PAGE_BY_ID.get('resources')!, locale)}>{copy.nav.resources}</a>
           <a href={pagePath(PAGE_BY_ID.get('docs')!, locale)}>{copy.nav.docs}</a>
@@ -205,6 +206,8 @@ const schema = { '@context': 'https://schema.org', '@graph': graph };
         </div>
         <div>
           <strong>{copy.nav.product}</strong>
+          <a href={pagePath(PAGE_BY_ID.get('cli')!, locale)}>CLI</a>
+          <a href={pagePath(PAGE_BY_ID.get('security_review')!, locale)}>{copy.nav.security}</a>
           <a href={pagePath(PAGE_BY_ID.get('features')!, locale)}>{COPY[locale].typeLabel.feature}</a>
           <a href={pagePath(PAGE_BY_ID.get('integrations')!, locale)}>{COPY[locale].typeLabel.integration}</a>
           <a href={pagePath(PAGE_BY_ID.get('pricing')!, locale)}>{copy.nav.pricing}</a>
