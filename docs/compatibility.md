@@ -7,23 +7,23 @@ harnesses, and versioned pricing table. It describes tested Juror configuration,
 promise that an external provider will keep a model available. Run
 `npm run docs:compatibility` after changing any of those inputs.
 
-Pricing table last checked: **2026-09-09**.
+Pricing table last checked: **2026-09-25**.
 
 ## Built-in models
 
 | Model | Provider / Juror secret | Harness | Provider route | Presets | Cost accounting | Pricing evidence |
 |---|---|---|---|---|---|---|
 | Opus 5<br><sub>`claude-opus-5`</sub> | Anthropic<br><sub>`JUROR_ANTHROPIC_API_KEY`</sub> | Claude Code<br><sub>`claude-code`</sub> | `claude-opus-5` | `high`, `ultra` | provider-reported; unknown on malformed output | [2026-08-06](https://www.anthropic.com/pricing#api) |
-| DeepSeek V4 Flash<br><sub>`deepseek-v4-flash-0731`</sub> | Fireworks<br><sub>`JUROR_FIREWORKS_API_KEY`</sub> | DeepSeek<br><sub>`deepseek`</sub> | `accounts/fireworks/models/deepseek-v4-flash-0731` | `fast`, `ultra` | provider-usage estimated; unknown without usage events | [2026-08-06](https://models.dev) |
+| DeepSeek V4.1 Flash<br><sub>`deepseek-v4.1-flash`</sub> | Fireworks<br><sub>`JUROR_FIREWORKS_API_KEY`</sub> | DeepSeek<br><sub>`deepseek`</sub> | `accounts/fireworks/models/deepseek-v4p1-flash` | `fast`, `ultra` | provider-usage estimated; unknown without usage events | [2026-09-25](https://models.dev) |
 | GLM-5.3<br><sub>`glm-5p3`</sub> | Fireworks<br><sub>`JUROR_FIREWORKS_API_KEY`</sub> | opencode<br><sub>`opencode`</sub> | `accounts/fireworks/models/glm-5p3` | `balanced` | provider-reported per step; unknown on malformed output | [2026-08-29](https://models.dev/) |
-| GPT-5.6 Luna<br><sub>`gpt-5.6-luna`</sub> | OpenAI<br><sub>`JUROR_OPENAI_API_KEY`</sub> | Codex<br><sub>`codex`</sub> | `gpt-5.6-luna` | `fast`, `ultra` | token-estimated; unknown without usage | [2026-08-07](https://developers.openai.com/api/docs/models/gpt-5.6-luna) |
 | GPT-5.6 Sol<br><sub>`gpt-5.6-sol`</sub> | OpenAI<br><sub>`JUROR_OPENAI_API_KEY`</sub> | Codex<br><sub>`codex`</sub> | `gpt-5.6-sol` | `high`, `ultra` | token-estimated; unknown without usage | [2026-08-06](https://openai.com/api/pricing/) |
 | GPT-5.6 Terra<br><sub>`gpt-5.6-terra`</sub> | OpenAI<br><sub>`JUROR_OPENAI_API_KEY`</sub> | Codex<br><sub>`codex`</sub> | `gpt-5.6-terra` | `balanced`, `ultra` | token-estimated; unknown without usage | [2026-08-06](https://developers.openai.com/api/docs/models/gpt-5.6-terra) |
+| GPT-6 Luna<br><sub>`gpt-6-luna`</sub> | OpenAI<br><sub>`JUROR_OPENAI_API_KEY`</sub> | Codex<br><sub>`codex`</sub> | `gpt-6-luna` | `fast`, `ultra` | token-estimated; unknown without usage | [2026-09-25](https://developers.openai.com/api/docs/models/gpt-6-luna) |
 | Grok 4.5<br><sub>`grok-4.5`</sub> | xAI<br><sub>`JUROR_XAI_API_KEY`</sub> | Grok Build<br><sub>`grok-build`</sub> | `grok-4.5` | `balanced`, `high`, `ultra` | provider-reported when present; unknown otherwise | [2026-08-06](https://docs.x.ai/docs/models) |
 | Kimi K3<br><sub>`kimi-k3`</sub> | Fireworks<br><sub>`JUROR_FIREWORKS_API_KEY`</sub> | Kimi Code CLI<br><sub>`kimi-code`</sub> | `accounts/fireworks/models/kimi-k3` | `balanced`, `ultra` | usage-estimated; unknown without usage records | [2026-08-06](https://fireworks.ai/models/fireworks/kimi-k3) |
 | MiniMax M3<br><sub>`minimax-m3`</sub> | Fireworks<br><sub>`JUROR_FIREWORKS_API_KEY`</sub> | opencode<br><sub>`opencode`</sub> | `accounts/fireworks/models/minimax-m3` | `balanced` | provider-reported per step; unknown on malformed output | [2026-08-31](https://models.dev/) |
-| DeepSeek V4 Flash<br><sub>`openrouter-deepseek-v4-flash`</sub> | OpenRouter<br><sub>`JUROR_OPENROUTER_API_KEY`</sub> | Generic OpenAI<br><sub>`generic-openai`</sub> | `deepseek/deepseek-v4-flash-0731` | `starter` | provider-reported; price fallback | [2026-08-11](https://openrouter.ai/api/v1/models) |
-| GPT-5.6 Luna<br><sub>`openrouter-gpt-5.6-luna`</sub> | OpenRouter<br><sub>`JUROR_OPENROUTER_API_KEY`</sub> | Generic OpenAI<br><sub>`generic-openai`</sub> | `openai/gpt-5.6-luna` | `starter` | provider-reported; price fallback | [2026-08-11](https://openrouter.ai/api/v1/models) |
+| DeepSeek V4.1 Flash<br><sub>`openrouter-deepseek-v4.1-flash`</sub> | OpenRouter<br><sub>`JUROR_OPENROUTER_API_KEY`</sub> | Generic OpenAI<br><sub>`generic-openai`</sub> | `deepseek/deepseek-v4.1-flash` | `starter` | provider-reported; price fallback | [2026-09-25](https://openrouter.ai/api/v1/models) |
+| GPT-6 Luna<br><sub>`openrouter-gpt-6-luna`</sub> | OpenRouter<br><sub>`JUROR_OPENROUTER_API_KEY`</sub> | Generic OpenAI<br><sub>`generic-openai`</sub> | `openai/gpt-6-luna` | `starter` | provider-reported; price fallback | [2026-09-25](https://openrouter.ai/api/v1/models) |
 | DeepSeek V4 Flash (Scaleway)<br><sub>`scaleway-deepseek-v4-flash-0731`</sub> | Scaleway<br><sub>`JUROR_SCALEWAY_API_KEY`</sub> | Generic OpenAI<br><sub>`generic-openai`</sub> | `deepseek-v4-flash-0731` | `ultra` | provider-reported only when declared; estimated or unknown fallback | [2026-09-09](https://www.scaleway.com/en/pricing/model-as-a-service/) |
 
 ## Harness boundaries

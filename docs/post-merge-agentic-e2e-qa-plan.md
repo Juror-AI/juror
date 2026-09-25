@@ -17,7 +17,7 @@ The first version remains consistent with Juror's current stateless distribution
 - It requires no database or long-running control plane.
 - It resolves a signed QA container to an immutable digest, verifies its provenance, and executes
   only that digest.
-- It uses one autonomous Codex session running GPT-5.6 Luna with medium reasoning effort.
+- It uses one autonomous Codex session running GPT-6 Luna with medium reasoning effort.
 - It records video for unauthenticated scenarios and richer diagnostics for failures; visual and
   trace evidence is suppressed whenever the browser uses login steps, a support-session bootstrap,
   secret browser headers, or supplied state.
@@ -61,7 +61,7 @@ This document is the implementation contract for the feature. It describes the p
 | Static staging fallback | Allowed, but unverified findings are advisory only |
 | Automated staging authentication | Fresh fixed-identity support session per attempt, bound to one canonical staging origin; no preview or production use in v1 |
 | Execution model | One autonomous Codex session with a supervised browser broker |
-| Model | GPT-5.6 Luna, medium reasoning effort |
+| Model | GPT-6 Luna, medium reasoning effort |
 | Scope | Affected user journeys only |
 | Limits | Six scenarios, 40 browser operations total, 20 minutes execution time |
 | Browser | Desktop Chromium by default; mobile viewport only when relevant |
@@ -554,7 +554,7 @@ block such as:
 qa:
   enabled: true
   model:
-    id: gpt-5.6-luna
+    id: gpt-6-luna
     reasoning_effort: medium
   target:
     strategy: staging-first
@@ -830,7 +830,7 @@ Authentication, browser tools, and container policy can be developed in parallel
 2. Build the bounded impact-analysis context from pull request metadata and diff content.
 3. Require and validate `QaPlan`, including exact checkpoint kind and locator/URL matcher, before
    enabling browser tools.
-4. Execute scenarios within a single GPT-5.6 Luna medium-reasoning session.
+4. Execute scenarios within a single GPT-6 Luna medium-reasoning session.
 5. Implement scenario checkpoints, sanitized observations, sealed sensitive-state acknowledgements,
    and the private broker ledger.
 6. Implement one reset-and-adapt retry per failed unauthenticated scenario and a mandatory,

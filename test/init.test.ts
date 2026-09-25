@@ -97,7 +97,7 @@ describe('credentialReadiness', () => {
         source: 'JUROR_SCALEWAY_API_KEY',
       },
     ]);
-    expect(readiness.runnableModels).toEqual(['gpt-5.6-luna', 'deepseek-v4-flash-0731']);
+    expect(readiness.runnableModels).toEqual(['gpt-6-luna', 'deepseek-v4.1-flash']);
     expect(readiness.juryKind).toBe('multi-model');
     expect(JSON.stringify(readiness)).not.toContain('dedicated-openai-secret');
     expect(JSON.stringify(readiness)).not.toContain('legacy-fireworks-secret');
@@ -109,7 +109,7 @@ describe('credentialReadiness', () => {
       defaultConfig(),
     );
 
-    expect(readiness.runnableModels).toEqual(['gpt-5.6-luna']);
+    expect(readiness.runnableModels).toEqual(['gpt-6-luna']);
     expect(readiness.juryKind).toBe('single-model');
   });
 
@@ -120,8 +120,8 @@ describe('credentialReadiness', () => {
     );
 
     expect(readiness.runnableModels).toEqual([
-      'openrouter-gpt-5.6-luna',
-      'openrouter-deepseek-v4-flash',
+      'openrouter-gpt-6-luna',
+      'openrouter-deepseek-v4.1-flash',
     ]);
     expect(readiness.runnableFamilies).toEqual(['openai', 'deepseek']);
     expect(readiness.juryKind).toBe('multi-model');

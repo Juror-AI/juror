@@ -153,8 +153,8 @@ describe('starter fan-out', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(runs.map((run) => run.ok)).toEqual([true, true]);
     expect(runs.map((run) => run.result?.resolvedModel)).toEqual([
-      'openai/gpt-5.6-luna',
-      'deepseek/deepseek-v4-flash-0731',
+      'openai/gpt-6-luna',
+      'deepseek/deepseek-v4.1-flash',
     ]);
     expect(runs.map((run) => run.cost)).toEqual([
       { usd: 0.001, source: 'reported', longContext: false },

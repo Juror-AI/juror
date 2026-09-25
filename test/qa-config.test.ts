@@ -7,7 +7,7 @@ describe('post-merge QA configuration', () => {
   it('is opt-in and starts from bounded, credential-free security defaults', () => {
     expect(defaultQaConfig()).toEqual({
       enabled: false,
-      model: { id: 'gpt-5.6-luna', reasoning_effort: 'medium' },
+      model: { id: 'gpt-6-luna', reasoning_effort: 'medium' },
       testability: { early_exit_paths: [] },
       target: {
         strategy: 'staging-first',
@@ -51,7 +51,7 @@ describe('post-merge QA configuration', () => {
     first.evidence.video = 'off';
 
     const second = defaultQaConfig();
-    expect(second.model.id).toBe('gpt-5.6-luna');
+    expect(second.model.id).toBe('gpt-6-luna');
     expect(second.testability.early_exit_paths).toEqual([]);
     expect(second.auth.browser_secret_headers).toEqual([]);
     expect(second.auth.steps).toEqual([]);

@@ -356,14 +356,14 @@ file boundary without installing another executable.
 | `generic-openai` | *(in-process)* | any OpenAI-compatible endpoint | provider-reported when documented; otherwise estimated | path-confined tools |
 
 DeepSeek models use the DeepSeek-native CodeWhale harness so interleaved reasoning survives
-tool calls. To add **DeepSeek V4 Flash** on Fireworks to your jury:
+tool calls. To add **DeepSeek V4.1 Flash** on Fireworks to your jury:
 
 ```yaml
 models:
-  - id: deepseek-v4-flash-0731
+  - id: deepseek-v4.1-flash
     harness: deepseek
-    harness_model: accounts/fireworks/models/deepseek-v4-flash-0731
-    pricing_key: accounts/fireworks/models/deepseek-v4-flash-0731
+    harness_model: accounts/fireworks/models/deepseek-v4p1-flash
+    pricing_key: accounts/fireworks/models/deepseek-v4p1-flash
     secret: JUROR_FIREWORKS_API_KEY
     args: { reasoning_effort: high }
 ```
@@ -396,8 +396,8 @@ Juror ships five jury presets. Models whose provider key is unavailable are skip
 
 | Preset | Jury | Intended use |
 |---|---|---|
-| `starter` *(opt-in)* | GPT-5.6 Luna · DeepSeek V4 Flash through OpenRouter's confined generic harness | Two model families from one `JUROR_OPENROUTER_API_KEY`; awaiting benchmark promotion gate |
-| `fast` **(default)** | GPT-5.6 Luna via Codex/OpenAI (`low`) · DeepSeek V4 Flash via DeepSeek/Fireworks (`high`) | Lean two-model jury |
+| `starter` *(opt-in)* | GPT-6 Luna · DeepSeek V4.1 Flash through OpenRouter's confined generic harness | Two model families from one `JUROR_OPENROUTER_API_KEY`; awaiting benchmark promotion gate |
+| `fast` **(default)** | GPT-6 Luna via Codex/OpenAI (`low`) · DeepSeek V4.1 Flash via DeepSeek/Fireworks (`high`) | Lean two-model jury |
 | `balanced` | GPT-5.6 Terra via Codex/OpenAI (`max`) · Grok 4.5 via Grok Build/xAI (`high`) · Kimi K3 via Kimi Code/Fireworks (`max`) | Strong provider diversity without the full burn |
 | `high` | GPT-5.6 Sol via Codex/OpenAI (`high`) · Opus 5 via Claude Code/Anthropic · Grok 4.5 via Grok Build/xAI (`high`) | Higher-confidence frontier jury |
 | `ultra` | Every built-in model (eight total), including DeepSeek V4 Flash through Scaleway | Maximum coverage; highest token and cost use |

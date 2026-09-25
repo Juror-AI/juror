@@ -42,18 +42,18 @@ describe('defaultConfig', () => {
     expect(c.review.publish_mode).toBe('all');
     expect(c.review.max_turns).toBe(0);
     expect(c.consensus.min_agreement).toBe('all');
-    expect(c.models.map((m) => m.id)).toEqual(['gpt-5.6-luna', 'deepseek-v4-flash-0731']);
+    expect(c.models.map((m) => m.id)).toEqual(['gpt-6-luna', 'deepseek-v4.1-flash']);
     expect(c.models[0]?.harness).toBe('codex');
     expect(c.models[0]?.secret).toBe('JUROR_OPENAI_API_KEY');
     expect(c.models[0]?.args?.['reasoning_effort']).toBe('low');
     expect(c.models[1]?.harness).toBe('deepseek');
     expect(c.models[1]?.secret).toBe('JUROR_FIREWORKS_API_KEY');
-    expect(c.models[1]?.harness_model).toBe('accounts/fireworks/models/deepseek-v4-flash-0731');
-    expect(c.models[1]?.pricing_key).toBe('accounts/fireworks/models/deepseek-v4-flash-0731');
+    expect(c.models[1]?.harness_model).toBe('accounts/fireworks/models/deepseek-v4p1-flash');
+    expect(c.models[1]?.pricing_key).toBe('accounts/fireworks/models/deepseek-v4p1-flash');
     // CodeWhale 0.9.7 maps every non-max Fireworks reasoning tier to high.
     expect(c.models[1]?.args?.['reasoning_effort']).toBe('high');
-    expect(c.consensus.verify_model).toBe('deepseek-v4-flash-0731');
-    expect(c.consensus.referee_model).toBe('deepseek-v4-flash-0731');
+    expect(c.consensus.verify_model).toBe('deepseek-v4.1-flash');
+    expect(c.consensus.referee_model).toBe('deepseek-v4.1-flash');
     // Kept well clear of the jury's slowest legitimate run: Luna was measured at 750–900s
     // on large diffs at `max`, and is faster at `low`. This is a hung-harness kill switch,
     // so headroom costs nothing and a tight wall silently drops a model mid-review.
@@ -82,25 +82,25 @@ describe('defaultConfig', () => {
 
     expect(starter.models).toMatchObject([
       {
-        id: 'openrouter-gpt-5.6-luna',
+        id: 'openrouter-gpt-6-luna',
         harness: 'generic-openai',
         secret: 'JUROR_OPENROUTER_API_KEY',
-        harness_model: 'openai/gpt-5.6-luna',
+        harness_model: 'openai/gpt-6-luna',
         base_url: 'https://openrouter.ai/api/v1',
       },
       {
-        id: 'openrouter-deepseek-v4-flash',
+        id: 'openrouter-deepseek-v4.1-flash',
         harness: 'generic-openai',
         secret: 'JUROR_OPENROUTER_API_KEY',
-        harness_model: 'deepseek/deepseek-v4-flash-0731',
+        harness_model: 'deepseek/deepseek-v4.1-flash',
         base_url: 'https://openrouter.ai/api/v1',
       },
     ]);
     expect(starter.models.every((model) => model.args?.['usage_cost'] === 'usd')).toBe(true);
-    expect(starter.consensus.referee_model).toBe('openrouter-deepseek-v4-flash');
-    expect(fast.models.map((m) => m.id)).toEqual(['gpt-5.6-luna', 'deepseek-v4-flash-0731']);
+    expect(starter.consensus.referee_model).toBe('openrouter-deepseek-v4.1-flash');
+    expect(fast.models.map((m) => m.id)).toEqual(['gpt-6-luna', 'deepseek-v4.1-flash']);
     expect(fast.models.map((m) => m.args?.['reasoning_effort'] ?? m.args?.['variant'])).toEqual(['low', 'high']);
-    expect(fast.consensus.referee_model).toBe('deepseek-v4-flash-0731');
+    expect(fast.consensus.referee_model).toBe('deepseek-v4.1-flash');
     // No longer the default, so this is the only place its membership is pinned.
     expect(balanced.models.map((m) => m.id)).toEqual(['gpt-5.6-terra', 'grok-4.5', 'kimi-k3', 'glm-5p3', 'minimax-m3']);
     expect(balanced.models[0]?.args?.['reasoning_effort']).toBe('max');
@@ -111,14 +111,14 @@ describe('defaultConfig', () => {
     expect(ultra.models.map((m) => m.id)).toEqual([
       'gpt-5.6-terra',
       'gpt-5.6-sol',
-      'gpt-5.6-luna',
+      'gpt-6-luna',
       'claude-opus-5',
       'grok-4.5',
       'kimi-k3',
-      'deepseek-v4-flash-0731',
+      'deepseek-v4.1-flash',
       'scaleway-deepseek-v4-flash-0731',
     ]);
-    expect(ultra.consensus.referee_model).toBe('deepseek-v4-flash-0731');
+    expect(ultra.consensus.referee_model).toBe('deepseek-v4.1-flash');
   });
 
   it('ships DeepSeek V4 Flash on the dedicated Scaleway endpoint', () => {

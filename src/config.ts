@@ -112,26 +112,26 @@ const PUBLISH_MODES = ['all', 'consensus'] as const;
 export const REVIEW_PRESETS = ['starter', 'fast', 'balanced', 'high', 'ultra'] as const satisfies readonly ReviewPreset[];
 
 const BUILTIN_MODELS: Record<string, ModelConfig> = {
-  'openrouter-gpt-5.6-luna': {
-    id: 'openrouter-gpt-5.6-luna',
+  'openrouter-gpt-6-luna': {
+    id: 'openrouter-gpt-6-luna',
     harness: 'generic-openai',
     enabled: true,
     secret: 'JUROR_OPENROUTER_API_KEY',
-    label: 'GPT-5.6 Luna',
+    label: 'GPT-6 Luna',
     base_url: 'https://openrouter.ai/api/v1',
-    harness_model: 'openai/gpt-5.6-luna',
-    pricing_key: 'openrouter/openai/gpt-5.6-luna-20260709',
+    harness_model: 'openai/gpt-6-luna',
+    pricing_key: 'openrouter/openai/gpt-6-luna-20260922',
     args: { usage_cost: 'usd' },
   },
-  'openrouter-deepseek-v4-flash': {
-    id: 'openrouter-deepseek-v4-flash',
+  'openrouter-deepseek-v4.1-flash': {
+    id: 'openrouter-deepseek-v4.1-flash',
     harness: 'generic-openai',
     enabled: true,
     secret: 'JUROR_OPENROUTER_API_KEY',
-    label: 'DeepSeek V4 Flash',
+    label: 'DeepSeek V4.1 Flash',
     base_url: 'https://openrouter.ai/api/v1',
-    harness_model: 'deepseek/deepseek-v4-flash-0731',
-    pricing_key: 'openrouter/deepseek/deepseek-v4-flash-20260731',
+    harness_model: 'deepseek/deepseek-v4.1-flash',
+    pricing_key: 'openrouter/deepseek/deepseek-v4.1-flash-20260910',
     args: { usage_cost: 'usd' },
   },
   'claude-opus-5': {
@@ -157,12 +157,12 @@ const BUILTIN_MODELS: Record<string, ModelConfig> = {
     label: 'GPT-5.6 Terra',
     args: { reasoning_effort: 'max' },
   },
-  'gpt-5.6-luna': {
-    id: 'gpt-5.6-luna',
+  'gpt-6-luna': {
+    id: 'gpt-6-luna',
     harness: 'codex',
     enabled: true,
     secret: 'JUROR_OPENAI_API_KEY',
-    label: 'GPT-5.6 Luna',
+    label: 'GPT-6 Luna',
     args: { reasoning_effort: 'low' },
   },
   'grok-4.5': {
@@ -184,15 +184,15 @@ const BUILTIN_MODELS: Record<string, ModelConfig> = {
     pricing_key: 'accounts/fireworks/models/kimi-k3',
     args: { reasoning_effort: 'max', context_window: 1_040_000 },
   },
-  'deepseek-v4-flash-0731': {
-    id: 'deepseek-v4-flash-0731',
+  'deepseek-v4.1-flash': {
+    id: 'deepseek-v4.1-flash',
     harness: 'deepseek',
     enabled: true,
     secret: 'JUROR_FIREWORKS_API_KEY',
-    label: 'DeepSeek V4 Flash',
+    label: 'DeepSeek V4.1 Flash',
     base_url: 'https://api.fireworks.ai/inference/v1',
-    harness_model: 'accounts/fireworks/models/deepseek-v4-flash-0731',
-    pricing_key: 'accounts/fireworks/models/deepseek-v4-flash-0731',
+    harness_model: 'accounts/fireworks/models/deepseek-v4p1-flash',
+    pricing_key: 'accounts/fireworks/models/deepseek-v4p1-flash',
     args: { reasoning_effort: 'high' },
   },
   'scaleway-deepseek-v4-flash-0731': {
@@ -243,17 +243,17 @@ export interface BuiltinModelCatalogEntry {
 
 const PRESET_DEFINITIONS: Record<ReviewPreset, PresetDefinition> = {
   starter: {
-    modelIds: ['openrouter-gpt-5.6-luna', 'openrouter-deepseek-v4-flash'],
-    consensusModel: 'openrouter-deepseek-v4-flash',
+    modelIds: ['openrouter-gpt-6-luna', 'openrouter-deepseek-v4.1-flash'],
+    consensusModel: 'openrouter-deepseek-v4.1-flash',
   },
   fast: {
-    modelIds: ['gpt-5.6-luna', 'deepseek-v4-flash-0731'],
-    consensusModel: 'deepseek-v4-flash-0731',
+    modelIds: ['gpt-6-luna', 'deepseek-v4.1-flash'],
+    consensusModel: 'deepseek-v4.1-flash',
     args: {
-      'gpt-5.6-luna': { reasoning_effort: 'low' },
+      'gpt-6-luna': { reasoning_effort: 'low' },
       // CodeWhale 0.9.7 normalizes Fireworks low/medium/high to the high wire tier.
       // Keep the effective setting explicit instead of promising a tier the route ignores.
-      'deepseek-v4-flash-0731': { reasoning_effort: 'high' },
+      'deepseek-v4.1-flash': { reasoning_effort: 'high' },
     },
   },
   balanced: {
@@ -268,14 +268,14 @@ const PRESET_DEFINITIONS: Record<ReviewPreset, PresetDefinition> = {
     modelIds: [
       'gpt-5.6-terra',
       'gpt-5.6-sol',
-      'gpt-5.6-luna',
+      'gpt-6-luna',
       'claude-opus-5',
       'grok-4.5',
       'kimi-k3',
-      'deepseek-v4-flash-0731',
+      'deepseek-v4.1-flash',
       'scaleway-deepseek-v4-flash-0731',
     ],
-    consensusModel: 'deepseek-v4-flash-0731',
+    consensusModel: 'deepseek-v4.1-flash',
   },
 };
 
