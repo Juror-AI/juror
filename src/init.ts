@@ -314,7 +314,7 @@ export function renderQaConfigBlock(options: QaInitConfigOptions = {}): string {
     'qa:',
     `  enabled: ${normalized.enabled}`,
     '  model:',
-    '    id: gpt-5.6-luna',
+    '    id: gpt-6-luna',
     '    reasoning_effort: medium',
     '  testability:',
     '    early_exit_paths: []',

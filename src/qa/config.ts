@@ -29,7 +29,7 @@ export function unsafeQaConfigProblems(problems: readonly string[]): string[] {
 export function defaultQaConfig(): QaConfig {
   return {
     enabled: false,
-    model: { id: 'gpt-5.6-luna', reasoning_effort: 'medium' },
+    model: { id: 'gpt-6-luna', reasoning_effort: 'medium' },
     testability: { early_exit_paths: [] },
     target: {
       strategy: 'staging-first',
