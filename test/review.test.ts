@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { defaultConfig } from '../src/config.js';
-import { reviewPromptVars, runReview } from '../src/review.js';
+import { findModel, reviewPromptVars, runReview } from '../src/review.js';
 import type { DiffContext } from '../src/types.js';
 
 describe('runReview empty diff', () => {
@@ -54,5 +54,26 @@ describe('review prompt context', () => {
 
     expect(vars['PR_CONTEXT']).toContain('Stage shared modules');
     expect(vars['PR_CONTEXT']).toContain('Copies are intentional');
+  });
+});
+
+describe('consensus model selection', () => {
+  it('falls back to a keyed jury member when the configured model has no provider key', () => {
+    const config = defaultConfig();
+    const id = config.consensus.referee_model;
+    const configured = config.models.find((m) => m.id === id)!;
+    const keyed = config.models.find((m) => m.enabled && m.secret !== configured.secret)!;
+
+    const warnings: string[] = [];
+    expect(findModel(config, id, { [keyed.secret]: 'test-key' }, warnings)?.id).toBe(keyed.id);
+    expect(findModel(config, id, { [keyed.secret]: 'test-key' }, warnings)?.id).toBe(keyed.id);
+    expect(warnings).toEqual([
+      `consensus model ${id} has no provider key (${configured.secret}); using ${keyed.id} instead`,
+    ]);
+
+    const quiet: string[] = [];
+    expect(findModel(config, id, { [configured.secret]: 'test-key' }, quiet)?.id).toBe(id);
+    expect(findModel(config, id, {}, quiet)).toBeNull();
+    expect(quiet).toEqual([]);
   });
 });
