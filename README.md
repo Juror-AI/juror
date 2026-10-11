@@ -350,10 +350,18 @@ file boundary without installing another executable.
 | `claude-code` | `claude -p` | any Anthropic model | ✅ `total_cost_usd` | tool removal |
 | `codex` | `codex exec` | any OpenAI model | ❌ → estimated | split filesystem profile (kernel) |
 | `deepseek` | `codewhale exec` | DeepSeek models | ❌ → estimated from provider usage | read-only sandbox + tool allowlist |
-| `opencode` | `opencode run` | anything on [models.dev](https://models.dev) — Fireworks, Groq, OpenRouter, … | ✅ per-step `cost` | tool removal |
+| `opencode` | `opencode run` | Fireworks routes (`fireworks-ai/...`) | ✅ per-step `cost` | tool removal |
 | `grok-build` | `grok -p` | Grok models | ✅ `total_cost_usd` | Landlock |
 | `kimi-code` | `kimi -p` | Kimi K3 on Fireworks | ❌ → estimated from session usage | tool allowlist + isolated runtime |
 | `generic-openai` | *(in-process)* | any OpenAI-compatible endpoint | provider-reported when documented; otherwise estimated | path-confined tools |
+
+Juror's current `opencode` integration uses Fireworks credentials: by default it reads
+`JUROR_FIREWORKS_API_KEY` and passes the key to the CLI as `FIREWORKS_API_KEY`. A custom
+`secret` changes the source variable; the target remains `FIREWORKS_API_KEY`.
+`harness_model` only selects the CLI model route. `args.env_passthrough` filters sensitive
+names, including those containing `API_KEY`, `TOKEN`, `SECRET`, or `CREDENTIAL`, so it cannot
+forward `OPENROUTER_API_KEY` or `GROQ_API_KEY`. For OpenRouter, use the
+[`starter` preset](#configuration) or a `generic-openai` model with `JUROR_OPENROUTER_API_KEY`.
 
 DeepSeek models use the DeepSeek-native CodeWhale harness so interleaved reasoning survives
 tool calls. To add **DeepSeek V4.1 Flash** on Fireworks to your jury:
