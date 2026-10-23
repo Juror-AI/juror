@@ -17,6 +17,7 @@ jobs:
   review:
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: runnerhut-linux-2vcpu
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
